@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.hypothesis/
+
+# Local data / artifacts
+var/
+*.db
+.env
+
+# Real IAM Handwriting Database download (licensed, not redistributable) and
+# any manifest generated from it — see app/ml/build_real_iam_manifest.py.
+datasets/

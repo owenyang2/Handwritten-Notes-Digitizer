@@ -1,0 +1,169 @@
+"""FastAPI router for image upload and ownership persistence.
+
+Implements ``POST /images`` — the authenticated image submission endpoint
+described in the design's API Surface (Requirements 1.1, 1.6, 10.4):
+
+* Auth is enforced via :func:`~app.services.auth_api.get_current_user`. An
+  unauthenticated request is rejected with 401 *before* any handler logic runs,
+  so nothing is ever stored for unauthenticated submissions (Req 1.5, 10.4).
+* The uploaded file bytes are validated by :func:`~app.services.image_validator.validate_image`.
+  - Accepted (PNG/JPEG, > 0 bytes, ≤ 10 MB): bytes are written to the object
+    store and an ``Image`` record is created in the DB associated with the
+    submitting user (Req 1.6). Returns 201 with the ``image_id``.
+  - Rejected (unsupported format / size limit / invalid image): returns 422
+    with a ``rejected`` status and the rejection ``reason`` and ``message``.
+* The auth gate dependency runs before the handler, fulfilling Req 10.4 without
+  any extra branching here.
+
+Object-store dependency injection
+----------------------------------
+``get_object_store`` is a FastAPI dependency that returns the process-wide
+:class:`~app.data.object_store.FilesystemObjectStore`. Tests override it via
+``app.dependency_overrides`` to inject an in-memory or tmp-backed store without
+touching the filesystem.
+"""
+
+from __future__ import annotations
+
+import uuid
+from functools import lru_cache
+from typing import Annotated, Iterator
+
+from fastapi import APIRouter, Depends, File, UploadFile, status
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+from app.data.enums import ImageFormat, ImageStatus
+from app.data.models import Image
+from app.data.object_store import FilesystemObjectStore, ObjectStore
+from app.data.repositories import RepositoryFactory
+from app.services.auth_api import get_current_user, get_db_session, get_repositories
+from app.services.image_validator import RejectionReason, validate_image
+from app.data.models import User
+
+router = APIRouter(tags=["images"])
+
+
+# --------------------------------------------------------------------------- #
+# Object store dependency
+# --------------------------------------------------------------------------- #
+
+
+@lru_cache(maxsize=1)
+def _default_object_store() -> ObjectStore:
+    """Process-wide default object store (overridable in tests)."""
+    return FilesystemObjectStore()
+
+
+def get_object_store() -> ObjectStore:
+    """Provide the object store. Overridden in tests for isolation."""
+    return _default_object_store()
+
+
+# --------------------------------------------------------------------------- #
+# Response schemas
+# --------------------------------------------------------------------------- #
+
+
+class ImageAcceptedResponse(BaseModel):
+    """Returned when an uploaded image passes validation and is persisted."""
+
+    status: str = "accepted"
+    image_id: uuid.UUID
+
+
+class ImageRejectedResponse(BaseModel):
+    """Returned when an uploaded image fails validation."""
+
+    status: str = "rejected"
+    reason: RejectionReason
+    message: str
+
+
+# --------------------------------------------------------------------------- #
+# Endpoint
+# --------------------------------------------------------------------------- #
+
+
+@router.post(
+    "/images",
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        status.HTTP_201_CREATED: {"model": ImageAcceptedResponse},
+        status.HTTP_422_UNPROCESSABLE_ENTITY: {"model": ImageRejectedResponse},
+    },
+    summary="Upload and validate a handwriting image",
+    description=(
+        "Accepts a multipart file upload. "
+        "On success stores the image and returns its ID. "
+        "On validation failure returns a rejection reason. "
+        "Requires authentication (401 on missing/invalid credentials)."
+    ),
+)
+def submit_image(
+    file: Annotated[UploadFile, File(description="PNG or JPEG image, ≤ 10 MB")],
+    user: User = Depends(get_current_user),
+    repos: RepositoryFactory = Depends(get_repositories),
+    store: ObjectStore = Depends(get_object_store),
+) -> ImageAcceptedResponse | ImageRejectedResponse:
+    """Upload an image and persist it if valid (Req 1.1, 1.6, 10.4).
+
+    The auth dependency runs before this handler, so unauthenticated requests
+    are rejected with 401 before any I/O occurs (Req 1.5, 10.4).
+    """
+    file_bytes = file.file.read()
+
+    result = validate_image(file_bytes)
+
+    if not result.accepted:
+        # Validation failed: return 422 with the rejection reason and message.
+        # Nothing is persisted (Req 1.5 — validation failure, no storage).
+        from fastapi import HTTPException
+
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "status": "rejected",
+                "reason": result.reason.value,
+                "message": result.message,
+            },
+        )
+
+    # Map the detected ImageFormat enum from the validator result.
+    image_format: ImageFormat = result.image_format  # type: ignore[assignment]
+
+    # Determine the file suffix for the object store reference.
+    suffix_map = {
+        ImageFormat.PNG: ".png",
+        ImageFormat.JPEG: ".jpg",
+    }
+    suffix = suffix_map.get(image_format, "")
+
+    # Persist bytes in the object store (Req 1.6).
+    storage_path = store.put_image_bytes(
+        str(user.user_id), file_bytes, suffix=suffix
+    )
+
+    # Create a relational Image record associated with the submitting user.
+    image = repos.images.add(
+        Image(
+            user_id=user.user_id,
+            storage_path=storage_path,
+            format=image_format,
+            size_bytes=result.size_bytes,
+            status=ImageStatus.ACCEPTED,
+        )
+    )
+    # Commit so the record is visible outside this request.
+    repos.session.commit()
+
+    return ImageAcceptedResponse(image_id=image.image_id)
+
+
+__all__ = [
+    "router",
+    "get_object_store",
+    "ImageAcceptedResponse",
+    "ImageRejectedResponse",
+    "submit_image",
+]

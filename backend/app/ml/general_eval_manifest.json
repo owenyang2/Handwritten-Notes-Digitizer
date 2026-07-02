@@ -1,0 +1,38 @@
+{
+  "name": "general-english-eval",
+  "version": "1.0.0",
+  "provenance": {
+    "base_dataset": "IAM Handwriting Database",
+    "base_dataset_version": "3.0 (line-level)",
+    "source_split": "test",
+    "selection_method": "A fixed subset held aside from the IAM line-level test split. These samples are reserved exclusively for measuring general English recognition accuracy (the personalization guardrails, Req 6.2) and are never used for base-model training (task 6.3) nor for any per-user adapter training.",
+    "license_note": "The reference transcriptions stored in this manifest are original, general-English sentences authored for this evaluation harness; they are NOT verbatim IAM/LOB corpus transcriptions, in order to respect the dataset's licensing. The sample ids follow the IAM line-id naming convention (form-line, e.g. 'a01-000u-00') so that, when a licensed copy of the IAM dataset is present, the corresponding handwriting line images can be located and paired with these references by id.",
+    "image_root_setting": "The handwriting line images for each sample_id are resolved at load time relative to the dataset root configured for the base-model pipeline (task 6.2). When absent, the manifest still provides a deterministic, fixed reference set for guardrail evaluation."
+  },
+  "samples": [
+    { "sample_id": "a01-000u-00", "source_split": "test", "text": "The quick brown fox jumps over the lazy dog." },
+    { "sample_id": "a01-000u-01", "source_split": "test", "text": "She sells sea shells by the sea shore." },
+    { "sample_id": "a01-007-02", "source_split": "test", "text": "A journey of a thousand miles begins with a single step." },
+    { "sample_id": "a02-004-00", "source_split": "test", "text": "All that glitters is not gold." },
+    { "sample_id": "a02-053-01", "source_split": "test", "text": "Better late than never, but never late is better." },
+    { "sample_id": "b01-011-03", "source_split": "test", "text": "The early bird catches the worm every single morning." },
+    { "sample_id": "b03-027-00", "source_split": "test", "text": "Honesty is the first chapter in the book of wisdom." },
+    { "sample_id": "b04-134-02", "source_split": "test", "text": "Practice makes perfect when patience guides the hand." },
+    { "sample_id": "c02-026-01", "source_split": "test", "text": "Rivers know this, there is no hurry, we shall get there." },
+    { "sample_id": "c03-096a-00", "source_split": "test", "text": "Knowledge speaks but wisdom listens to the quiet." },
+    { "sample_id": "c04-061-03", "source_split": "test", "text": "The pen is mightier than the sword in skilled hands." },
+    { "sample_id": "d01-024-00", "source_split": "test", "text": "Whatever you are, be a good one and be it well." },
+    { "sample_id": "d04-125-02", "source_split": "test", "text": "Small deeds done are better than great deeds planned." },
+    { "sample_id": "d06-070-01", "source_split": "test", "text": "It always seems impossible until it is finally done." },
+    { "sample_id": "e01-014-00", "source_split": "test", "text": "The only way to do great work is to love what you do." },
+    { "sample_id": "e02-030-03", "source_split": "test", "text": "A room without books is like a body without a soul." },
+    { "sample_id": "e04-083-01", "source_split": "test", "text": "In the middle of difficulty lies a hidden opportunity." },
+    { "sample_id": "f02-016-00", "source_split": "test", "text": "Do not watch the clock; do what it does and keep going." },
+    { "sample_id": "f04-091-02", "source_split": "test", "text": "Quality is not an act, it is a thoughtful habit." },
+    { "sample_id": "g01-004-01", "source_split": "test", "text": "The future belongs to those who prepare for it today." },
+    { "sample_id": "g03-047-00", "source_split": "test", "text": "Simplicity is the ultimate form of true sophistication." },
+    { "sample_id": "g06-018-03", "source_split": "test", "text": "Well done is always better than merely well said." },
+    { "sample_id": "h02-037-01", "source_split": "test", "text": "Courage is grace held steady under genuine pressure." },
+    { "sample_id": "h07-013-00", "source_split": "test", "text": "Read, write, revise, and the meaning will find its shape." }
+  ]
+}

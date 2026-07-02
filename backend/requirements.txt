@@ -1,0 +1,37 @@
+# Handwriting Notes Digitizer - backend pinned dependencies (exact versions)
+# Reproducibility requirement (Req 11.1): all versions are pinned exactly so
+# the container/build is deterministic and requires no manual code edits.
+
+# Web framework / API
+fastapi==0.115.6
+uvicorn==0.34.0
+python-multipart==0.0.32
+
+# Settings / validation
+pydantic==2.10.4
+pydantic-settings==2.7.0
+
+# Machine learning runtime (HTR_Engine, training)
+torch==2.5.1
+numpy==2.1.3
+
+# Image handling
+pillow==11.0.0
+
+# Persistence / ORM
+SQLAlchemy==2.0.36
+
+# Testing (unit + property-based)
+pytest==8.3.4
+hypothesis==6.122.3
+
+# Testing - HTTP client used by FastAPI's TestClient for API/auth tests
+httpx==0.28.1
+
+# Optional: portable ONNX export of the frozen base model (task 6.5, Req 11.2).
+# These are NOT required for the core package — app.ml.onnx_export guards their
+# import so their absence never breaks the build. They enable exporting the
+# base CRNN to ONNX (onnx) and numerically verifying the exported graph
+# (onnxruntime). Pinned for reproducibility.
+onnx==1.17.0
+onnxruntime==1.20.1

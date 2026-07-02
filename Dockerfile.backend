@@ -1,0 +1,63 @@
+# Dockerfile.backend — Handwriting Notes Digitizer backend service
+#
+# Builds a runnable FastAPI/Uvicorn image from the pinned requirements.txt.
+# No manual code modification is required during the build (Req 11.1).
+#
+# Base image is pinned to a specific digest-stable tag.  Torch CPU-only wheel
+# is used so the image stays a reasonable size without requiring an NVIDIA
+# runtime.
+
+FROM python:3.11-slim AS base
+
+# ── System dependencies ─────────────────────────────────────────────────────
+# libgomp1  — OpenMP runtime required by PyTorch CPU kernels
+# libglib2.0-0 — shared lib needed by Pillow's libjpeg/libpng bindings
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libgomp1 \
+        libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Python dependency layer (cached unless requirements.txt changes) ─────────
+WORKDIR /app
+
+# Install pip tools first so the dependency cache is invalidated only when
+# requirements.txt changes, not on every source edit.
+COPY backend/requirements.txt requirements.txt
+
+# Install CPU-only PyTorch wheel separately first so Docker layer caching is
+# maximised.  We override the torch index to the CPU-only build because the
+# standard PyPI wheel includes CUDA libraries and is ~2 GB.
+RUN pip install --no-cache-dir --upgrade pip==24.3.1 \
+    && pip install --no-cache-dir \
+        --extra-index-url https://download.pytorch.org/whl/cpu \
+        torch==2.5.1+cpu \
+    && pip install --no-cache-dir -r requirements.txt
+
+# ── Application source ───────────────────────────────────────────────────────
+COPY backend/ .
+
+# ── Runtime configuration ────────────────────────────────────────────────────
+# PYTHONUNBUFFERED: flush stdout/stderr immediately so logs appear in docker logs
+# PYTHONDONTWRITEBYTECODE: skip .pyc creation inside the container
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# Non-root user for least-privilege operation
+RUN useradd --create-home --shell /bin/sh appuser \
+    && mkdir -p /app/var/objectstore \
+    && chown -R appuser:appuser /app
+
+USER appuser
+
+# Expose backend API port (Req 11.1, 11.4)
+EXPOSE 8000
+
+# Health check — maps to GET /health (Req 11.5)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" \
+    || exit 1
+
+# Entrypoint: Uvicorn serves the FastAPI app.  The --host 0.0.0.0 is required
+# so the container port is reachable from Docker's bridge network.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

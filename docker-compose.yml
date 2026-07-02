@@ -1,0 +1,117 @@
+# docker-compose.yml — Handwriting Notes Digitizer
+#
+# Defines three services:
+#   backend  — FastAPI/Uvicorn Python API (port 8000, internal only)
+#   frontend — nginx serving the compiled Vite bundle (port 80, public)
+#
+# All component-toggle environment variables default to "true" (all enabled).
+# Copy .env.example to .env and adjust values for partial deployment (Req 11.5).
+#
+# Usage:
+#   Full deployment:       docker compose up
+#   Without HTR engine:    HND_HTR_ENGINE_AVAILABLE=false docker compose up
+#   Frontend only:         docker compose up frontend
+
+# ── Named volumes ─────────────────────────────────────────────────────────────
+volumes:
+  # Persistent object store shared between host and backend container.
+  # Contains uploaded images, region crops, and per-user adapter weights.
+  objectstore:
+
+  # Persistent SQLite database file.
+  db_data:
+
+  # Read-only volume for pre-trained base model artifacts.
+  # Mount your trained base model here; see ml/BASE_MODEL_TRAINING.md.
+  # model_artifacts: # replaced with bind mount below
+
+# ── Services ──────────────────────────────────────────────────────────────────
+services:
+
+  # ── Backend ────────────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    restart: unless-stopped
+    ports:
+      # Expose internally; nginx proxies /api/* → backend:8000 on the host.
+      # Uncomment to reach the API directly during development:
+      # - "8000:8000"
+      - "127.0.0.1:8000:8000"
+    environment:
+      # ── Reproducibility / determinism ──────────────────────────────────
+      HND_RANDOM_SEED: "${HND_RANDOM_SEED:-1337}"
+      HND_DETERMINISTIC: "${HND_DETERMINISTIC:-true}"
+
+      # ── Persistence ────────────────────────────────────────────────────
+      # SQLite is the default; override with a Postgres URL for production.
+      HND_DATABASE_URL: "${HND_DATABASE_URL:-sqlite:///./var/hnd.db}"
+      HND_OBJECT_STORE_PATH: "${HND_OBJECT_STORE_PATH:-/app/var/objectstore}"
+
+      # ── Recognition limits ─────────────────────────────────────────────
+      HND_MAX_UPLOAD_BYTES: "${HND_MAX_UPLOAD_BYTES:-10485760}"
+      HND_RECOGNITION_TIMEOUT_SECONDS: "${HND_RECOGNITION_TIMEOUT_SECONDS:-10.0}"
+
+      # ── Personalization ────────────────────────────────────────────────
+      HND_PERSONALIZATION_TRIGGER_THRESHOLD: "${HND_PERSONALIZATION_TRIGGER_THRESHOLD:-20}"
+
+      # ── Partial-deployment component toggles (Req 11.5) ───────────────
+      # Set any of these to "false" / "0" / "no" to disable the component.
+      # Available capabilities degrade gracefully; unavailable ones return
+      # a structured "capability unavailable" response (Req 11.6).
+      HND_STORAGE_AVAILABLE: "${HND_STORAGE_AVAILABLE:-true}"
+      HND_HTR_ENGINE_AVAILABLE: "${HND_HTR_ENGINE_AVAILABLE:-true}"
+      HND_TRAINING_WORKER_AVAILABLE: "${HND_TRAINING_WORKER_AVAILABLE:-true}"
+
+    volumes:
+      # Object store: images, crops, adapter weights
+      - objectstore:/app/var/objectstore
+      # SQLite database
+      - db_data:/app/var
+      # Base model artifacts (read-only); pre-train with ml/train_base.py.
+      # Mounted as a sub-path of the object store above, matching where
+      # app.ml.train_base.default_model_dir() (<HND_OBJECT_STORE_PATH>/models)
+      # actually looks for models/base_model/base_model.pt — a mismatched
+      # path here silently falls back to an untrained model at runtime.
+      - ./backend/var/objectstore/models:/app/var/objectstore/models:ro
+
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+
+    # Backend must be healthy before the frontend proxy starts forwarding.
+    # (nginx will still start; it will just 502 until backend is ready.)
+
+  # ── Frontend ───────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        # Leave empty so frontend uses relative /api/* paths (proxied by nginx).
+        # Override to point directly at a remote backend:
+        #   VITE_API_BASE_URL: "https://api.example.com"
+        VITE_API_BASE_URL: "${VITE_API_BASE_URL:-}"
+    restart: unless-stopped
+    ports:
+      # Public HTTP port (Req 11.1, 11.4)
+      - "${FRONTEND_PORT:-80}:80"
+    depends_on:
+      - backend
+    volumes:
+      # Inject custom nginx config at runtime (optional override).
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3

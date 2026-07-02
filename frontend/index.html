@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Handwriting Notes Digitizer</title>
+    <style>
+      body { font-family: system-ui, sans-serif; line-height: 1.5; max-width: 52rem; margin: 0 auto; padding: 1rem; }
+      .app-section { margin: 1.5rem 0; padding: 1rem 0; border-top: 1px solid #ddd; }
+      .personalization-guide-steps { padding-left: 1.25rem; }
+      .personalization-guide-steps li { margin: 0.5rem 0; }
+      .personalization-progress progress { width: 100%; height: 1.25rem; }
+      .personalization-progress-label { font-weight: 600; margin-bottom: 0.25rem; }
+      .personalization-guide-sources { color: #444; font-size: 0.95rem; }
+      .personalization-guide-epochs { color: #234; font-size: 0.95rem; margin-top: 0.25rem; }
+      .before-after-state--in_progress { color: #0a5; font-weight: 700; font-size: 1.05rem; animation: pulse 1.4s infinite; }
+      .calibration-prompt-status--success { color: #0a5; }
+      .calibration-prompt-status--error { color: #b00; }
+      .training-example-list { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+      .training-example-card { border: 1px solid #ccc; border-radius: 6px; padding: 0.5rem; width: 220px; background: #fafafa; }
+      .training-example-image { display: block; width: 100%; height: 96px; object-fit: contain; background: #fff; border: 1px solid #eee; margin-bottom: 0.4rem; }
+      .training-example-card p { margin: 0.2rem 0; font-size: 0.9rem; }
+      .personalization-timeline-list { padding-left: 1.25rem; }
+      .personalization-timeline-item { margin: 0.45rem 0; }
+      .personalization-timeline-title { margin: 0; font-weight: 600; }
+      .personalization-timeline-detail { margin: 0.1rem 0 0; font-size: 0.92rem; color: #444; }
+      .personalization-timeline-item--done .personalization-timeline-title { color: #0a5; }
+      .personalization-timeline-item--active .personalization-timeline-title { color: #0a58ca; }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

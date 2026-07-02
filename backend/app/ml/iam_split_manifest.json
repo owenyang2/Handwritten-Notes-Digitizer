@@ -1,0 +1,35 @@
+{
+  "name": "iam-line-split",
+  "dataset_version": "IAM-Handwriting-DB-v3.0-lines",
+  "split": {
+    "name": "iam-aachen-writer-disjoint",
+    "train_fraction": 0.8,
+    "val_fraction": 0.1,
+    "test_fraction": 0.1
+  },
+  "provenance": {
+    "base_dataset": "IAM Handwriting Database",
+    "base_dataset_version": "3.0 (line-level)",
+    "split_method": "Writer-disjoint partitioning following the widely used IAM Aachen convention: every writer (form) appears in at most one of the train, validation, and test partitions so that no writer leaks across partitions. The partition assignment for each line is fixed and checked in here so the split is reproducible without re-deriving it.",
+    "license_note": "The reference transcriptions stored in this manifest are original, general-English sentences authored for this pipeline; they are NOT verbatim IAM/LOB corpus transcriptions, to respect the dataset's licensing. The sample ids follow the IAM line-id naming convention (form-line, e.g. 'a01-000u-00') and the 'image' paths follow the IAM on-disk layout so that, when a licensed copy of the IAM line images is present under the configured dataset root, the corresponding handwriting line image can be located and paired with each reference by id.",
+    "image_root_setting": "Image files are resolved at load time relative to a configurable dataset root (the 'dataset_root' argument to load_training_samples or the HND_IAM_DATASET_ROOT environment variable). When the dataset root is absent, the loader can instead synthesise deterministic placeholder line images so the training procedure can be exercised without downloading IAM."
+  },
+  "samples": [
+    { "sample_id": "a01-000u-00", "split": "train", "image": "a01/a01-000u/a01-000u-00.png", "text": "The quick brown fox jumps over the lazy dog" },
+    { "sample_id": "a01-000u-01", "split": "train", "image": "a01/a01-000u/a01-000u-01.png", "text": "A second line written by the same hand here" },
+    { "sample_id": "a01-007-00", "split": "train", "image": "a01/a01-007/a01-007-00.png", "text": "Handwriting varies from one writer to another" },
+    { "sample_id": "a01-007-01", "split": "train", "image": "a01/a01-007/a01-007-01.png", "text": "but the words remain perfectly legible" },
+    { "sample_id": "a02-004-00", "split": "train", "image": "a02/a02-004/a02-004-00.png", "text": "All that glitters is not gold" },
+    { "sample_id": "a02-004-01", "split": "train", "image": "a02/a02-004/a02-004-01.png", "text": "and not every wanderer is truly lost" },
+    { "sample_id": "a02-053-00", "split": "train", "image": "a02/a02-053/a02-053-00.png", "text": "Better late than never but never late is better" },
+    { "sample_id": "c02-026-00", "split": "train", "image": "c02/c02-026/c02-026-00.png", "text": "Rivers know this there is no hurry" },
+    { "sample_id": "c02-026-01", "split": "train", "image": "c02/c02-026/c02-026-01.png", "text": "we shall get there one day at a time" },
+    { "sample_id": "c03-096a-00", "split": "val", "image": "c03/c03-096a/c03-096a-00.png", "text": "Knowledge speaks but wisdom listens to the quiet" },
+    { "sample_id": "c03-096a-01", "split": "val", "image": "c03/c03-096a/c03-096a-01.png", "text": "and answers only when the moment is right" },
+    { "sample_id": "d01-024-00", "split": "val", "image": "d01/d01-024/d01-024-00.png", "text": "Whatever you are be a good one and be it well" },
+    { "sample_id": "g01-004-00", "split": "test", "image": "g01/g01-004/g01-004-00.png", "text": "The future belongs to those who prepare today" },
+    { "sample_id": "g01-004-01", "split": "test", "image": "g01/g01-004/g01-004-01.png", "text": "for tomorrow rewards the steady hand" },
+    { "sample_id": "h02-037-00", "split": "test", "image": "h02/h02-037/h02-037-00.png", "text": "Courage is grace held steady under pressure" },
+    { "sample_id": "h02-037-01", "split": "test", "image": "h02/h02-037/h02-037-01.png", "text": "and kindness is strength that chooses to be gentle" }
+  ]
+}
