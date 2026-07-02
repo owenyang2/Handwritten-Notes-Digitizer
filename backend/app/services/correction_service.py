@@ -117,8 +117,8 @@ def make_region_key(image_id: uuid.UUID, region: Region) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _crop_image(image_bytes: bytes, region: Region) -> bytes:
-    """Crop ``image_bytes`` to ``region`` and return PNG bytes.
+def _crop_image(image_bytes: bytes, region: Region) -> tuple[bytes, Region]:
+    """Crop ``image_bytes`` to ``region`` and return (PNG bytes, clamped region).
 
     Uses Pillow. The crop is clamped to the image dimensions so out-of-range
     regions (which should not reach this point in normal usage) produce the
@@ -136,9 +136,10 @@ def _crop_image(image_bytes: bytes, region: Region) -> bytes:
         x1 = min(iw, region.x + region.width)
         y1 = min(ih, region.y + region.height)
         crop = img_rgb.crop((x0, y0, x1, y1))
+        clamped_region = Region(x=x0, y=y0, width=x1 - x0, height=y1 - y0)
         buf = BytesIO()
         crop.save(buf, format="PNG")
-        return buf.getvalue()
+        return buf.getvalue(), clamped_region
 
 
 def _apply_correction_to_recognized_word(
@@ -237,7 +238,7 @@ def submit_correction(
         image_bytes = object_store.get(image_record.storage_path)
 
         # Crop the word region from the full image.
-        crop_bytes = _crop_image(image_bytes, region)
+        crop_bytes, clamped_region = _crop_image(image_bytes, region)
 
         # Persist the crop in the object store (Req 4.3).
         crop_path = object_store.put_region_crop(
@@ -245,7 +246,7 @@ def submit_correction(
         )
 
         # Build the deterministic region key (Req 4.7).
-        region_key = make_region_key(image_id, region)
+        region_key = make_region_key(image_id, clamped_region)
 
         # Upsert: look for an existing pair for this (user, region) (Req 4.7).
         existing = repos.training_pairs.get_by_region_key(user_id, region_key)
@@ -258,7 +259,14 @@ def submit_correction(
             # Reflect the correction in the stored recognized word so export and
             # result fetches show the corrected text (Req 8.3).
             _apply_correction_to_recognized_word(
-                repos, user_id, image_id, region, corrected_text,
+                repos,
+                user_id,
+                image_id,
+                # Use the originally supplied region for matching so that we
+                # update the exact `RecognizedWord.region_*` values that the
+                # Editor stored (indices may be omitted).
+                region,
+                corrected_text,
                 line_index, word_index,
             )
             # Enqueue personalization if unused-pair threshold is reached (Req 5.1).
@@ -282,7 +290,13 @@ def submit_correction(
         # Reflect the correction in the stored recognized word so export and
         # result fetches show the corrected text (Req 8.3).
         _apply_correction_to_recognized_word(
-            repos, user_id, image_id, region, corrected_text,
+            repos,
+            user_id,
+            image_id,
+            # Use the originally supplied region for matching so the stored
+            # RecognizedWord is updated even when the crop clamped to bounds.
+            region,
+            corrected_text,
             line_index, word_index,
         )
         # Enqueue personalization if unused-pair threshold is reached (Req 5.1).

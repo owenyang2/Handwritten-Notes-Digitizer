@@ -32,6 +32,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.data.db import create_all, create_db_engine, create_session_factory
 from app.data.models import User
 from app.data.repositories import RepositoryFactory
+from app.config.settings import get_settings
 
 from .auth import AuthService, InvalidCredentials, SessionStore
 
@@ -61,6 +62,7 @@ def _set_session_cookie(response: Response, token: str) -> None:
         max_age=SESSION_COOKIE_MAX_AGE,
         httponly=True,
         samesite="lax",
+        secure=get_settings().environment == "production",
         path="/",
     )
 
