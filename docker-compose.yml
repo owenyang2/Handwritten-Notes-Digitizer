@@ -110,7 +110,7 @@ services:
       # Inject custom nginx config at runtime (optional override).
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost/"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
       interval: 30s
       timeout: 5s
       start_period: 10s

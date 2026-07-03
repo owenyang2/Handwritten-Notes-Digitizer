@@ -1,0 +1,31 @@
+.PHONY: doctor dev-backend dev-frontend test-backend test-frontend test docker-up docker-down docker-logs docker-smoke
+
+doctor:
+	backend/.venv/bin/python scripts/doctor.py
+
+dev-backend:
+	cd backend && .venv/bin/python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+
+dev-frontend:
+	cd frontend && npm run dev -- --host 127.0.0.1 --port 5173
+
+test-backend:
+	cd backend && .venv/bin/python3 -m pytest -q
+
+test-frontend:
+	cd frontend && npm test
+
+test: test-frontend test-backend
+
+docker-up:
+	docker compose up --build
+
+docker-down:
+	docker compose down
+
+docker-logs:
+	docker compose logs -f --tail=120
+
+docker-smoke:
+	docker compose up -d --build
+	backend/.venv/bin/python scripts/doctor.py
