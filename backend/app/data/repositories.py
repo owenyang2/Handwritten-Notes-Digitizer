@@ -95,6 +95,27 @@ class UserRepository(_ScopedRepository):
         return self._session.scalars(stmt).one_or_none()
 
 
+class DocumentRepository(_ScopedRepository):
+    """Repository for managing Document aggregates."""
+
+    def create(self, user_id: uuid.UUID, title: str) -> models.Document:
+        doc = models.Document(user_id=user_id, title=title)
+        self.session.add(doc)
+        self.session.flush()
+        return doc
+
+    def get_by_id(self, document_id: uuid.UUID) -> Optional[models.Document]:
+        return self.session.query(models.Document).filter_by(document_id=document_id).first()
+
+    def list_by_user(self, user_id: uuid.UUID) -> list[models.Document]:
+        return (
+            self.session.query(models.Document)
+            .filter_by(user_id=user_id)
+            .order_by(models.Document.created_at.desc())
+            .all()
+        )
+
+
 class ImageRepository(_ScopedRepository):
     """Per-user access to :class:`Image` rows (Req 1.6, 10.5)."""
 
@@ -357,6 +378,7 @@ class RepositoryFactory:
     def __init__(self, session: Session) -> None:
         self._session = session
         self.users = UserRepository(session)
+        self.documents = DocumentRepository(session)
         self.images = ImageRepository(session)
         self.recognized_words = RecognizedWordRepository(session)
         self.training_pairs = TrainingPairRepository(session)
