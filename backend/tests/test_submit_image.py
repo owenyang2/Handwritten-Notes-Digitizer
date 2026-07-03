@@ -216,6 +216,31 @@ def test_accepted_image_bytes_are_written_to_object_store(client, object_store):
     assert object_store.exists(image.storage_path)
 
 
+def test_processed_image_endpoint_returns_backend_preprocessed_png(client):
+    c, store, sf = client
+    token = _register_and_login(c, sf)
+    image_bytes = _encode("PNG", size=(12, 6))
+
+    upload = c.post(
+        "/images",
+        files={"file": ("scan.png", image_bytes, "image/png")},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert upload.status_code == status.HTTP_201_CREATED, upload.text
+    image_id = upload.json()["image_id"]
+
+    response = c.get(
+        f"/images/{image_id}/processed",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.headers["content-type"] == "image/png"
+    with PILImage.open(BytesIO(response.content)) as img:
+        assert img.mode == "L"
+        assert img.size == (12, 6)
+
+
 def test_storage_path_on_image_record_is_non_empty(client):
     c, store, sf = client
     token = _register_and_login(c, sf)

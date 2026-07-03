@@ -25,11 +25,12 @@ touching the filesystem.
 
 from __future__ import annotations
 
+from io import BytesIO
 import uuid
 from functools import lru_cache
 from typing import Annotated, Iterator
 
-from fastapi import APIRouter, Depends, File, UploadFile, status
+from fastapi import APIRouter, Depends, File, Response, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -40,6 +41,7 @@ from app.data.repositories import RepositoryFactory
 from app.services.auth_api import get_current_user, get_db_session, get_repositories
 from app.services.image_validator import RejectionReason, validate_image
 from app.data.models import User
+from app.services.isolation import get_or_404
 
 router = APIRouter(tags=["images"])
 
@@ -160,10 +162,41 @@ def submit_image(
     return ImageAcceptedResponse(image_id=image.image_id)
 
 
+@router.get(
+    "/images/{image_id}/processed",
+    response_class=Response,
+    status_code=status.HTTP_200_OK,
+    summary="Fetch the backend-preprocessed image used for recognition overlays",
+    description=(
+        "Returns the deskewed grayscale image whose pixel coordinate space owns "
+        "recognition regions. Requires authentication and image ownership."
+    ),
+)
+def get_processed_image(
+    image_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    repos: RepositoryFactory = Depends(get_repositories),
+    store: ObjectStore = Depends(get_object_store),
+) -> Response:
+    """Return the exact preprocessed image used by segmentation/recognition."""
+    image: Image = get_or_404(repos.images.get(user.user_id, image_id))
+    image_bytes = store.get(image.storage_path)
+
+    from PIL import Image as PILImage
+
+    from app.ml.preprocessing import preprocess
+
+    processed = preprocess(image_bytes)
+    buffer = BytesIO()
+    PILImage.fromarray(processed.gray).save(buffer, format="PNG")
+    return Response(content=buffer.getvalue(), media_type="image/png")
+
+
 __all__ = [
     "router",
     "get_object_store",
     "ImageAcceptedResponse",
     "ImageRejectedResponse",
+    "get_processed_image",
     "submit_image",
 ]

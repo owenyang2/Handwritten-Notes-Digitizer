@@ -113,12 +113,17 @@ class RecognizedLine:
         Top-to-bottom position of this line in the document.
     region:
         Bounding box of the line in image pixel coordinates.
+    text:
+        Full decoded line transcription before it is distributed across word
+        boxes. This preserves the model's actual line-level output when token
+        count and detected region count do not align cleanly.
     words:
         Left-to-right ordered list of :class:`RecognizedWord` objects.
     """
 
     index: int
     region: Region
+    text: str
     words: List[RecognizedWord]
 
 
@@ -134,10 +139,15 @@ class RecognitionResult:
         ``True`` if at least one non-empty word was recognized; ``False`` when
         the image contains no detectable text or every crop decoded to an empty
         string. (Req 2.5)
+    image_width / image_height:
+        Pixel dimensions of the preprocessed image whose coordinate space owns
+        every returned region.
     """
 
     lines: List[RecognizedLine]
     recognized_any_text: bool
+    image_width: int = 0
+    image_height: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -556,10 +566,12 @@ def assemble_result(
                     )
                 )
         else:
+            line_texts: list[str] = []
             for word in line.words:
                 text, confidence = _recognize_word(word, model)
                 if text:
                     any_text = True
+                line_texts.append(text)
                 recognized_words.append(
                     RecognizedWord(
                         index=word.index,
@@ -568,11 +580,13 @@ def assemble_result(
                         confidence=confidence,
                     )
                 )
+            line_text = " ".join(t for t in line_texts if t)
 
         recognized_lines.append(
             RecognizedLine(
                 index=line.index,
                 region=line.region,
+                text=line_text,
                 words=recognized_words,
             )
         )
@@ -580,6 +594,8 @@ def assemble_result(
     return RecognitionResult(
         lines=recognized_lines,
         recognized_any_text=any_text,
+        image_width=seg_result.image_width,
+        image_height=seg_result.image_height,
     )
 
 

@@ -28,6 +28,7 @@ import io
 import uuid
 from typing import BinaryIO, Optional
 
+import numpy as np
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
@@ -45,6 +46,7 @@ from app.services.correction_service import (
     Region,
     StorageError,
     Updated,
+    _crop_image,
     make_region_key,
     submit_correction,
 )
@@ -247,6 +249,26 @@ class TestSubmitCorrectionNoChange:
         )
         assert isinstance(result, NoChange)
 
+    def test_reviewed_line_can_be_stored_even_when_text_is_unchanged(
+        self, user, image_record, repos, store
+    ):
+        result = submit_correction(
+            user_id=user.user_id,
+            image_id=image_record.image_id,
+            region=Region(x=0, y=0, width=80, height=24),
+            recognized_text="already correct line",
+            corrected_text="already correct line",
+            repos=repos,
+            object_store=store,
+            line_index=0,
+            store_if_unchanged=True,
+        )
+
+        assert isinstance(result, Created)
+        pairs = repos.training_pairs.list_for_user(user.user_id)
+        assert len(pairs) == 1
+        assert pairs[0].corrected_text == "already correct line"
+
 
 class TestSubmitCorrectionCreated:
     """Req 4.3: different text → Created, pair persisted."""
@@ -317,6 +339,22 @@ class TestSubmitCorrectionCreated:
         pairs = repos.training_pairs.list_for_user(user.user_id)
         crop_path = pairs[0].region_crop_path
         assert store.exists(crop_path)
+
+    def test_crop_uses_preprocessed_image_coordinate_space(self, monkeypatch):
+        """Correction regions are selected on the processed preview, not raw bytes."""
+
+        class FakePreprocessed:
+            gray = np.zeros((8, 10), dtype=np.uint8)
+
+        import app.ml.preprocessing as preprocessing
+
+        monkeypatch.setattr(preprocessing, "preprocess", lambda _bytes: FakePreprocessed())
+
+        crop_bytes, clamped = _crop_image(b"raw-image-bytes", Region(8, 7, 10, 10))
+
+        with PILImage.open(io.BytesIO(crop_bytes)) as crop:
+            assert crop.size == (2, 1)
+        assert clamped == Region(x=8, y=7, width=2, height=1)
 
     def test_region_key_matches_expected(self, user, image_record, repos, store):
         region = Region(x=5, y=10, width=40, height=15)

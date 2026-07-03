@@ -99,6 +99,9 @@ class RecognizedLineSchema(BaseModel):
 
     line_index: int
     region: RegionSchema
+    text: str = ""
+    alignment_status: str = "aligned"
+    alignment_reason: Optional[str] = None
     words: List[RecognizedWordSchema]
 
 
@@ -113,6 +116,8 @@ class RecognitionServiceResult(BaseModel):
     outcome: RecognitionOutcome
     image_id: uuid.UUID
     lines: List[RecognizedLineSchema] = []
+    image_width: Optional[int] = None
+    image_height: Optional[int] = None
     error_message: Optional[str] = None
 
 
@@ -158,6 +163,23 @@ def _resolve_adapter_for_inference(
     with os.fdopen(fd, "wb") as fh:
         fh.write(weights_bytes)
     return _ResolvedAdapter(tmp_path), tmp_path
+
+
+def _line_alignment_metadata(line_text: str, word_count: int) -> tuple[str, Optional[str]]:
+    """Return alignment status for mapping a decoded line onto word regions.
+
+    The base model decodes a whole line, while the UI edits detected word boxes.
+    A token/box count mismatch means at least one piece of text would be folded
+    into the wrong box or assigned to an empty box, so the frontend should treat
+    that line as line-level text instead of region-confident words.
+    """
+    token_count = len(line_text.split())
+    if token_count == word_count:
+        return "aligned", None
+    return (
+        "uncertain",
+        f"Decoded {token_count} text token(s) for {word_count} detected word region(s).",
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -284,6 +306,8 @@ def run_recognition(
             return RecognitionServiceResult(
                 outcome=RecognitionOutcome.NO_TEXT,
                 image_id=image_id,
+                image_width=result.image_width,
+                image_height=result.image_height,
             )
 
         # Persist recognized words and update status (Req 2.1, 2.2, 2.4).
@@ -292,6 +316,12 @@ def run_recognition(
 
         for line in result.lines:
             word_schemas: list[RecognizedWordSchema] = []
+            line_text = getattr(line, "text", "").strip()
+            if not line_text:
+                line_text = " ".join(word.text for word in line.words if word.text)
+            alignment_status, alignment_reason = _line_alignment_metadata(
+                line_text, len(line.words)
+            )
 
             for word in line.words:
                 row = RecognizedWord(
@@ -330,6 +360,9 @@ def run_recognition(
                         width=line.region.width,
                         height=line.region.height,
                     ),
+                    text=line_text,
+                    alignment_status=alignment_status,
+                    alignment_reason=alignment_reason,
                     words=word_schemas,
                 )
             )
@@ -346,6 +379,8 @@ def run_recognition(
             outcome=RecognitionOutcome.SUCCESS,
             image_id=image_id,
             lines=line_schemas,
+            image_width=result.image_width,
+            image_height=result.image_height,
         )
     finally:
         # Clean up the ephemeral adapter weights file (Req: no adapter bytes
@@ -379,6 +414,8 @@ class RecognizeResponse(BaseModel):
     outcome: RecognitionOutcome
     image_id: uuid.UUID
     lines: List[RecognizedLineSchema] = []
+    image_width: Optional[int] = None
+    image_height: Optional[int] = None
     error_message: Optional[str] = None
 
 
@@ -418,6 +455,8 @@ def recognize_image(
         outcome=svc_result.outcome,
         image_id=svc_result.image_id,
         lines=svc_result.lines,
+        image_width=svc_result.image_width,
+        image_height=svc_result.image_height,
         error_message=svc_result.error_message,
     )
 
@@ -430,7 +469,22 @@ class RecognitionResultResponse(BaseModel):
 
     image_id: uuid.UUID
     status: ImageStatus
+    image_width: Optional[int] = None
+    image_height: Optional[int] = None
     lines: List[RecognizedLineSchema] = []
+
+
+def _processed_dimensions(
+    image: Image, object_store: ObjectStore
+) -> tuple[Optional[int], Optional[int]]:
+    """Return dimensions for the image coordinate space used by regions."""
+    from app.ml.preprocessing import preprocess
+
+    try:
+        processed = preprocess(object_store.get(image.storage_path))
+    except Exception:
+        return None, None
+    return processed.width, processed.height
 
 
 @router.get(
@@ -448,6 +502,7 @@ def get_recognition_result(
     image_id: uuid.UUID,
     user: User = Depends(get_current_user),
     repos: RepositoryFactory = Depends(get_repositories),
+    store: ObjectStore = Depends(_get_object_store_dep),
 ) -> RecognitionResultResponse:
     """GET /images/{image_id}/result — fetch stored result (Req 3.1–3.4).
 
@@ -467,6 +522,7 @@ def get_recognition_result(
             lines_by_index[row.line_index] = RecognizedLineSchema(
                 line_index=row.line_index,
                 region=RegionSchema(x=0, y=0, width=0, height=0),
+                text="",
                 words=[],
             )
         word_schema = RecognizedWordSchema(
@@ -485,10 +541,29 @@ def get_recognition_result(
         lines_by_index[row.line_index].words.append(word_schema)
 
     lines = sorted(lines_by_index.values(), key=lambda ln: ln.line_index)
+    for line in lines:
+        if line.words:
+            left = min(word.region.x for word in line.words)
+            top = min(word.region.y for word in line.words)
+            right = max(word.region.x + word.region.width for word in line.words)
+            bottom = max(word.region.y + word.region.height for word in line.words)
+            line.region = RegionSchema(
+                x=left,
+                y=top,
+                width=right - left,
+                height=bottom - top,
+            )
+        line.text = " ".join(word.text for word in line.words if word.text).strip()
+        line.alignment_status, line.alignment_reason = _line_alignment_metadata(
+            line.text, len(line.words)
+        )
+    image_width, image_height = _processed_dimensions(image, store)
 
     return RecognitionResultResponse(
         image_id=image.image_id,
         status=image.status,
+        image_width=image_width,
+        image_height=image_height,
         lines=lines,
     )
 

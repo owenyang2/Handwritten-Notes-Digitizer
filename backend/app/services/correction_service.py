@@ -120,26 +120,29 @@ def make_region_key(image_id: uuid.UUID, region: Region) -> str:
 def _crop_image(image_bytes: bytes, region: Region) -> tuple[bytes, Region]:
     """Crop ``image_bytes`` to ``region`` and return (PNG bytes, clamped region).
 
-    Uses Pillow. The crop is clamped to the image dimensions so out-of-range
-    regions (which should not reach this point in normal usage) produce the
-    overlap area rather than an error.
+    Regions submitted by the editor are in the backend-preprocessed image
+    coordinate space, so the crop must come from that same preprocessed image
+    rather than the raw upload. The crop is clamped to the processed image
+    dimensions so out-of-range regions produce the overlap area rather than an
+    error.
     """
     from PIL import Image
 
-    with Image.open(BytesIO(image_bytes)) as img:
-        # Convert to RGB so we always get a consistent colour space in the crop.
-        img_rgb = img.convert("RGB")
-        iw, ih = img_rgb.size
-        # Clamp to image bounds.
-        x0 = max(0, region.x)
-        y0 = max(0, region.y)
-        x1 = min(iw, region.x + region.width)
-        y1 = min(ih, region.y + region.height)
-        crop = img_rgb.crop((x0, y0, x1, y1))
-        clamped_region = Region(x=x0, y=y0, width=x1 - x0, height=y1 - y0)
-        buf = BytesIO()
-        crop.save(buf, format="PNG")
-        return buf.getvalue(), clamped_region
+    from app.ml.preprocessing import preprocess
+
+    processed = preprocess(image_bytes)
+    image = Image.fromarray(processed.gray).convert("RGB")
+    iw, ih = image.size
+    # Clamp to bounds.
+    x0 = max(0, region.x)
+    y0 = max(0, region.y)
+    x1 = min(iw, region.x + region.width)
+    y1 = min(ih, region.y + region.height)
+    crop = image.crop((x0, y0, x1, y1))
+    clamped_region = Region(x=x0, y=y0, width=x1 - x0, height=y1 - y0)
+    buf = BytesIO()
+    crop.save(buf, format="PNG")
+    return buf.getvalue(), clamped_region
 
 
 def _apply_correction_to_recognized_word(
@@ -192,6 +195,7 @@ def submit_correction(
     object_store: ObjectStore,
     line_index: int | None = None,
     word_index: int | None = None,
+    store_if_unchanged: bool = False,
 ) -> SubmitCorrectionResult:
     """Capture a confirmed correction as a ``TrainingPair`` when the text changed.
 
@@ -225,8 +229,10 @@ def submit_correction(
     StorageError
         A storage-layer failure occurred; no data was changed (Req 4.6).
     """
-    # Req 4.4 / 4.8: identical text → no write at all.
-    if corrected_text == recognized_text:
+    # Req 4.4 / 4.8: identical word edit → no write. Reviewed line crops may
+    # intentionally be saved even when the recognizer was already correct,
+    # because a verified line image + transcription is useful training data.
+    if corrected_text == recognized_text and not store_if_unchanged:
         return NoChange()
 
     try:
@@ -384,6 +390,10 @@ class CorrectionRequest(BaseModel):
     word_index: int | None = Field(
         default=None, description="Word index of the corrected word within its line"
     )
+    store_if_unchanged: bool = Field(
+        default=False,
+        description="Persist reviewed line crops even when recognized/corrected text match",
+    )
 
 
 class CorrectionCreatedResponse(BaseModel):
@@ -458,6 +468,7 @@ def submit_correction_endpoint(
         object_store=store,
         line_index=payload.line_index,
         word_index=payload.word_index,
+        store_if_unchanged=payload.store_if_unchanged,
     )
 
     if isinstance(result, Created):

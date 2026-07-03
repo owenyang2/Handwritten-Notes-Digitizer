@@ -259,7 +259,12 @@ class TestRunRecognitionAdapterSelection:
                     resolved_weights.append(fh.read())
             return mock_result
 
-        mock_result = MLResult(lines=[], recognized_any_text=False)
+        mock_result = MLResult(
+            lines=[],
+            recognized_any_text=False,
+            image_width=640,
+            image_height=240,
+        )
         with patch(
             "app.services.recognition_service.recognize_bytes",
             side_effect=_capture_recognize,
@@ -507,6 +512,8 @@ class TestRecognizeEndpoint:
         body = resp.json()
         assert "outcome" in body
         assert body["image_id"] == str(image_id)
+        assert body["image_width"] == 640
+        assert body["image_height"] == 240
 
     def test_adapter_selection_uses_only_requesting_users_adapter(
         self, app_client
@@ -675,6 +682,12 @@ class TestGetResultEndpoint:
         body = resp.json()
         assert body["image_id"] == str(image_id)
         assert len(body["lines"]) == 1
+        assert body["lines"][0]["region"] == {
+            "x": 10,
+            "y": 20,
+            "width": 30,
+            "height": 15,
+        }
         assert body["lines"][0]["words"][0]["text"] == "hello"
 
     def test_owner_does_not_see_another_users_words(self, app_client) -> None:
