@@ -175,6 +175,42 @@ export class BeforeAfterView {
     return resp.json() as Promise<TrainingPairListResponse>;
   }
 
+  /** Update the label text for one stored training example. */
+  async updateTrainingPair(pairId: string, correctedText: string): Promise<TrainingPairSummaryResponse> {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (this.authToken) {
+      headers["Authorization"] = `Bearer ${this.authToken}`;
+    }
+    const resp = await fetch(`${this.apiBase}/personalization/training-pairs/${pairId}`, {
+      method: "PATCH",
+      headers,
+      credentials: "include",
+      body: JSON.stringify({ corrected_text: correctedText }),
+    });
+    if (!resp.ok) {
+      throw new Error(`Training-pair update failed: ${resp.status} ${resp.statusText}`);
+    }
+    return resp.json() as Promise<TrainingPairSummaryResponse>;
+  }
+
+  /** Delete one stored training example. */
+  async deleteTrainingPair(pairId: string): Promise<void> {
+    const headers: Record<string, string> = {};
+    if (this.authToken) {
+      headers["Authorization"] = `Bearer ${this.authToken}`;
+    }
+    const resp = await fetch(`${this.apiBase}/personalization/training-pairs/${pairId}`, {
+      method: "DELETE",
+      headers,
+      credentials: "include",
+    });
+    if (!resp.ok) {
+      throw new Error(`Training-pair delete failed: ${resp.status} ${resp.statusText}`);
+    }
+  }
+
   // --------------------------------------------------------------------------
   // Rendering helpers
   // --------------------------------------------------------------------------
@@ -336,6 +372,16 @@ export class BeforeAfterView {
       text.textContent = pair.corrected_text;
       card.appendChild(text);
 
+      const editor = document.createElement("label");
+      editor.className = "training-example-editor";
+      editor.textContent = "Correct text";
+      const textarea = document.createElement("textarea");
+      textarea.className = "training-example-textarea";
+      textarea.setAttribute("data-testid", "training-example-textarea");
+      textarea.value = pair.corrected_text;
+      editor.appendChild(textarea);
+      card.appendChild(editor);
+
       const origin = document.createElement("p");
       origin.className = "training-example-origin";
       origin.textContent = pair.origin === "calibration"
@@ -354,6 +400,76 @@ export class BeforeAfterView {
       created.className = "training-example-created";
       created.textContent = `Added: ${new Date(pair.created_at).toLocaleString()}`;
       card.appendChild(created);
+
+      const actions = document.createElement("div");
+      actions.className = "training-example-actions";
+
+      const saveButton = document.createElement("button");
+      saveButton.type = "button";
+      saveButton.className = "training-example-save";
+      saveButton.setAttribute("data-testid", "training-example-save");
+      saveButton.textContent = "Save label";
+      actions.appendChild(saveButton);
+
+      const deleteButton = document.createElement("button");
+      deleteButton.type = "button";
+      deleteButton.className = "training-example-delete";
+      deleteButton.setAttribute("data-testid", "training-example-delete");
+      deleteButton.textContent = "Delete sample";
+      actions.appendChild(deleteButton);
+      card.appendChild(actions);
+
+      const actionStatus = document.createElement("p");
+      actionStatus.className = "training-example-action-status";
+      actionStatus.setAttribute("data-testid", "training-example-action-status");
+      actionStatus.setAttribute("aria-live", "polite");
+      card.appendChild(actionStatus);
+
+      saveButton.addEventListener("click", () => {
+        const nextText = textarea.value.trim();
+        if (!nextText) {
+          actionStatus.textContent = "Correct text cannot be blank.";
+          actionStatus.className = "training-example-action-status training-example-action-status--failed";
+          return;
+        }
+        saveButton.disabled = true;
+        actionStatus.textContent = "Saving label...";
+        actionStatus.className = "training-example-action-status training-example-action-status--pending";
+        void this.updateTrainingPair(pair.pair_id, nextText)
+          .then((updated) => {
+            text.textContent = updated.corrected_text;
+            textarea.value = updated.corrected_text;
+            state.textContent = updated.used
+              ? "Status: already consumed by a completed training run."
+              : "Status: counted toward the next training run.";
+            actionStatus.textContent = "Label saved for future training.";
+            actionStatus.className = "training-example-action-status training-example-action-status--saved";
+          })
+          .catch(() => {
+            actionStatus.textContent = "Could not save this label.";
+            actionStatus.className = "training-example-action-status training-example-action-status--failed";
+          })
+          .finally(() => {
+            saveButton.disabled = false;
+          });
+      });
+
+      deleteButton.addEventListener("click", () => {
+        deleteButton.disabled = true;
+        saveButton.disabled = true;
+        actionStatus.textContent = "Deleting sample...";
+        actionStatus.className = "training-example-action-status training-example-action-status--pending";
+        void this.deleteTrainingPair(pair.pair_id)
+          .then(() => {
+            card.remove();
+          })
+          .catch(() => {
+            actionStatus.textContent = "Could not delete this sample.";
+            actionStatus.className = "training-example-action-status training-example-action-status--failed";
+            deleteButton.disabled = false;
+            saveButton.disabled = false;
+          });
+      });
 
       list.appendChild(card);
     }

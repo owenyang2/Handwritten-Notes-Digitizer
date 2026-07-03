@@ -26,6 +26,7 @@ from app.data import (
     create_db_engine,
     create_session_factory,
 )
+from app.config.settings import get_settings
 from app.data.enums import (
     AdapterStatus,
     EvaluationAvailability,
@@ -549,3 +550,48 @@ def test_training_pair_image_returns_crop(client):
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("image/png")
     assert resp.content == png_bytes
+
+
+def test_training_pair_label_edit_can_enqueue_training(client):
+    c, _store, sf = client
+    token, uid = _register_and_login(c, sf, "alice")
+    threshold = get_settings().personalization_trigger_threshold
+
+    with sf() as s:
+        seed_pairs = [
+            TrainingPair(
+                user_id=uid,
+                image_id=None,
+                source_region_key=f"unused-{idx}",
+                region_crop_path=f"crops/alice/unused-{idx}.png",
+                corrected_text=f"unused {idx}",
+                origin=TrainingPairOrigin.CORRECTION,
+            )
+            for idx in range(threshold - 1)
+        ]
+        edited_pair = TrainingPair(
+            user_id=uid,
+            image_id=None,
+            source_region_key="used-edit",
+            region_crop_path="crops/alice/used-edit.png",
+            corrected_text="old label",
+            origin=TrainingPairOrigin.CORRECTION,
+            consumed_by_run_id=uuid.uuid4(),
+        )
+        s.add_all([*seed_pairs, edited_pair])
+        s.commit()
+        pair_id = edited_pair.pair_id
+
+    resp = c.patch(
+        f"/personalization/training-pairs/{pair_id}",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"corrected_text": "new label"},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["used"] is False
+    with sf() as s:
+        repos = RepositoryFactory(s)
+        runs = repos.training_runs.list_for_user(uid)
+        assert len(runs) == 1
+        assert runs[0].state == TrainingRunState.QUEUED

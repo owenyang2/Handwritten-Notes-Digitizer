@@ -21,7 +21,7 @@ import uuid
 from datetime import datetime
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, status
 from fastapi.responses import Response
 from pydantic import BaseModel
 
@@ -32,6 +32,7 @@ from app.data.repositories import RepositoryFactory
 from app.services.auth_api import get_current_user, get_repositories
 from app.services.images_api import get_object_store
 from app.services.isolation import get_or_404
+from app.services.personalization_service import maybe_enqueue_training
 
 router = APIRouter(prefix="/personalization", tags=["personalization"])
 
@@ -97,6 +98,12 @@ class TrainingPairListResponse(BaseModel):
     """Collection of the user's personalization training examples."""
 
     items: list[TrainingPairSummaryResponse]
+
+
+class TrainingPairUpdateRequest(BaseModel):
+    """Editable fields for a collected personalization training example."""
+
+    corrected_text: str
 
 
 class EvaluationResponse(BaseModel):
@@ -361,14 +368,84 @@ def get_training_pair_image(
     return Response(content=image_bytes, media_type="image/png")
 
 
+@router.patch(
+    "/training-pairs/{pair_id}",
+    response_model=TrainingPairSummaryResponse,
+    summary="Update a personalization training example label",
+    description=(
+        "Updates the corrected text for one collected training example owned by "
+        "the authenticated user. The sample is marked unused so the corrected "
+        "label can participate in a future training round."
+    ),
+)
+def update_training_pair(
+    pair_id: uuid.UUID,
+    payload: TrainingPairUpdateRequest,
+    user: User = Depends(get_current_user),
+    repos: RepositoryFactory = Depends(get_repositories),
+) -> TrainingPairSummaryResponse:
+    pair = get_or_404(repos.training_pairs.get(user.user_id, pair_id))
+    corrected_text = payload.corrected_text.strip()
+    if not corrected_text:
+        from fastapi import HTTPException
+
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="corrected_text must not be blank",
+        )
+
+    pair.corrected_text = corrected_text
+    # A changed label should be eligible for a future adapter training round.
+    pair.consumed_by_run_id = None
+    repos.session.flush()
+    maybe_enqueue_training(user.user_id, repos)
+    repos.session.commit()
+    repos.session.refresh(pair)
+
+    return TrainingPairSummaryResponse(
+        pair_id=str(pair.pair_id),
+        origin=pair.origin.value,  # type: ignore[arg-type]
+        corrected_text=pair.corrected_text,
+        created_at=pair.created_at,
+        used=pair.consumed_by_run_id is not None,
+    )
+
+
+@router.delete(
+    "/training-pairs/{pair_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a personalization training example",
+    description=(
+        "Deletes one collected training example owned by the authenticated user "
+        "and removes its stored crop image. Existing active adapters are not "
+        "retroactively changed; the deletion affects future training rounds."
+    ),
+)
+def delete_training_pair(
+    pair_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    repos: RepositoryFactory = Depends(get_repositories),
+    store=Depends(get_object_store),  # ObjectStore; avoid import cycle typing.
+) -> Response:
+    pair = get_or_404(repos.training_pairs.get(user.user_id, pair_id))
+    crop_path = pair.region_crop_path
+    repos.training_pairs.delete(user.user_id, pair_id)
+    repos.session.commit()
+    store.delete(crop_path)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 __all__ = [
     "router",
     "PersonalizationStatusResponse",
     "EvaluationResponse",
     "TrainingPairSummaryResponse",
     "TrainingPairListResponse",
+    "TrainingPairUpdateRequest",
     "get_personalization_status",
     "get_evaluation",
     "list_training_pairs",
     "get_training_pair_image",
+    "update_training_pair",
+    "delete_training_pair",
 ]

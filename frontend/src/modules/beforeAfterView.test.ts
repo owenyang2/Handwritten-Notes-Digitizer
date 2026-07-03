@@ -604,6 +604,99 @@ describe("BeforeAfterView.renderFull() — pipeline guide", () => {
 });
 
 // --------------------------------------------------------------------------- //
+// Training example management
+// --------------------------------------------------------------------------- //
+
+describe("BeforeAfterView — training example management", () => {
+  function makeMount(): HTMLElement {
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    return el;
+  }
+
+  const baseReport: BeforeAfterReport = {
+    availability: "unavailable",
+    beforeCer: null,
+    beforeWer: null,
+    afterCer: null,
+    afterWer: null,
+    deltaCer: null,
+    deltaWer: null,
+  };
+
+  const pair = {
+    pair_id: "pair-1",
+    origin: "correction" as const,
+    corrected_text: "bad lable",
+    created_at: new Date("2026-07-03T12:00:00Z").toISOString(),
+    used: false,
+  };
+
+  it("saves edited training-pair label text", async () => {
+    const mount = makeMount();
+    const view = new BeforeAfterView({ mount });
+    const originalFetch = globalThis.fetch;
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return new Response(
+        JSON.stringify({
+          ...pair,
+          corrected_text: "good label",
+          used: false,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    try {
+      view.renderFull(makeStatus(), baseReport, [pair]);
+      const textarea = mount.querySelector<HTMLTextAreaElement>(
+        "[data-testid='training-example-textarea']",
+      )!;
+      textarea.value = "good label";
+      mount.querySelector<HTMLButtonElement>("[data-testid='training-example-save']")!.click();
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(calls[0].url).toContain("/personalization/training-pairs/pair-1");
+      expect(calls[0].init?.method).toBe("PATCH");
+      expect(calls[0].init?.body).toBe(JSON.stringify({ corrected_text: "good label" }));
+      expect(mount.querySelector(".training-example-text")!.textContent).toBe("good label");
+      expect(mount.querySelector("[data-testid='training-example-action-status']")!.textContent)
+        .toMatch(/label saved/i);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("deletes a stored training pair card", async () => {
+    const mount = makeMount();
+    const view = new BeforeAfterView({ mount });
+    const originalFetch = globalThis.fetch;
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return new Response(null, { status: 204 });
+    }) as typeof fetch;
+
+    try {
+      view.renderFull(makeStatus(), baseReport, [pair]);
+      expect(mount.querySelectorAll("[data-testid='training-example-card']")).toHaveLength(1);
+
+      mount.querySelector<HTMLButtonElement>("[data-testid='training-example-delete']")!.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(calls[0].url).toContain("/personalization/training-pairs/pair-1");
+      expect(calls[0].init?.method).toBe("DELETE");
+      expect(mount.querySelectorAll("[data-testid='training-example-card']")).toHaveLength(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+// --------------------------------------------------------------------------- //
 // Loading / error states
 // --------------------------------------------------------------------------- //
 
