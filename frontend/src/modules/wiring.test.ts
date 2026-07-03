@@ -38,6 +38,7 @@ vi.mock("../api/client.js", () => ({
   uploadImage: vi.fn(),
   recognizeImage: vi.fn(),
   getRecognitionResult: vi.fn(),
+  getProcessedImageUrl: vi.fn((imageId: string) => `/api/images/${imageId}/processed`),
   submitCorrection: vi.fn(),
   exportText: vi.fn(),
   startCalibrationSession: vi.fn(),
@@ -348,9 +349,14 @@ describe("bootstrap() — upload to recognition wiring (Req 11.4)", () => {
     });
 
     vi.mocked(apiClient.uploadImage).mockResolvedValue({ image_id: "img-123" });
+    vi.mocked(apiClient.getProcessedImageUrl).mockImplementation(
+      (imageId: string) => `/api/images/${imageId}/processed`,
+    );
     vi.mocked(apiClient.recognizeImage).mockResolvedValue({
       status: "ok",
       recognized_any_text: true,
+      image_width: 120,
+      image_height: 40,
       lines: [
         {
           index: 0,
@@ -461,6 +467,9 @@ describe("bootstrap() — upload to recognition wiring (Req 11.4)", () => {
     await vi.waitFor(() => {
       expect(apiClient.uploadImage).toHaveBeenCalledWith(file);
       expect(apiClient.recognizeImage).toHaveBeenCalledWith("img-123");
+      expect(apiClient.getProcessedImageUrl).toHaveBeenCalledWith("img-123");
+      expect(root.querySelector<HTMLImageElement>("[data-testid='editor-image']")?.src)
+        .toContain("/api/images/img-123/processed");
     });
   });
 
@@ -611,6 +620,143 @@ describe("bootstrap() — upload to recognition wiring (Req 11.4)", () => {
     URL.createObjectURL = originalCreateURL;
     URL.revokeObjectURL = originalRevokeURL;
     createSpy.mockRestore();
+  });
+
+  it("exports edited uncertain line text locally instead of stale backend rows", async () => {
+    const originalCreateURL = URL.createObjectURL;
+    const originalRevokeURL = URL.revokeObjectURL;
+    URL.createObjectURL = vi.fn().mockReturnValue("blob:line-edit");
+    URL.revokeObjectURL = vi.fn();
+
+    const origCreate = document.createElement.bind(document);
+    const createSpy = vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+      const el = origCreate(tag);
+      if (tag === "a") {
+        vi.spyOn(el as HTMLAnchorElement, "click").mockImplementation(() => {/* noop */});
+      }
+      return el;
+    });
+
+    vi.mocked(apiClient.recognizeImage).mockResolvedValueOnce({
+      status: "ok",
+      recognized_any_text: true,
+      image_width: 320,
+      image_height: 60,
+      lines: [
+        {
+          index: 0,
+          text: "quaintly but kept driving their oxen forward",
+          alignment_status: "uncertain",
+          alignment_reason: "Decoded 7 text token(s) for 1 detected word region(s).",
+          region: { x: 0, y: 0, width: 300, height: 30 },
+          words: [
+            {
+              index: 0,
+              text: "quaintly but kept driving their oxen forward",
+              region: { x: 0, y: 0, width: 300, height: 30 },
+            },
+          ],
+        },
+      ],
+    });
+
+    await bootstrap(root);
+
+    const fileInput = root.querySelector<HTMLInputElement>("[data-testid='upload-file-input']")!;
+    const file = new File(["img"], "hw.png", { type: "image/png" });
+    Object.defineProperty(fileInput, "files", {
+      value: { 0: file, length: 1, item: () => file },
+      configurable: true,
+    });
+    fileInput.dispatchEvent(new Event("change"));
+    root.querySelector<HTMLButtonElement>("[data-testid='upload-submit-btn']")!.click();
+
+    const textarea = await vi.waitFor(() => {
+      const found = root.querySelector<HTMLTextAreaElement>(
+        "[data-testid='editor-line-textarea']",
+      );
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    textarea.value = "acted quaintly but kept driving their oxen forward";
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+
+    const exportBtn = root.querySelector<HTMLButtonElement>("[data-testid='export-btn-plain']")!;
+    exportBtn.click();
+
+    await vi.waitFor(() => {
+      expect(apiClient.exportText).not.toHaveBeenCalled();
+      expect(URL.createObjectURL).toHaveBeenCalled();
+      expect(root.querySelector("[data-testid='export-status']")!.textContent).toMatch(/ready/i);
+    });
+
+    URL.createObjectURL = originalCreateURL;
+    URL.revokeObjectURL = originalRevokeURL;
+    createSpy.mockRestore();
+  });
+
+  it("saving a reviewed line submits a line crop training pair", async () => {
+    vi.mocked(apiClient.recognizeImage).mockResolvedValueOnce({
+      status: "ok",
+      recognized_any_text: true,
+      image_width: 510,
+      image_height: 184,
+      lines: [
+        {
+          index: 0,
+          text: "Jaded rombies arted quaintly but hept driving",
+          alignment_status: "uncertain",
+          alignment_reason: "Decoded 7 text token(s) for 3 detected word region(s).",
+          region: { x: 10, y: 20, width: 300, height: 44 },
+          words: [],
+        },
+      ],
+    });
+
+    await bootstrap(root);
+
+    const fileInput = root.querySelector<HTMLInputElement>("[data-testid='upload-file-input']")!;
+    const file = new File(["img"], "hw.png", { type: "image/png" });
+    Object.defineProperty(fileInput, "files", {
+      value: { 0: file, length: 1, item: () => file },
+      configurable: true,
+    });
+    fileInput.dispatchEvent(new Event("change"));
+    root.querySelector<HTMLButtonElement>("[data-testid='upload-submit-btn']")!.click();
+
+    const textarea = await vi.waitFor(() => {
+      const found = root.querySelector<HTMLTextAreaElement>(
+        "[data-testid='editor-line-textarea']",
+      );
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    textarea.value = "Jaded zombies acted quaintly but kept driving";
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+
+    const overlay = root.querySelector<HTMLElement>(".editor-region-overlay")!;
+    Object.defineProperty(overlay, "getBoundingClientRect", {
+      value: () => ({ x: 0, y: 0, left: 0, top: 0, width: 510, height: 184, right: 510, bottom: 184 }),
+      configurable: true,
+    });
+    const handle = root.querySelector<HTMLElement>("[data-testid='editor-region-resize-handle']")!;
+    handle.dispatchEvent(new MouseEvent("mousedown", { button: 0, clientX: 0, clientY: 0, bubbles: true }));
+    document.dispatchEvent(new MouseEvent("mousemove", { clientX: 20, clientY: 0, bubbles: true }));
+    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    root.querySelector<HTMLButtonElement>("[data-testid='editor-line-save']")!.click();
+
+    await vi.waitFor(() => {
+      expect(apiClient.submitCorrection).toHaveBeenCalledWith(
+        "img-123",
+        expect.objectContaining({
+          line_index: 0,
+          region: { x: 10, y: 20, width: 320, height: 44 },
+          recognized_text: "Jaded rombies arted quaintly but hept driving",
+          corrected_text: "Jaded zombies acted quaintly but kept driving",
+          store_if_unchanged: true,
+        }),
+      );
+    });
   });
 });
 

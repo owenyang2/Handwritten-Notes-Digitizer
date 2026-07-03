@@ -309,6 +309,247 @@ describe("Editor.render() — display alongside image (Req 3.3)", () => {
     expect(noTextEl!.textContent).toMatch(/no text recognized/i);
   });
 
+  it("shows recognition errors instead of the no-text message", () => {
+    const mount = makeMount();
+    const editor = new Editor({ mount });
+    editor.render(
+      {
+        recognizedAnyText: false,
+        status: "error",
+        message: "Recognition engine failure: base model artifact missing",
+        lines: [],
+      },
+      IMAGE_URL,
+    );
+
+    const errorEl = mount.querySelector("[data-testid='editor-recognition-error']");
+    expect(errorEl).not.toBeNull();
+    expect(errorEl!.textContent).toMatch(/base model artifact missing/i);
+    expect(mount.querySelector("[data-testid='editor-no-text']")).toBeNull();
+  });
+
+  it("shows timeout outcomes instead of the no-text message", () => {
+    const mount = makeMount();
+    const editor = new Editor({ mount });
+    editor.render(
+      {
+        recognizedAnyText: false,
+        status: "timeout",
+        lines: [],
+      },
+      IMAGE_URL,
+    );
+
+    const errorEl = mount.querySelector("[data-testid='editor-recognition-error']");
+    expect(errorEl).not.toBeNull();
+    expect(errorEl!.textContent).toMatch(/timed out/i);
+    expect(mount.querySelector("[data-testid='editor-no-text']")).toBeNull();
+  });
+
+  it("renders uncertain alignment as an editable full-line textarea", () => {
+    const corrections: unknown[] = [];
+    const mount = makeMount();
+    const editor = new Editor({
+      mount,
+      onCorrection: (...args) => corrections.push(args),
+    });
+    editor.render(
+      {
+        recognizedAnyText: true,
+        lines: [
+          {
+            index: 0,
+            text: "quaintly but kept driving their oxen forward",
+            alignmentStatus: "uncertain",
+            alignmentReason: "Decoded 7 text token(s) for 1 detected word region(s).",
+            region: { x: 0, y: 0, width: 300, height: 30 },
+            words: [
+              {
+                index: 0,
+                text: "quaintly but kept driving their oxen forward",
+                region: { x: 0, y: 0, width: 300, height: 30 },
+              },
+            ],
+          },
+        ],
+      },
+      IMAGE_URL,
+    );
+
+    const textarea = mount.querySelector<HTMLTextAreaElement>(
+      "[data-testid='editor-line-textarea']",
+    );
+    expect(textarea).not.toBeNull();
+    expect(textarea!.value).toBe("quaintly but kept driving their oxen forward");
+    expect(mount.querySelector("[data-testid='editor-word']")).toBeNull();
+
+    textarea!.value = "acted quaintly but kept driving their oxen forward";
+    textarea!.dispatchEvent(new Event("input", { bubbles: true }));
+
+    expect(corrections).toHaveLength(0);
+    expect(editor.hasLocalLineEdits()).toBe(true);
+    expect(editor.getExportText("plain")).toBe(
+      "acted quaintly but kept driving their oxen forward",
+    );
+  });
+
+  it("saves an edited line region through the line correction callback", async () => {
+    const saved: Array<{
+      lineIndex: number;
+      region: { x: number; y: number; width: number; height: number };
+      original: string;
+      corrected: string;
+    }> = [];
+    const mount = makeMount();
+    const editor = new Editor({
+      mount,
+      onLineCorrection: (lineIndex, region, original, corrected) => {
+        saved.push({ lineIndex, region, original, corrected });
+      },
+    });
+    editor.render(
+      {
+        recognizedAnyText: true,
+        lines: [
+          {
+            index: 0,
+            text: "Jaded rombies arted quaintly but hept driving",
+            alignmentStatus: "uncertain",
+            region: { x: 10, y: 20, width: 300, height: 44 },
+            words: [],
+          },
+        ],
+      },
+      IMAGE_URL,
+    );
+
+    const textarea = mount.querySelector<HTMLTextAreaElement>(
+      "[data-testid='editor-line-textarea']",
+    )!;
+    textarea.value = "Jaded zombies acted quaintly but kept driving";
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+
+    const overlay = mount.querySelector<HTMLElement>(".editor-region-overlay")!;
+    Object.defineProperty(overlay, "getBoundingClientRect", {
+      value: () => ({ x: 0, y: 0, left: 0, top: 0, width: 510, height: 184, right: 510, bottom: 184 }),
+      configurable: true,
+    });
+    const box = mount.querySelector<HTMLElement>("[data-testid='editor-region-box']")!;
+    box.dispatchEvent(new MouseEvent("mousedown", { button: 0, clientX: 0, clientY: 0, bubbles: true }));
+    document.dispatchEvent(new MouseEvent("mousemove", { clientX: 2, clientY: 0, bubbles: true }));
+    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+
+    const handle = mount.querySelector<HTMLElement>("[data-testid='editor-region-resize-handle']")!;
+    handle.dispatchEvent(new MouseEvent("mousedown", { button: 0, clientX: 0, clientY: 0, bubbles: true }));
+    document.dispatchEvent(new MouseEvent("mousemove", { clientX: 20, clientY: 0, bubbles: true }));
+    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+
+    mount.querySelector<HTMLButtonElement>("[data-testid='editor-line-save']")!.click();
+
+    expect(saved).toEqual([
+      {
+        lineIndex: 0,
+        region: { x: 12, y: 20, width: 320, height: 44 },
+        original: "Jaded rombies arted quaintly but hept driving",
+        corrected: "Jaded zombies acted quaintly but kept driving",
+      },
+    ]);
+  });
+
+  it("scales region boxes using backend processed image dimensions", () => {
+    const mount = makeMount();
+    const editor = new Editor({ mount });
+
+    editor.render(
+      {
+        recognizedAnyText: true,
+        imageWidth: 1000,
+        imageHeight: 500,
+        lines: [
+          {
+            index: 0,
+            text: "sample",
+            region: { x: 100, y: 50, width: 300, height: 100 },
+            words: [],
+          },
+        ],
+      },
+      IMAGE_URL,
+    );
+
+    const stage = mount.querySelector<HTMLElement>(".editor-image-stage")!;
+    const box = mount.querySelector<HTMLElement>("[data-testid='editor-region-box']")!;
+
+    expect(stage.style.aspectRatio).toBe("1000 / 500");
+    expect(box.style.left).toBe("10%");
+    expect(box.style.top).toBe("10%");
+    expect(box.style.width).toBe("30%");
+    expect(box.style.height).toBe("20%");
+  });
+
+  it("lets users mark a false-positive line as not text", () => {
+    const mount = makeMount();
+    const editor = new Editor({ mount });
+
+    editor.render(
+      {
+        recognizedAnyText: true,
+        imageWidth: 600,
+        imageHeight: 180,
+        lines: [
+          {
+            index: 0,
+            text: "Jack quietly moved up front",
+            region: { x: 10, y: 10, width: 520, height: 40 },
+            words: [],
+          },
+          {
+            index: 1,
+            text: ".",
+            alignmentStatus: "uncertain",
+            region: { x: 540, y: 60, width: 12, height: 12 },
+            words: [],
+          },
+        ],
+      },
+      IMAGE_URL,
+    );
+
+    const cards = mount.querySelectorAll<HTMLElement>("[data-testid='editor-line-review']");
+    const falsePositiveCard = cards[1];
+    const notTextButton = falsePositiveCard.querySelector<HTMLButtonElement>(
+      "[data-testid='editor-line-ignore']",
+    )!;
+    const saveButton = falsePositiveCard.querySelector<HTMLButtonElement>(
+      "[data-testid='editor-line-save']",
+    )!;
+    const textarea = falsePositiveCard.querySelector<HTMLTextAreaElement>(
+      "[data-testid='editor-line-textarea']",
+    )!;
+
+    notTextButton.click();
+
+    expect(notTextButton.textContent).toBe("Restore line");
+    expect(notTextButton.getAttribute("aria-pressed")).toBe("true");
+    expect(textarea.disabled).toBe(true);
+    expect(saveButton.disabled).toBe(true);
+    expect(falsePositiveCard.textContent).toContain("Marked as not text");
+    expect(editor.getExportText("plain")).toBe("Jack quietly moved up front");
+    expect(
+      mount.querySelector<HTMLElement>(
+        "[data-testid='editor-region-box'][data-line-index='1']",
+      )?.classList.contains("editor-region-box--ignored"),
+    ).toBe(true);
+
+    notTextButton.click();
+
+    expect(notTextButton.textContent).toBe("Not text");
+    expect(notTextButton.getAttribute("aria-pressed")).toBe("false");
+    expect(textarea.disabled).toBe(false);
+    expect(saveButton.disabled).toBe(false);
+    expect(editor.getExportText("plain")).toBe("Jack quietly moved up front\n.");
+  });
+
   it("still shows the image when no text is recognized (Req 3.4)", () => {
     const mount = makeMount();
     const editor = new Editor({ mount });

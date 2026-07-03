@@ -12,6 +12,7 @@ import { Editor } from "./modules/editor.js";
 import { CalibrationUI } from "./modules/calibrationUI.js";
 import { BeforeAfterView } from "./modules/beforeAfterView.js";
 import { AuthGate } from "./modules/authGate.js";
+import "./styles.css";
 import {
   uploadImage,
   recognizeImage,
@@ -21,6 +22,7 @@ import {
   submitCalibrationSample,
   getCurrentUser,
   logout,
+  getProcessedImageUrl,
   ApiError,
 } from "./api/client.js";
 import { refreshCapabilities, isAvailable } from "./api/capabilities.js";
@@ -44,6 +46,9 @@ function mapLine(dto: RecognizedLineDto): RecognizedLine {
   return {
     index: dto.index,
     region: { x: dto.region.x, y: dto.region.y, width: dto.region.width, height: dto.region.height },
+    text: dto.text,
+    alignmentStatus: dto.alignment_status,
+    alignmentReason: dto.alignment_reason ?? undefined,
     words: dto.words.map(mapWord),
   };
 }
@@ -52,6 +57,10 @@ function mapResult(dto: RecognitionResultDto): RecognitionResult {
   return {
     lines: dto.lines.map(mapLine),
     recognizedAnyText: dto.recognized_any_text,
+    imageWidth: dto.image_width,
+    imageHeight: dto.image_height,
+    status: dto.status,
+    message: dto.message,
   };
 }
 
@@ -72,54 +81,125 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
   // ------------------------------------------------------------------
   root.innerHTML = "";
 
+  const shell = document.createElement("div");
+  shell.className = "app-shell";
+  root.appendChild(shell);
+
+  const rail = document.createElement("aside");
+  rail.className = "workflow-rail";
+  rail.setAttribute("aria-label", "Workflow");
+  shell.appendChild(rail);
+
+  const brand = document.createElement("div");
+  brand.className = "app-brand";
+  rail.appendChild(brand);
+
   const appTitle = document.createElement("h1");
   appTitle.className = "app-title";
   appTitle.textContent = "Handwriting Notes Digitizer";
-  root.appendChild(appTitle);
+  brand.appendChild(appTitle);
+
+  const brandSub = document.createElement("p");
+  brandSub.className = "app-subtitle";
+  brandSub.textContent = "Review handwriting, correct regions, and build a personal training set.";
+  brand.appendChild(brandSub);
+
+  const workflow = document.createElement("ol");
+  workflow.className = "workflow-list";
+  const steps = [
+    ["Upload", "Add a note image"],
+    ["Review", "Fix text and alignment"],
+    ["Train", "Audit collected samples"],
+    ["Export", "Download clean text"],
+  ];
+  for (const [name, detail] of steps) {
+    const item = document.createElement("li");
+    item.className = "workflow-item";
+    const label = document.createElement("span");
+    label.className = "workflow-item-label";
+    label.textContent = name;
+    item.appendChild(label);
+    const desc = document.createElement("span");
+    desc.className = "workflow-item-desc";
+    desc.textContent = detail;
+    item.appendChild(desc);
+    workflow.appendChild(item);
+  }
+  rail.appendChild(workflow);
+
+  const workspace = document.createElement("main");
+  workspace.className = "app-workspace";
+  shell.appendChild(workspace);
+
+  const workspaceHeader = document.createElement("header");
+  workspaceHeader.className = "workspace-header";
+  workspace.appendChild(workspaceHeader);
+
+  const headerCopy = document.createElement("div");
+  workspaceHeader.appendChild(headerCopy);
+  const headerTitle = document.createElement("h2");
+  headerTitle.textContent = "Recognition review";
+  headerCopy.appendChild(headerTitle);
+  const headerText = document.createElement("p");
+  headerText.textContent =
+    "Only region-backed word edits feed training. Uncertain lines stay editable for export until their regions are reviewed.";
+  headerCopy.appendChild(headerText);
 
   // Capability status banner (shown when backend is degraded / unreachable).
   const capabilityBanner = document.createElement("div");
   capabilityBanner.className = "capability-banner";
   capabilityBanner.setAttribute("data-testid", "capability-banner");
   capabilityBanner.style.display = "none";
-  root.appendChild(capabilityBanner);
+  workspaceHeader.appendChild(capabilityBanner);
+
+  const workGrid = document.createElement("div");
+  workGrid.className = "work-grid";
+  workspace.appendChild(workGrid);
+
+  const reviewColumn = document.createElement("div");
+  reviewColumn.className = "review-column";
+  workGrid.appendChild(reviewColumn);
+
+  const sideColumn = document.createElement("aside");
+  sideColumn.className = "side-column";
+  workGrid.appendChild(sideColumn);
 
   // --- Personalization guide + status (visible when capability is available) ---
   const personalizationSection = document.createElement("section");
-  personalizationSection.className = "app-section app-section--personalization";
+  personalizationSection.className = "app-section app-section--personalization panel";
   personalizationSection.setAttribute("data-testid", "personalization-section");
   personalizationSection.setAttribute("aria-label", "Personal handwriting learning");
-  root.appendChild(personalizationSection);
+  sideColumn.appendChild(personalizationSection);
 
   // --- Upload section ---
   const uploadSection = document.createElement("section");
-  uploadSection.className = "app-section app-section--upload";
+  uploadSection.className = "app-section app-section--upload panel";
   uploadSection.setAttribute("data-testid", "upload-section");
   uploadSection.setAttribute("aria-label", "Upload image");
-  root.appendChild(uploadSection);
+  reviewColumn.appendChild(uploadSection);
 
   // --- Editor section (hidden until recognition completes) ---
   const editorSection = document.createElement("section");
-  editorSection.className = "app-section app-section--editor";
+  editorSection.className = "app-section app-section--editor panel panel--review";
   editorSection.setAttribute("data-testid", "editor-section");
   editorSection.setAttribute("aria-label", "Recognized text editor");
   editorSection.style.display = "none";
-  root.appendChild(editorSection);
+  reviewColumn.appendChild(editorSection);
 
   // --- Export section (hidden until editor is populated) ---
   const exportSection = document.createElement("section");
-  exportSection.className = "app-section app-section--export";
+  exportSection.className = "app-section app-section--export panel";
   exportSection.setAttribute("data-testid", "export-section");
   exportSection.setAttribute("aria-label", "Export text");
   exportSection.style.display = "none";
-  root.appendChild(exportSection);
+  sideColumn.appendChild(exportSection);
 
   // --- Calibration section (always available but optional) ---
   const calibrationSection = document.createElement("section");
-  calibrationSection.className = "app-section app-section--calibration";
+  calibrationSection.className = "app-section app-section--calibration panel";
   calibrationSection.setAttribute("data-testid", "calibration-section-wrapper");
   calibrationSection.setAttribute("aria-label", "Optional calibration");
-  root.appendChild(calibrationSection);
+  sideColumn.appendChild(calibrationSection);
 
   // --- Before/After metrics (nested inside personalization section) ---
   const beforeAfterSection = document.createElement("div");
@@ -190,6 +270,7 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
 
     // Step 3: Map result and render the editor.
     const recognitionResult = mapResult(recognitionDto);
+    currentImageUrl = getProcessedImageUrl(imageId);
 
     // Wire up correction callback before rendering.
     editor.setOnCorrection(async (
@@ -215,16 +296,34 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
         });
         refreshPersonalization();
       } catch {
-        // Corrections are best-effort in this wiring; the Editor already
-        // updated its display. A production app would surface this to the user.
+        // The Editor keeps the local text change either way, but it needs to
+        // know whether the region-backed training pair was actually saved.
+        throw new Error("Correction could not be saved to training data.");
       }
+    });
+
+    editor.setOnLineCorrection(async (
+      lineIndex,
+      region,
+      originalText,
+      correctedText,
+    ) => {
+      if (!currentImageId || !isAvailable("correction")) return;
+      await submitCorrection(currentImageId, {
+        line_index: lineIndex,
+        region,
+        recognized_text: originalText,
+        corrected_text: correctedText,
+        store_if_unchanged: true,
+      });
+      refreshPersonalization();
     });
 
     editor.render(recognitionResult, currentImageUrl!);
     editorSection.style.display = "";
 
     // Show export section once the editor is populated.
-    buildExportSection(exportSection, imageId);
+    buildExportSection(exportSection, imageId, editor);
     exportSection.style.display = "";
   });
 
@@ -282,13 +381,20 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
 function buildExportSection(
   section: HTMLElement,
   imageId: string,
+  editor: Editor,
 ): void {
   section.innerHTML = "";
 
   const heading = document.createElement("h2");
-  heading.textContent = "Export";
+  heading.textContent = "Export current review";
   heading.className = "export-heading";
   section.appendChild(heading);
+
+  const note = document.createElement("p");
+  note.className = "export-note";
+  note.textContent =
+    "Exports use saved backend text for region-backed edits and visible editor text for text-only line review.";
+  section.appendChild(note);
 
   const statusEl = document.createElement("p");
   statusEl.className = "export-status";
@@ -311,6 +417,27 @@ function buildExportSection(
       }
       btn.disabled = true;
       statusEl.textContent = "Exporting…";
+
+      if (editor.hasLocalLineEdits()) {
+        const text = editor.getExportText(format);
+        if (text.trim() === "") {
+          statusEl.textContent = "There is no text to export.";
+          btn.disabled = false;
+          return;
+        }
+
+        const mime = format === "markdown" ? "text/markdown" : "text/plain";
+        const blob = new Blob([text], { type: mime });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = `notes.${format === "markdown" ? "md" : "txt"}`;
+        anchor.click();
+        URL.revokeObjectURL(url);
+        statusEl.textContent = "Export ready.";
+        btn.disabled = false;
+        return;
+      }
 
       exportText({ image_id: imageId, format })
         .then((resp) => {

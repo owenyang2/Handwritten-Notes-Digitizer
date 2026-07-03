@@ -57,12 +57,17 @@ export interface RecognizedWordDto {
 export interface RecognizedLineDto {
   index: number;
   region: RegionDto;
+  text?: string;
+  alignment_status?: "aligned" | "uncertain";
+  alignment_reason?: string | null;
   words: RecognizedWordDto[];
 }
 
 export interface RecognitionResultDto {
   lines: RecognizedLineDto[];
   recognized_any_text: boolean;
+  image_width?: number;
+  image_height?: number;
   status: "ok" | "no_text" | "timeout" | "error";
   message?: string;
 }
@@ -72,11 +77,12 @@ export interface RecognitionResultDto {
 // ---------------------------------------------------------------------------
 
 export interface SubmitCorrectionRequest {
-  word_index: number;
-  line_index: number;
+  word_index?: number;
+  line_index?: number;
   region: RegionDto;
   recognized_text: string;
   corrected_text: string;
+  store_if_unchanged?: boolean;
 }
 
 export interface SubmitCorrectionResponse {

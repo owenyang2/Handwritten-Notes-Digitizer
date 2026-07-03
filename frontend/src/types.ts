@@ -22,6 +22,9 @@ export interface RecognizedWord {
 export interface RecognizedLine {
   index: number;
   region: Region;
+  text?: string;
+  alignmentStatus?: "aligned" | "uncertain";
+  alignmentReason?: string;
   words: RecognizedWord[];
 }
 
@@ -29,6 +32,13 @@ export interface RecognizedLine {
 export interface RecognitionResult {
   lines: RecognizedLine[];
   recognizedAnyText: boolean;
+  /** Pixel dimensions of the processed image whose coordinate space owns regions. */
+  imageWidth?: number;
+  imageHeight?: number;
+  /** Backend recognition outcome, when rendered from an API response. */
+  status?: "ok" | "no_text" | "timeout" | "error";
+  /** Human-readable backend message for timeout/error outcomes. */
+  message?: string;
 }
 
 /** Before/after CER and WER report surfaced in the accuracy view. */

@@ -194,6 +194,9 @@ interface RawRecognizedWordWire {
 interface RawRecognizedLineWire {
   line_index: number;
   region: RegionDto;
+  text?: string;
+  alignment_status?: "aligned" | "uncertain";
+  alignment_reason?: string | null;
   words: RawRecognizedWordWire[];
 }
 
@@ -202,6 +205,8 @@ interface RawRecognizeResponse {
   outcome: "success" | "no_text" | "timeout" | "failed";
   image_id: string;
   lines?: RawRecognizedLineWire[];
+  image_width?: number | null;
+  image_height?: number | null;
   error_message?: string | null;
 }
 
@@ -209,6 +214,8 @@ interface RawRecognizeResponse {
 interface RawStoredResultResponse {
   image_id: string;
   status: "accepted" | "recognized" | "no_text" | "timeout" | "error";
+  image_width?: number | null;
+  image_height?: number | null;
   lines: RawRecognizedLineWire[];
 }
 
@@ -216,6 +223,9 @@ function mapWireLines(lines: RawRecognizedLineWire[]): RecognitionResultDto["lin
   return lines.map((line) => ({
     index: line.line_index,
     region: line.region,
+    text: line.text,
+    alignment_status: line.alignment_status,
+    alignment_reason: line.alignment_reason,
     words: line.words.map((word) => ({
       index: word.word_index,
       text: word.text,
@@ -242,6 +252,8 @@ function normalizeRecognizeResponse(raw: RawRecognizeResponse): RecognitionResul
   return {
     lines,
     recognized_any_text: raw.outcome === "success" && hasText,
+    image_width: raw.image_width ?? undefined,
+    image_height: raw.image_height ?? undefined,
     status: statusByOutcome[raw.outcome],
     message: raw.error_message ?? undefined,
   };
@@ -264,8 +276,15 @@ function normalizeStoredResultResponse(raw: RawStoredResultResponse): Recognitio
   return {
     lines,
     recognized_any_text: raw.status === "recognized" && hasText,
+    image_width: raw.image_width ?? undefined,
+    image_height: raw.image_height ?? undefined,
     status: statusByImageStatus[raw.status],
   };
+}
+
+/** URL for the backend-preprocessed image used as the region coordinate space. */
+export function getProcessedImageUrl(imageId: string): string {
+  return `${getBaseUrl()}/images/${encodeURIComponent(imageId)}/processed`;
 }
 
 // ---------------------------------------------------------------------------
