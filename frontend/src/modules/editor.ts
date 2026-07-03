@@ -63,6 +63,9 @@ export class Editor {
   private currentLineTexts = new Map<number, string>();
   private ignoredLineIndices = new Set<number>();
   private lineLevelEdits = false;
+  private sortMode: "reading-order" | "confidence" = "reading-order";
+  private currentResult?: RecognitionResult;
+  private currentImageUrl?: string;
 
   constructor(options: EditorOptions) {
     this.mount = options.mount;
@@ -86,7 +89,7 @@ export class Editor {
   }
 
   /** Return current editor text in reading order for local export. */
-  getExportText(format: "plain" | "markdown"): string {
+  getExportText(format: "plain" | "markdown" | "pdf"): string {
     const lines = this.lineOrder
       .filter((lineIndex) => !this.ignoredLineIndices.has(lineIndex))
       .map((lineIndex) => (this.currentLineTexts.get(lineIndex) ?? "").trim());
@@ -128,9 +131,14 @@ export class Editor {
     // Clear previous content.
     this.mount.innerHTML = "";
     this.lineOrder = [];
-    this.currentLineTexts = new Map();
-    this.ignoredLineIndices = new Set();
-    this.lineLevelEdits = false;
+    // Only reset text/edits if this is a new image/result, not just a re-render.
+    if (this.currentResult !== result) {
+      this.currentLineTexts = new Map();
+      this.ignoredLineIndices = new Set();
+      this.lineLevelEdits = false;
+    }
+    this.currentResult = result;
+    this.currentImageUrl = imageUrl;
 
     // Container holds the image and the text panel side by side (or stacked).
     const container = document.createElement("div");
@@ -193,9 +201,28 @@ export class Editor {
       const reviewSummary = document.createElement("div");
       reviewSummary.className = "review-summary";
       reviewSummary.setAttribute("data-testid", "review-summary");
-      reviewSummary.textContent =
+      
+      const summaryText = document.createElement("p");
+      summaryText.textContent =
         `${result.lines.length} editable line region${result.lines.length === 1 ? "" : "s"}. ` +
         "Save reviewed lines to add clean line crops to training data.";
+      reviewSummary.appendChild(summaryText);
+
+      const sortLabel = document.createElement("label");
+      sortLabel.textContent = "Sort by: ";
+      sortLabel.className = "editor-sort-label";
+      const sortSelect = document.createElement("select");
+      sortSelect.className = "editor-sort-select";
+      sortSelect.innerHTML = `
+        <option value="reading-order" ${this.sortMode === "reading-order" ? "selected" : ""}>Reading Order</option>
+        <option value="confidence" ${this.sortMode === "confidence" ? "selected" : ""}>Lowest Confidence</option>
+      `;
+      sortSelect.addEventListener("change", (e) => {
+        this.sortMode = (e.target as HTMLSelectElement).value as "reading-order" | "confidence";
+        this.render(this.currentResult!, this.currentImageUrl!);
+      });
+      sortLabel.appendChild(sortSelect);
+      reviewSummary.appendChild(sortLabel);
       textPanel.appendChild(reviewSummary);
 
       // Req 3.2: render words in reading order.
@@ -210,9 +237,34 @@ export class Editor {
         const sorted = [...line.words].sort((a, b) => a.index - b.index);
         lineMap.set(line.index, sorted);
       }
-      // Lines sorted top-to-bottom by their index (same order as readingOrder).
+      // Calculate line confidence scores (average of word confidences, default 1.0)
+      const lineConfidenceMap = new Map<number, number>();
+      for (const line of result.lines) {
+        let conf = 1.0;
+        if (line.words.length > 0) {
+          let sum = 0;
+          let count = 0;
+          for (const w of line.words) {
+            if (w.confidence !== undefined) {
+              sum += w.confidence;
+              count++;
+            }
+          }
+          if (count > 0) conf = sum / count;
+        }
+        lineConfidenceMap.set(line.index, conf);
+      }
+
+      // Lines sorted by selected mode
       const sortedLineIndices = [...result.lines]
-        .sort((a, b) => a.index - b.index)
+        .sort((a, b) => {
+          if (this.sortMode === "confidence") {
+            const confA = lineConfidenceMap.get(a.index) ?? 1.0;
+            const confB = lineConfidenceMap.get(b.index) ?? 1.0;
+            if (confA !== confB) return confA - confB;
+          }
+          return a.index - b.index;
+        })
         .map((l) => l.index);
       this.lineOrder = sortedLineIndices;
 
@@ -238,7 +290,9 @@ export class Editor {
 
         const label = document.createElement("label");
         label.className = "editor-line-label";
-        label.textContent = `Line ${lineIdx + 1} review`;
+        const conf = lineConfidenceMap.get(lineIdx) ?? 1.0;
+        const confPercent = Math.round(conf * 100);
+        label.textContent = `Line ${lineIdx + 1} review (Confidence: ${confPercent}%)`;
         block.appendChild(label);
 
         const textarea = document.createElement("textarea");
@@ -256,6 +310,19 @@ export class Editor {
           this.currentLineTexts.set(lineIdx, textarea.value);
           this.lineLevelEdits = true;
         });
+
+        // Highlight low confidence words
+        const lowConfWords = lineWords.filter(w => w.confidence !== undefined && w.confidence < 0.8);
+        if (lowConfWords.length > 0) {
+          const warningDiv = document.createElement("div");
+          warningDiv.className = "editor-line-warning";
+          warningDiv.style.color = "var(--warning-color, #f59e0b)";
+          warningDiv.style.fontSize = "0.85rem";
+          warningDiv.style.marginTop = "4px";
+          const wordsStr = lowConfWords.map(w => `"${w.text}"`).join(", ");
+          warningDiv.innerHTML = `⚠️ Low confidence words: ${wordsStr}`;
+          label.appendChild(warningDiv);
+        }
 
         const regionEditor = this.buildLineRegionEditor(lineIdx, regionState);
         block.appendChild(regionEditor.element);

@@ -257,7 +257,9 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
     // Step 2: Trigger recognition (POST /images/{image_id}/recognize).
     let recognitionDto;
     try {
-      recognitionDto = await recognizeImage(imageId);
+      recognitionDto = await recognizeImage(imageId, (current, total) => {
+         uploadUI.updateStatus(`Recognizing... ${current}/${total} lines`, "info");
+      });
     } catch (err) {
       if (err instanceof ApiError && err.status === 503) {
         editorSection.style.display = "";
@@ -402,63 +404,64 @@ function buildExportSection(
   statusEl.setAttribute("aria-live", "polite");
   section.appendChild(statusEl);
 
-  // Two export buttons: plain text and markdown.
-  const buildButton = (label: string, format: "plain" | "markdown"): HTMLButtonElement => {
+  const fetchText = async (format: "plain" | "markdown" | "pdf"): Promise<string> => {
+    if (!isAvailable("export")) {
+      throw new Error("Export capability is currently unavailable.");
+    }
+    if (editor.hasLocalLineEdits()) {
+      const text = editor.getExportText(format);
+      if (text.trim() === "") throw new Error("There is no text to export.");
+      return text;
+    }
+    const resp = await exportText({ image_id: imageId, format });
+    if (resp.status === "success") return resp.text;
+    throw new Error(resp.message || "Export failed.");
+  };
+
+  const downloadFile = (text: string, format: "plain" | "markdown" | "pdf") => {
+    let mime = "text/plain";
+    let extension = "txt";
+    let blob: Blob;
+
+    if (format === "pdf") {
+      mime = "application/pdf";
+      extension = "pdf";
+      const byteCharacters = atob(text);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) byteNumbers[i] = byteCharacters.charCodeAt(i);
+      blob = new Blob([new Uint8Array(byteNumbers)], { type: mime });
+    } else if (format === "markdown") {
+      mime = "text/markdown";
+      extension = "md";
+      blob = new Blob([text], { type: mime });
+    } else {
+      blob = new Blob([text], { type: mime });
+    }
+
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `notes.${extension}`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const buildActionBtn = (label: string, action: () => Promise<void>, testId: string): HTMLButtonElement => {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.textContent = label;
     btn.className = "export-btn";
-    btn.setAttribute("data-testid", `export-btn-${format}`);
+    btn.setAttribute("data-testid", testId);
 
     btn.addEventListener("click", () => {
-      if (!isAvailable("export")) {
-        statusEl.textContent = "Export capability is currently unavailable.";
-        return;
-      }
       btn.disabled = true;
-      statusEl.textContent = "Exporting…";
-
-      if (editor.hasLocalLineEdits()) {
-        const text = editor.getExportText(format);
-        if (text.trim() === "") {
-          statusEl.textContent = "There is no text to export.";
-          btn.disabled = false;
-          return;
-        }
-
-        const mime = format === "markdown" ? "text/markdown" : "text/plain";
-        const blob = new Blob([text], { type: mime });
-        const url = URL.createObjectURL(blob);
-        const anchor = document.createElement("a");
-        anchor.href = url;
-        anchor.download = `notes.${format === "markdown" ? "md" : "txt"}`;
-        anchor.click();
-        URL.revokeObjectURL(url);
-        statusEl.textContent = "Export ready.";
-        btn.disabled = false;
-        return;
-      }
-
-      exportText({ image_id: imageId, format })
-        .then((resp) => {
-          if (resp.status === "success") {
-            const mime = format === "markdown" ? "text/markdown" : "text/plain";
-            const blob = new Blob([resp.text], { type: mime });
-            const url = URL.createObjectURL(blob);
-            const anchor = document.createElement("a");
-            anchor.href = url;
-            anchor.download = `notes.${format === "markdown" ? "md" : "txt"}`;
-            anchor.click();
-            URL.revokeObjectURL(url);
-            statusEl.textContent = "Export ready.";
-            return;
-          }
-
-          statusEl.textContent = resp.message;
+      statusEl.textContent = "Processing…";
+      action()
+        .then(() => {
+          statusEl.textContent = "Ready.";
         })
         .catch((err: unknown) => {
-          const message = err instanceof Error ? err.message : "Export failed.";
-          statusEl.textContent = `Export failed: ${message}`;
+          statusEl.textContent = `Error: ${err instanceof Error ? err.message : String(err)}`;
         })
         .finally(() => {
           btn.disabled = false;
@@ -468,8 +471,26 @@ function buildExportSection(
     return btn;
   };
 
-  section.appendChild(buildButton("Copy as plain text", "plain"));
-  section.appendChild(buildButton("Export as Markdown", "markdown"));
+  section.appendChild(buildActionBtn("Copy to Clipboard", async () => {
+    const text = await fetchText("plain");
+    await navigator.clipboard.writeText(text);
+  }, "export-btn-copy"));
+
+  section.appendChild(buildActionBtn("Email Notes", async () => {
+    const text = await fetchText("plain");
+    const mailto = `mailto:?subject=${encodeURIComponent("Digitized Notes")}&body=${encodeURIComponent(text)}`;
+    window.open(mailto, "_blank");
+  }, "export-btn-email"));
+
+  section.appendChild(buildActionBtn("Download Markdown (Obsidian)", async () => {
+    const text = await fetchText("markdown");
+    downloadFile(text, "markdown");
+  }, "export-btn-markdown"));
+
+  section.appendChild(buildActionBtn("Download PDF", async () => {
+    const text = await fetchText("pdf");
+    downloadFile(text, "pdf");
+  }, "export-btn-pdf"));
 }
 
 // ---------------------------------------------------------------------------

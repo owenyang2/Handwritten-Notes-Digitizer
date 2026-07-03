@@ -139,6 +139,7 @@ async function fetchJson<T>(
 interface RawHealthResponse {
   status: string;
   capabilities: Record<string, boolean>;
+  model_status?: "trained" | "untrained" | "loading" | "unknown";
 }
 
 /** Map backend capability keys → frontend CapabilityName. */
@@ -174,6 +175,7 @@ export async function getHealth(): Promise<HealthResponse> {
   return {
     status: allAvailable ? "ok" : "degraded",
     capabilities,
+    model_status: raw.model_status ?? "unknown",
   };
 }
 
@@ -349,9 +351,12 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
  * Upload a PNG/JPEG image.  Returns the new image_id.
  * Authentication is enforced by the backend (Req 1.5, 10.4).
  */
-export async function uploadImage(file: File): Promise<UploadImageResponse> {
+export async function uploadImage(file: File, documentId?: string): Promise<UploadImageResponse> {
   const formData = new FormData();
   formData.append("file", file);
+  if (documentId) {
+    formData.append("document_id", documentId);
+  }
   return fetchJson<UploadImageResponse>("/images", {
     method: "POST",
     body: formData,
@@ -366,11 +371,59 @@ export async function uploadImage(file: File): Promise<UploadImageResponse> {
  */
 export async function recognizeImage(
   imageId: string,
+  onProgress?: (current: number, total: number) => void,
 ): Promise<RecognitionResultDto> {
-  const raw = await fetchJson<RawRecognizeResponse>(`/images/${imageId}/recognize`, {
-    method: "POST",
+  const url = `${getBaseUrl()}/images/${imageId}/recognize?stream=true`;
+
+  return new Promise((resolve, reject) => {
+    fetch(url, {
+      method: "POST",
+      credentials: "include",
+    }).then(async (response) => {
+      if (!response.ok) {
+         reject(new Error(`Failed to start recognition: ${response.status}`));
+         return;
+      }
+      if (!response.body) {
+         reject(new Error("No response body"));
+         return;
+      }
+      
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      
+      while (true) {
+         const { value, done } = await reader.read();
+         if (done) break;
+         
+         buffer += decoder.decode(value, { stream: true });
+         
+         let boundary = buffer.indexOf("\n\n");
+         while (boundary !== -1) {
+            const chunk = buffer.slice(0, boundary);
+            buffer = buffer.slice(boundary + 2);
+            
+            if (chunk.startsWith("data: ")) {
+               const dataStr = chunk.slice(6);
+               try {
+                 const event = JSON.parse(dataStr);
+                 if (event.type === "progress" && onProgress) {
+                    onProgress(event.current, event.total);
+                 } else if (event.type === "result") {
+                    resolve(normalizeRecognizeResponse(event.result));
+                 } else if (event.type === "error") {
+                    reject(new Error(event.error));
+                 }
+               } catch (e) {
+                 // parse errors
+               }
+            }
+            boundary = buffer.indexOf("\n\n");
+         }
+      }
+    }).catch(reject);
   });
-  return normalizeRecognizeResponse(raw);
 }
 
 /**
@@ -440,15 +493,26 @@ export async function submitCalibrationSample(
   sessionId: string,
   promptIndex: number,
   file: File,
-): Promise<CalibrationSampleResponse> {
-  const formData = new FormData();
-  formData.append("prompt_index", String(promptIndex));
-  formData.append("file", file);
-  return fetchJson<CalibrationSampleResponse>(
-    `/calibration/${sessionId}/samples`,
-    {
-      method: "POST",
-      body: formData,
-    },
-  );
+): Promise<void> {
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("promptIndex", promptIndex.toString());
+
+  await fetchJson<unknown>(`/calibration/${sessionId}/samples`, {
+    method: "POST",
+    body: fd,
+  });
+}
+
+export interface DocumentResponse {
+  document_id: string;
+  title: string;
+  created_at: string;
+  image_ids: string[];
+}
+
+export async function getDocuments(): Promise<DocumentResponse[]> {
+  return fetchJson<DocumentResponse[]>("/documents", {
+    method: "GET",
+  });
 }

@@ -14,6 +14,12 @@ import { UploadUI } from "./uploadUI.js";
 import { CalibrationUI } from "./calibrationUI.js";
 import { bootstrap } from "../main.js";
 
+Object.assign(navigator, {
+  clipboard: {
+    writeText: vi.fn().mockResolvedValue(undefined),
+  },
+});
+
 // ---------------------------------------------------------------------------
 // Helper
 // ---------------------------------------------------------------------------
@@ -466,7 +472,7 @@ describe("bootstrap() — upload to recognition wiring (Req 11.4)", () => {
 
     await vi.waitFor(() => {
       expect(apiClient.uploadImage).toHaveBeenCalledWith(file);
-      expect(apiClient.recognizeImage).toHaveBeenCalledWith("img-123");
+      expect(apiClient.recognizeImage).toHaveBeenCalledWith("img-123", expect.any(Function));
       expect(apiClient.getProcessedImageUrl).toHaveBeenCalledWith("img-123");
       expect(root.querySelector<HTMLImageElement>("[data-testid='editor-image']")?.src)
         .toContain("/api/images/img-123/processed");
@@ -605,7 +611,7 @@ describe("bootstrap() — upload to recognition wiring (Req 11.4)", () => {
     });
 
     // Click the plain-text export button.
-    const exportBtn = root.querySelector<HTMLButtonElement>("[data-testid='export-btn-plain']")!;
+    const exportBtn = root.querySelector<HTMLButtonElement>("[data-testid='export-btn-copy']")!;
     exportBtn.click();
 
     await vi.waitFor(() => {
@@ -681,7 +687,7 @@ describe("bootstrap() — upload to recognition wiring (Req 11.4)", () => {
     textarea.value = "acted quaintly but kept driving their oxen forward";
     textarea.dispatchEvent(new Event("input", { bubbles: true }));
 
-    const exportBtn = root.querySelector<HTMLButtonElement>("[data-testid='export-btn-plain']")!;
+    const exportBtn = root.querySelector<HTMLButtonElement>("[data-testid='export-btn-copy']")!;
     exportBtn.click();
 
     await vi.waitFor(() => {
