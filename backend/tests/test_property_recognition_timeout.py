@@ -155,7 +155,7 @@ def test_recognition_timeout_retains_image(scenario: dict) -> None:
     # Patch recognize_bytes to sleep for much longer than the timeout budget.
     # The 10× margin ensures the future's deadline fires first regardless of
     # OS thread-scheduling variance, eliminating flakiness.
-    def _slow_recognize(image_bytes: bytes, adapter=None, model=None, config=None):
+    def _slow_recognize(image_bytes: bytes, adapter=None, model=None, config=None, **kwargs):
         time.sleep(_SLEEP_DURATION)
 
     with _fresh_db() as (repos, store, user, image):

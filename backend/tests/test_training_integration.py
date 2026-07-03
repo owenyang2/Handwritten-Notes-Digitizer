@@ -336,7 +336,8 @@ class TestAdapterAppliedEndToEndAtInference:
         create_all(engine)
         factory = create_session_factory(engine)
         store = _InMemoryObjectStore()
-        session_store = SessionStore()
+        session = factory()
+        session_store = SessionStore(session)
 
         app = FastAPI()
         app.include_router(auth_router)

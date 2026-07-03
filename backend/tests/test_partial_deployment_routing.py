@@ -134,8 +134,8 @@ def store(tmp_path) -> ObjectStore:
 
 
 @pytest.fixture()
-def session_store() -> SessionStore:
-    return SessionStore()
+def session_store(db_session) -> SessionStore:
+    return SessionStore(db_session)
 
 
 # ---------------------------------------------------------------------------
@@ -572,3 +572,8 @@ class TestHealthConsistency:
         assert resp2.status_code == 503
         body2 = resp2.json()
         assert body2["detail"] == "capability 'calibration' is unavailable in this deployment"
+
+from unittest.mock import MagicMock
+@pytest.fixture()
+def db_session():
+    return MagicMock()

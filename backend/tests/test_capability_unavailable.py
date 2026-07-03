@@ -129,8 +129,8 @@ def store(tmp_path) -> ObjectStore:
 
 
 @pytest.fixture()
-def session_store() -> SessionStore:
-    return SessionStore()
+def session_store(db_session) -> SessionStore:
+    return SessionStore(db_session)
 
 
 # ---------------------------------------------------------------------------
@@ -451,3 +451,8 @@ class TestPartialDeploymentIsolation:
         body = resp.json()
         # FastAPI wraps HTTPException detail in {"detail": ...}
         assert body["detail"] == "capability 'recognition' is unavailable in this deployment"
+
+from unittest.mock import MagicMock
+@pytest.fixture()
+def db_session():
+    return MagicMock()

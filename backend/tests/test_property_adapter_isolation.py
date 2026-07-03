@@ -120,7 +120,7 @@ def _tiny_png_bytes() -> bytes:
 # ---------------------------------------------------------------------------
 
 
-def _fake_recognize(image_bytes: bytes, adapter: object) -> RecognitionResult:
+def _fake_recognize(image_bytes: bytes, adapter: object = None, **kwargs) -> RecognitionResult:
     """Fake engine that records the adapter it was called with and returns no text."""
     return RecognitionResult(lines=[], recognized_any_text=False)
 
@@ -281,10 +281,10 @@ def test_recognition_uses_only_requesting_users_adapter(
     # *inside* this callback, while the file still exists.
     captured: dict = {"adapter": "NOT_SET", "weights_bytes": None}
 
-    def _capturing_recognize(image_bytes_arg: bytes, adapter_arg: object) -> RecognitionResult:
-        captured["adapter"] = adapter_arg
-        if adapter_arg is not None:
-            with open(adapter_arg.weights_path, "rb") as fh:
+    def _capturing_recognize(image_bytes: bytes, adapter: object = None, **kwargs) -> RecognitionResult:
+        captured["adapter"] = adapter
+        if adapter is not None:
+            with open(adapter.weights_path, "rb") as fh:
                 captured["weights_bytes"] = fh.read()
         return RecognitionResult(lines=[], recognized_any_text=False)
 

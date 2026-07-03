@@ -198,9 +198,9 @@ def _make_user(session: Session, username: str, password: str = "testpass") -> U
 
 
 @pytest.fixture()
-def client(session_factory) -> Iterator[tuple[TestClient, SessionStore]]:
+def client(db_session, session_factory) -> Iterator[tuple[TestClient, SessionStore]]:
     """Build a FastAPI test app wired with auth + calibration routers."""
-    store = SessionStore()
+    store = SessionStore(db_session)
 
     def _override_db_session() -> Iterator[Session]:
         with session_factory() as s:
@@ -695,9 +695,9 @@ def test_out_of_range_prompt_index_is_rejected(repos_and_store) -> None:
 
 
 @pytest.fixture()
-def sample_client(session_factory, tmp_path) -> Iterator[tuple[TestClient, Any, Any, str]]:
+def sample_client(db_session, session_factory, tmp_path) -> Iterator[tuple[TestClient, Any, Any, str]]:
     """TestClient for session + samples endpoints, yielding (client, in_memory_store, token)."""
-    store = SessionStore()
+    store = SessionStore(db_session)
     obj_store = FilesystemObjectStore(root=tmp_path / "obj_store")
     calibration_session_store: dict = {}
 

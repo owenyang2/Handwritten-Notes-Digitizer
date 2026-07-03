@@ -39,12 +39,17 @@ import base64
 import binascii
 import hashlib
 import hmac
+import logging
 import secrets
 import threading
+import time
 import uuid
 from typing import Optional
+import datetime as _dt
 
-from app.data.models import User
+from sqlalchemy.orm import Session
+from app.data.models import User, UserSession
+from app.data.base import utcnow
 from app.data.repositories import UserRepository
 
 # --- Password hashing parameters ---------------------------------------------
@@ -130,44 +135,88 @@ _DUMMY_HASH = hash_password("dummy-password-for-timing-equalization")
 
 
 class SessionStore:
-    """Thread-safe in-memory store of opaque bearer tokens to user ids.
+    """Store of opaque bearer tokens mapped to user ids with TTL expiry.
 
-    The store is intentionally minimal: ``create`` mints a cryptographically
-    random token for a user, ``resolve`` maps a presented token back to its user
-    id (or ``None``), and ``revoke`` invalidates a token (logout). Nothing here
-    is persisted to the database, so issuing or resolving a token never writes
-    user data.
+    Persists sessions to the database via the ``UserSession`` model. 
+    Tokens expire after ``token_ttl_seconds`` (default: 7 days).
     """
 
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._tokens: dict[str, uuid.UUID] = {}
+    # Default session lifetime: 7 days
+    DEFAULT_TTL: float = 7 * 24 * 60 * 60
+
+    def __init__(self, db_session: Session, token_ttl_seconds: float | None = None) -> None:
+        self._db_session = db_session
+        self._ttl = token_ttl_seconds if token_ttl_seconds is not None else self.DEFAULT_TTL
 
     def create(self, user_id: uuid.UUID) -> str:
         """Issue and store a new opaque token for ``user_id``."""
         token = secrets.token_urlsafe(_TOKEN_BYTES)
-        with self._lock:
-            self._tokens[token] = user_id
+        expires_at = utcnow() + _dt.timedelta(seconds=self._ttl)
+        
+        session_record = UserSession(
+            token=token,
+            user_id=user_id,
+            expires_at=expires_at
+        )
+        self._db_session.add(session_record)
+        self._db_session.commit()
         return token
 
     def resolve(self, token: Optional[str]) -> Optional[uuid.UUID]:
-        """Return the user id for ``token`` or ``None`` if unknown/empty."""
+        """Return the user id for ``token`` or ``None`` if unknown/empty/expired."""
         if not token:
             return None
-        with self._lock:
-            return self._tokens.get(token)
+        
+        record = self._db_session.get(UserSession, token)
+        if record is None:
+            return None
+            
+        expires_at = record.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=_dt.timezone.utc)
+            
+        if utcnow() > expires_at:
+            # Token expired — evict lazily.
+            self._db_session.delete(record)
+            self._db_session.commit()
+            return None
+            
+        return record.user_id
 
     def revoke(self, token: Optional[str]) -> bool:
-        """Invalidate ``token``; return whether it existed."""
+        """Invalidate ``token``; return whether it existed and was not yet expired."""
         if not token:
             return False
-        with self._lock:
-            return self._tokens.pop(token, None) is not None
+            
+        record = self._db_session.get(UserSession, token)
+        if record is None:
+            return False
+            
+        self._db_session.delete(record)
+        self._db_session.commit()
+        return True
+
+    def purge_expired(self) -> int:
+        """Remove all expired tokens. Returns the count of removed entries.
+
+        Intended for periodic maintenance calls.
+        """
+        now = utcnow()
+        
+        # We query for expired items, then delete. (Using a delete statement is faster, 
+        # but ORM objects might be in identity map). A bulk delete is fine here.
+        from sqlalchemy import delete
+        stmt = delete(UserSession).where(UserSession.expires_at < now)
+        result = self._db_session.execute(stmt)
+        self._db_session.commit()
+        return result.rowcount
 
     def clear(self) -> None:
         """Drop all tokens (used to isolate tests)."""
-        with self._lock:
-            self._tokens.clear()
+        from sqlalchemy import delete
+        stmt = delete(UserSession)
+        self._db_session.execute(stmt)
+        self._db_session.commit()
 
 
 class AuthService:

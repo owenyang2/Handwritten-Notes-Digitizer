@@ -56,6 +56,7 @@ from app.data.repositories import RepositoryFactory
 from app.ml.adapter_trainer import AdapterResult, adapter_result_to_bytes, train_adapter
 from app.ml.general_eval_set import load_general_eval_set
 from app.ml.htr_config import DEFAULT_HTR_CONFIG
+from app.ml.engine import CRNNEngine
 from app.ml.recognition import apply_adapter, get_base_model, recognize_crop
 from app.ml.train_base import LabeledSample
 from app.services.evaluation_service import BeforeAfterReport, compute_before_after
@@ -235,13 +236,13 @@ def _run_adapter_training(
 
     # --- Build recognisers over the base model and the newly trained adapter.
     def base_recogniser(crop_bytes: bytes) -> str:
-        return recognize_crop(crop_bytes, base_model)
+        return recognize_crop(crop_bytes, CRNNEngine(base_model))
 
     adapter_bytes = adapter_result_to_bytes(adapter_result)
     adapted_model = apply_adapter(base_model, adapter_bytes)
 
     def adapter_recogniser(crop_bytes: bytes) -> str:
-        return recognize_crop(crop_bytes, adapted_model)
+        return recognize_crop(crop_bytes, CRNNEngine(adapted_model))
 
     # --- Req 7.1/7.2: before/after on the user's own held-out set.
     user_held_out_pairs = [

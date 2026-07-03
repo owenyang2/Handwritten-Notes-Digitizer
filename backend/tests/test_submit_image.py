@@ -75,30 +75,30 @@ def object_store(tmp_path) -> ObjectStore:
 
 
 @pytest.fixture()
-def client(session_factory, object_store) -> Iterator[tuple[TestClient, SessionStore]]:
+def client(db_session, session_factory, object_store) -> Iterator[tuple[TestClient, SessionStore]]:
     """Build an app wiring auth + images routers with test overrides."""
-    store = SessionStore()
+    with session_factory() as s:
+        store = SessionStore(s)
 
-    def _override_db() -> Iterator[Session]:
-        with session_factory() as s:
+        def _override_db() -> Iterator[Session]:
             yield s
 
-    def _override_session_store() -> SessionStore:
-        return store
+        def _override_session_store() -> SessionStore:
+            return store
 
-    def _override_object_store() -> ObjectStore:
-        return object_store
+        def _override_object_store() -> ObjectStore:
+            return object_store
 
-    app = FastAPI()
-    app.include_router(auth_router)
-    app.include_router(images_router)
+        app = FastAPI()
+        app.include_router(auth_router)
+        app.include_router(images_router)
 
-    app.dependency_overrides[get_db_session] = _override_db
-    app.dependency_overrides[get_session_store] = _override_session_store
-    app.dependency_overrides[get_object_store] = _override_object_store
+        app.dependency_overrides[get_db_session] = _override_db
+        app.dependency_overrides[get_session_store] = _override_session_store
+        app.dependency_overrides[get_object_store] = _override_object_store
 
-    with TestClient(app, raise_server_exceptions=True) as c:
-        yield c, store, session_factory
+        with TestClient(app, raise_server_exceptions=True) as c:
+            yield c, store, session_factory
 
 
 # --------------------------------------------------------------------------- #

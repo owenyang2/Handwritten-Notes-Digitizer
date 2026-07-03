@@ -88,9 +88,9 @@ def object_store(tmp_path):
 
 
 @pytest.fixture()
-def session_store() -> SessionStore:
+def session_store(db_session) -> SessionStore:
     """Fresh in-process session token store."""
-    return SessionStore()
+    return SessionStore(db_session)
 
 
 def _no_op_capability_guard():

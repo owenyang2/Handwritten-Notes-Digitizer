@@ -28,9 +28,9 @@ from __future__ import annotations
 from io import BytesIO
 import uuid
 from functools import lru_cache
-from typing import Annotated, Iterator
+from typing import Annotated, Iterator, Optional
 
-from fastapi import APIRouter, Depends, File, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Response, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -104,6 +104,7 @@ class ImageRejectedResponse(BaseModel):
 )
 def submit_image(
     file: Annotated[UploadFile, File(description="PNG or JPEG image, ≤ 10 MB")],
+    document_id: Annotated[Optional[uuid.UUID], Form()] = None,
     user: User = Depends(get_current_user),
     repos: RepositoryFactory = Depends(get_repositories),
     store: ObjectStore = Depends(get_object_store),
@@ -147,15 +148,15 @@ def submit_image(
     )
 
     # Create a relational Image record associated with the submitting user.
-    image = repos.images.add(
-        Image(
-            user_id=user.user_id,
-            storage_path=storage_path,
-            format=image_format,
-            size_bytes=result.size_bytes,
-            status=ImageStatus.ACCEPTED,
-        )
+    db_image = Image(
+        user_id=user.user_id,
+        document_id=document_id,
+        storage_path=storage_path,
+        format=image_format,
+        size_bytes=result.size_bytes,
+        status=ImageStatus.ACCEPTED,
     )
+    image = repos.images.add(db_image)
     # Commit so the record is visible outside this request.
     repos.session.commit()
 

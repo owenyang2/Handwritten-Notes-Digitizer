@@ -72,15 +72,7 @@ router = APIRouter(tags=["auth"])
 # --- Request-scoped dependency providers -------------------------------------
 
 
-@lru_cache(maxsize=1)
-def _default_session_store() -> SessionStore:
-    """Process-wide default session store (overridable in tests)."""
-    return SessionStore()
 
-
-def get_session_store() -> SessionStore:
-    """Provide the session store. Overridden in tests for isolation."""
-    return _default_session_store()
 
 
 @lru_cache(maxsize=1)
@@ -103,6 +95,11 @@ def get_db_session() -> Iterator[Session]:
         yield session
     finally:
         session.close()
+
+
+def get_session_store(session: Session = Depends(get_db_session)) -> SessionStore:
+    """Provide the session store bound to the current database session."""
+    return SessionStore(session)
 
 
 def get_repositories(

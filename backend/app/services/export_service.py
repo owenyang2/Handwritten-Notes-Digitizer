@@ -156,9 +156,28 @@ def _to_markdown(lines: Sequence[LineInput]) -> str:
     return "\n\n".join("\n".join(para) for para in paragraphs)
 
 
+def _to_pdf(lines: Sequence[LineInput]) -> str:
+    """Produce PDF as base64 encoded string or raw bytes (returned as string for now).
+    Actually, to keep ExportResult text string, we'll return base64 encoded PDF.
+    """
+    import base64
+    from fpdf import FPDF
+    
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("helvetica", size=12)
+    
+    text = _to_plain_text(lines)
+    for line in text.split("\n"):
+        pdf.multi_cell(0, 10, txt=line)
+        
+    pdf_bytes = pdf.output()
+    return base64.b64encode(pdf_bytes).decode('utf-8')
+
+
 def export(
     lines: Sequence[LineInput],
-    format: Literal["plain", "markdown"],  # noqa: A002  (shadows builtin 'format')
+    format: Literal["plain", "markdown", "pdf"],  # noqa: A002  (shadows builtin 'format')
 ) -> ExportResult:
     """Export *lines* as plain text or markdown.
 
@@ -189,8 +208,12 @@ def export(
 
         if format == "plain":
             text = _to_plain_text(lines)
-        else:
+        elif format == "markdown":
             text = _to_markdown(lines)
+        elif format == "pdf":
+            text = _to_pdf(lines)
+        else:
+            raise ValueError(f"Unknown export format: {format}")
 
         return ExportSuccess(text=text, format=format)
 
@@ -211,13 +234,14 @@ router = APIRouter(tags=["export"])
 class ExportFormat(str, Enum):
     PLAIN = "plain"
     MARKDOWN = "markdown"
+    PDF = "pdf"
 
 
 class ExportRequest(BaseModel):
-    """Request body for ``POST /export``."""
+    """Request payload for exporting lines as text (Req 8)."""
 
     image_id: uuid.UUID
-    format: ExportFormat = ExportFormat.PLAIN
+    format: Literal["plain", "markdown", "pdf"] = "plain"
 
 
 class ExportSuccessResponse(BaseModel):
@@ -293,7 +317,7 @@ def export_text(
         for idx in sorted(lines_by_index)
     ]
 
-    result = export(line_inputs, format=body.format.value)  # type: ignore[arg-type]
+    result = export(line_inputs, format=body.format)
 
     if isinstance(result, ExportSuccess):
         return ExportSuccessResponse(format=result.format, text=result.text)

@@ -747,7 +747,8 @@ def app_client(tmp_path):
             s.close()
 
     # Fresh in-process session store.
-    session_store = SessionStore()
+    store_session = session_factory()
+    session_store = SessionStore(store_session)
 
     # Single shared in-memory object store so images uploaded via POST /images
     # are readable by the correction service in the same test.
@@ -784,6 +785,8 @@ def _register_and_login(client, session_factory, session_store):
         s.close()
 
     resp = client.post("/auth/login", json={"username": username, "password": password})
+    if resp.status_code != 200:
+        print("LOGIN ERROR:", resp.text)
     assert resp.status_code == 200
     token = resp.json()["access_token"]
     return token, user_id

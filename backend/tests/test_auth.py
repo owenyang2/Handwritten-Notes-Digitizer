@@ -103,8 +103,8 @@ def test_hash_password_rejects_non_string() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_session_store_create_resolve_revoke() -> None:
-    store = SessionStore()
+def test_session_store_create_resolve_revoke(db_session) -> None:
+    store = SessionStore(db_session)
     uid = uuid.uuid4()
     token = store.create(uid)
     assert isinstance(token, str) and token
@@ -114,15 +114,15 @@ def test_session_store_create_resolve_revoke() -> None:
     assert store.revoke(token) is False
 
 
-def test_session_store_resolve_unknown_and_empty() -> None:
-    store = SessionStore()
+def test_session_store_resolve_unknown_and_empty(db_session) -> None:
+    store = SessionStore(db_session)
     assert store.resolve(None) is None
     assert store.resolve("") is None
     assert store.resolve("never-issued") is None
 
 
-def test_session_store_tokens_are_unique() -> None:
-    store = SessionStore()
+def test_session_store_tokens_are_unique(db_session) -> None:
+    store = SessionStore(db_session)
     uid = uuid.uuid4()
     tokens = {store.create(uid) for _ in range(50)}
     assert len(tokens) == 50
@@ -171,7 +171,7 @@ def _make_user(session: Session, username: str, password: str) -> User:
 def test_auth_service_authenticate_success(db_session: Session) -> None:
     _make_user(db_session, "alice", "hunter2")
     repos = RepositoryFactory(db_session)
-    svc = AuthService(repos.users, SessionStore())
+    svc = AuthService(repos.users, SessionStore(db_session))
 
     user = svc.authenticate("alice", "hunter2")
     assert user.username == "alice"
@@ -180,7 +180,7 @@ def test_auth_service_authenticate_success(db_session: Session) -> None:
 def test_auth_service_authenticate_wrong_password(db_session: Session) -> None:
     _make_user(db_session, "alice", "hunter2")
     repos = RepositoryFactory(db_session)
-    svc = AuthService(repos.users, SessionStore())
+    svc = AuthService(repos.users, SessionStore(db_session))
 
     with pytest.raises(InvalidCredentials):
         svc.authenticate("alice", "wrong")
@@ -188,7 +188,7 @@ def test_auth_service_authenticate_wrong_password(db_session: Session) -> None:
 
 def test_auth_service_authenticate_unknown_user(db_session: Session) -> None:
     repos = RepositoryFactory(db_session)
-    svc = AuthService(repos.users, SessionStore())
+    svc = AuthService(repos.users, SessionStore(db_session))
 
     with pytest.raises(InvalidCredentials):
         svc.authenticate("ghost", "whatever")
@@ -197,7 +197,7 @@ def test_auth_service_authenticate_unknown_user(db_session: Session) -> None:
 def test_auth_service_login_issues_resolvable_token(db_session: Session) -> None:
     user = _make_user(db_session, "alice", "hunter2")
     repos = RepositoryFactory(db_session)
-    store = SessionStore()
+    store = SessionStore(db_session)
     svc = AuthService(repos.users, store)
 
     token, logged_in = svc.login("alice", "hunter2")
@@ -211,13 +211,13 @@ def test_auth_service_login_issues_resolvable_token(db_session: Session) -> None
 
 
 @pytest.fixture()
-def client(session_factory) -> Iterator[tuple[TestClient, SessionStore, object]]:
+def client(db_session, session_factory) -> Iterator[tuple[TestClient, SessionStore, object]]:
     """Build an app wiring the auth router plus a gated test endpoint.
 
     The gated endpoint writes an Image when reached; tests assert that an
     unauthenticated call never reaches it (nothing stored).
     """
-    store = SessionStore()
+    store = SessionStore(db_session)
 
     def _override_db_session() -> Iterator[Session]:
         with session_factory() as s:

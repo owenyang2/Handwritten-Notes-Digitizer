@@ -97,7 +97,7 @@ class _InMemoryObjectStore(ObjectStore):
 # --------------------------------------------------------------------------- #
 
 
-def _build_app():
+def _build_app() -> tuple[TestClient, Any]:
     """Build the test FastAPI app with isolated in-memory DB + object store.
 
     Returns the TestClient and the session factory so tests can inspect
@@ -106,7 +106,8 @@ def _build_app():
     engine = create_db_engine("sqlite://", poolclass=StaticPool)
     create_all(engine)
     factory = create_session_factory(engine)
-    store = SessionStore()
+    session = factory()
+    store = SessionStore(session)
     object_store = _InMemoryObjectStore()
 
     app = FastAPI()

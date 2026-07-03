@@ -64,8 +64,8 @@ def session_factory():
 
 
 @pytest.fixture()
-def client(session_factory, tmp_path) -> Iterator[tuple[TestClient, SessionStore]]:
-    store = SessionStore()
+def client(db_session, session_factory, tmp_path) -> Iterator[tuple[TestClient, SessionStore]]:
+    store = SessionStore(db_session)
     object_store = FilesystemObjectStore(str(tmp_path / "objectstore"))
 
     app = FastAPI()
