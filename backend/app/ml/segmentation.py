@@ -147,6 +147,11 @@ class SegmentationConfig:
     # narrower.
     word_gap_fraction: float = 0.6
     word_gap_min_px: int = 3
+    # Ignore projection bands that are both narrow and contain very little ink.
+    # This suppresses punctuation specks and detached pen marks without
+    # discarding a narrow but substantial line such as a handwritten "I".
+    min_line_width_px: int = 12
+    min_line_ink_pixels: int = 36
 
 
 def _runs(mask: np.ndarray) -> list[tuple[int, int]]:
@@ -265,6 +270,14 @@ def segment(
         line_region = Region(
             x=left, y=top, width=right - left, height=bottom - top
         )
+        line_ink_pixels = int(
+            ink_mask[line_region.y : line_region.bottom, line_region.x : line_region.right].sum()
+        )
+        if (
+            line_region.width < config.min_line_width_px
+            and line_ink_pixels < config.min_line_ink_pixels
+        ):
+            continue
         lines.append(
             LineSegment(index=line_index, region=line_region, words=words)
         )

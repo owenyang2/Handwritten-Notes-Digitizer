@@ -28,9 +28,9 @@ upgraded over time without a schema change.
 Sessions / tokens
 ------------------
 :class:`SessionStore` issues opaque bearer tokens (``secrets.token_urlsafe``)
-mapped to a user id. The default store is in-memory and thread-safe, which is
-sufficient for the demo; the interface is small enough to back with Redis or a
-database table later without touching callers.
+mapped to a user id and persists them in the relational database. Tokens carry
+a fixed TTL, survive process restarts, and are shared by every application
+worker using that database.
 """
 
 from __future__ import annotations
@@ -39,10 +39,7 @@ import base64
 import binascii
 import hashlib
 import hmac
-import logging
 import secrets
-import threading
-import time
 import uuid
 from typing import Optional
 import datetime as _dt
@@ -137,7 +134,7 @@ _DUMMY_HASH = hash_password("dummy-password-for-timing-equalization")
 class SessionStore:
     """Store of opaque bearer tokens mapped to user ids with TTL expiry.
 
-    Persists sessions to the database via the ``UserSession`` model. 
+    Persists sessions to the database via the ``UserSession`` model.
     Tokens expire after ``token_ttl_seconds`` (default: 7 days).
     """
 
@@ -152,11 +149,10 @@ class SessionStore:
         """Issue and store a new opaque token for ``user_id``."""
         token = secrets.token_urlsafe(_TOKEN_BYTES)
         expires_at = utcnow() + _dt.timedelta(seconds=self._ttl)
-        
         session_record = UserSession(
             token=token,
             user_id=user_id,
-            expires_at=expires_at
+            expires_at=expires_at,
         )
         self._db_session.add(session_record)
         self._db_session.commit()
@@ -166,15 +162,15 @@ class SessionStore:
         """Return the user id for ``token`` or ``None`` if unknown/empty/expired."""
         if not token:
             return None
-        
+
         record = self._db_session.get(UserSession, token)
         if record is None:
             return None
-            
+
         expires_at = record.expires_at
         if expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=_dt.timezone.utc)
-            
+
         if utcnow() > expires_at:
             # Token expired — evict lazily.
             self._db_session.delete(record)
@@ -187,11 +183,11 @@ class SessionStore:
         """Invalidate ``token``; return whether it existed and was not yet expired."""
         if not token:
             return False
-            
+
         record = self._db_session.get(UserSession, token)
         if record is None:
             return False
-            
+
         self._db_session.delete(record)
         self._db_session.commit()
         return True
@@ -203,8 +199,8 @@ class SessionStore:
         """
         now = utcnow()
         
-        # We query for expired items, then delete. (Using a delete statement is faster, 
-        # but ORM objects might be in identity map). A bulk delete is fine here.
+        # A bulk delete is safe here because session records have no state that
+        # needs to remain in the identity map after maintenance.
         from sqlalchemy import delete
         stmt = delete(UserSession).where(UserSession.expires_at < now)
         result = self._db_session.execute(stmt)

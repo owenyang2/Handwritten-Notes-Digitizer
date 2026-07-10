@@ -237,6 +237,34 @@ def test_words_are_not_split_into_isolated_characters():
     assert len(result.lines[0].words) == 1
 
 
+def test_tiny_detached_marks_do_not_create_reviewable_lines():
+    """Specks between real lines must not become false OCR line regions."""
+    img = _blank_page(width=464, height=301)
+    draw = ImageDraw.Draw(img)
+    _draw_word(draw, x=16, y=26, w=406, h=52)
+    _draw_word(draw, x=37, y=114, w=191, h=63)
+    # Detached marks comparable to a dot or short pen fragment.
+    _draw_word(draw, x=130, y=97, w=6, h=5)
+    _draw_word(draw, x=39, y=105, w=4, h=7)
+
+    result = segment(preprocess(_page_bytes(img)))
+
+    assert len(result.lines) == 2
+    assert [line.index for line in result.lines] == [0, 1]
+
+
+def test_narrow_line_with_substantial_ink_is_preserved():
+    """A valid narrow line must not be confused with a small detached mark."""
+    img = _blank_page(width=160, height=100)
+    draw = ImageDraw.Draw(img)
+    _draw_word(draw, x=40, y=20, w=8, h=40)
+
+    result = segment(preprocess(_page_bytes(img)))
+
+    assert len(result.lines) == 1
+    assert result.lines[0].region.width < 12
+
+
 def test_region_to_dict_shape():
     region = Region(x=1, y=2, width=3, height=4)
     assert region.to_dict() == {"x": 1, "y": 2, "width": 3, "height": 4}

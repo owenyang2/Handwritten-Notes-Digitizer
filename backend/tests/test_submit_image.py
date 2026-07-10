@@ -27,6 +27,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.data import (
     Base,
+    Document,
     Image,
     RepositoryFactory,
     User,
@@ -163,6 +164,56 @@ def test_submit_valid_jpeg_returns_201(client):
 
     assert resp.status_code == status.HTTP_201_CREATED, resp.text
     assert resp.json()["status"] == "accepted"
+
+
+def test_submit_image_attaches_to_callers_document(client):
+    c, store, sf = client
+    token = _register_and_login(c, sf)
+    with sf() as session:
+        user = session.query(User).filter_by(username="alice").one()
+        document = Document(user_id=user.user_id, title="Lecture notes")
+        session.add(document)
+        session.commit()
+        document_id = document.document_id
+
+    response = c.post(
+        "/images",
+        data={"document_id": str(document_id)},
+        files={"file": ("photo.png", _encode("PNG"), "image/png")},
+        headers=_auth_header(token),
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED, response.text
+    with sf() as session:
+        image = session.get(Image, uuid.UUID(response.json()["image_id"]))
+        assert image is not None
+        assert image.document_id == document_id
+
+
+@pytest.mark.parametrize("document_owner", ["bob", None])
+def test_submit_image_rejects_unknown_or_cross_user_document(client, document_owner):
+    c, _session_store, sf = client
+    alice_token = _register_and_login(c, sf)
+    document_id = uuid.uuid4()
+    if document_owner is not None:
+        _register_and_login(c, sf, username=document_owner)
+        with sf() as session:
+            owner = session.query(User).filter_by(username=document_owner).one()
+            document = Document(user_id=owner.user_id, title="Private")
+            session.add(document)
+            session.commit()
+            document_id = document.document_id
+
+    response = c.post(
+        "/images",
+        data={"document_id": str(document_id)},
+        files={"file": ("photo.png", _encode("PNG"), "image/png")},
+        headers=_auth_header(alice_token),
+    )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert response.json()["detail"] == "Document not found"
+    assert _count_images(sf) == 0
 
 
 def test_accepted_image_is_stored_in_db(client):

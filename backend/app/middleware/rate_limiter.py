@@ -12,7 +12,9 @@ runs as a single Uvicorn process behind nginx. For multi-worker or distributed
 deployments, replace ``_TokenBucketStore`` with a Redis-backed implementation
 (e.g. via ``slowapi`` or a custom Redis script).
 
-Configuration is via ``Settings``; see ``config/settings.py`` for the knobs.
+The current quotas are deliberately static and live in ``_RATE_LIMIT_RULES``.
+They can be moved to deployment settings once the application needs
+environment-specific limits.
 
 Usage
 -----
@@ -27,7 +29,6 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from collections import defaultdict
 from typing import Callable
 
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -70,24 +71,21 @@ class _TokenBucketStore:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._buckets: dict[tuple[str, str], _Bucket] = defaultdict(
-            lambda: _Bucket(0, 0)  # replaced on first get_or_create call
-        )
-
-    def get_or_create(
-        self, ip: str, route_key: str, capacity: float, refill_rate: float
-    ) -> _Bucket:
-        key = (ip, route_key)
-        with self._lock:
-            if key not in self._buckets:
-                self._buckets[key] = _Bucket(capacity, refill_rate)
-            return self._buckets[key]
+        self._buckets: dict[tuple[str, str], _Bucket] = {}
+        self._last_cleanup = time.monotonic()
 
     def consume(
         self, ip: str, route_key: str, capacity: float, refill_rate: float
     ) -> bool:
-        bucket = self.get_or_create(ip, route_key, capacity, refill_rate)
+        key = (ip, route_key)
         with self._lock:
+            now = time.monotonic()
+            if now - self._last_cleanup >= 300.0:
+                self._cleanup_stale_locked(now, max_idle_seconds=3600.0)
+                self._last_cleanup = now
+            if key not in self._buckets:
+                self._buckets[key] = _Bucket(capacity, refill_rate)
+            bucket = self._buckets[key]
             return bucket.consume()
 
     def cleanup_stale(self, max_idle_seconds: float = 3600.0) -> None:
@@ -97,20 +95,24 @@ class _TokenBucketStore:
         """
         now = time.monotonic()
         with self._lock:
-            stale = [
-                k
-                for k, b in self._buckets.items()
-                if (now - b.last_refill) > max_idle_seconds
-            ]
-            for k in stale:
-                del self._buckets[k]
+            self._cleanup_stale_locked(now, max_idle_seconds)
+            self._last_cleanup = now
+
+    def _cleanup_stale_locked(self, now: float, max_idle_seconds: float) -> None:
+        stale = [
+            key
+            for key, bucket in self._buckets.items()
+            if now - bucket.last_refill > max_idle_seconds
+        ]
+        for key in stale:
+            del self._buckets[key]
 
 
 # ---------------------------------------------------------------------------
 # Route → (capacity, refill_rate) configuration
 # ---------------------------------------------------------------------------
 
-# Each entry is (method, path_prefix): (burst_capacity, sustained_rps)
+# Each entry is (method, stable_route_key): (burst_capacity, sustained_rps)
 # capacity  = max burst requests allowed before throttling starts
 # refill_rate = steady-state requests per second after burst is exhausted
 _RATE_LIMIT_RULES: list[tuple[str, str, float, float]] = [
@@ -127,20 +129,30 @@ _store = _TokenBucketStore()
 
 
 def _client_ip(request: Request) -> str:
-    """Extract the real client IP, respecting X-Forwarded-For from nginx."""
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
+    """Extract the address supplied by nginx, falling back to the peer address.
+
+    nginx overwrites ``X-Real-IP`` with ``$remote_addr``. In contrast,
+    ``X-Forwarded-For`` deliberately preserves client-supplied values and must
+    not be used as an unvalidated rate-limit identity.
+    """
+    real_ip = request.headers.get("X-Real-IP")
+    if real_ip:
+        return real_ip.strip()
     return request.client.host if request.client else "unknown"
 
 
-def _find_rule(
-    method: str, path: str
-) -> tuple[float, float] | None:
-    """Return (capacity, refill_rate) for the first matching rule, or None."""
+def _find_rule(method: str, path: str) -> tuple[str, float, float] | None:
+    """Return the matched route key, capacity, and refill rate, if any."""
     for rule_method, rule_prefix, capacity, rate in _RATE_LIMIT_RULES:
-        if method.upper() == rule_method and rule_prefix in path:
-            return capacity, rate
+        if method.upper() != rule_method:
+            continue
+
+        if rule_prefix == "/recognize":
+            matches = path.endswith(rule_prefix)
+        else:
+            matches = path == rule_prefix
+        if matches:
+            return rule_prefix, capacity, rate
     return None
 
 
@@ -166,9 +178,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         rule = _find_rule(request.method, request.url.path)
         if rule is not None:
-            capacity, refill_rate = rule
+            rule_key, capacity, refill_rate = rule
             ip = _client_ip(request)
-            route_key = f"{request.method}:{request.url.path}"
+            route_key = f"{request.method}:{rule_key}"
             allowed = _store.consume(ip, route_key, capacity, refill_rate)
             if not allowed:
                 retry_after = int(1.0 / refill_rate) if refill_rate > 0 else 60

@@ -36,6 +36,7 @@ from sqlalchemy.orm import Session
 from .enums import AdapterStatus, TrainingRunState
 from .models import (
     Adapter,
+    Document,
     EvaluationResult,
     Image,
     RecognizedWord,
@@ -96,24 +97,31 @@ class UserRepository(_ScopedRepository):
 
 
 class DocumentRepository(_ScopedRepository):
-    """Repository for managing Document aggregates."""
+    """Per-user access to document aggregates and their image groups."""
 
-    def create(self, user_id: uuid.UUID, title: str) -> models.Document:
-        doc = models.Document(user_id=user_id, title=title)
-        self.session.add(doc)
-        self.session.flush()
+    def create(self, user_id: UUIDLike | str, title: str) -> Document:
+        doc = Document(user_id=_as_uuid(user_id), title=title)
+        self._session.add(doc)
+        self._session.flush()
         return doc
 
-    def get_by_id(self, document_id: uuid.UUID) -> Optional[models.Document]:
-        return self.session.query(models.Document).filter_by(document_id=document_id).first()
-
-    def list_by_user(self, user_id: uuid.UUID) -> list[models.Document]:
-        return (
-            self.session.query(models.Document)
-            .filter_by(user_id=user_id)
-            .order_by(models.Document.created_at.desc())
-            .all()
+    def get(
+        self, user_id: UUIDLike | str, document_id: UUIDLike | str
+    ) -> Optional[Document]:
+        """Return a document only when it belongs to ``user_id``."""
+        stmt = select(Document).where(
+            Document.document_id == _as_uuid(document_id),
+            Document.user_id == _as_uuid(user_id),
         )
+        return self._session.scalars(stmt).one_or_none()
+
+    def list_for_user(self, user_id: UUIDLike | str) -> list[Document]:
+        stmt = (
+            select(Document)
+            .where(Document.user_id == _as_uuid(user_id))
+            .order_by(Document.created_at.desc())
+        )
+        return list(self._session.scalars(stmt).all())
 
 
 class ImageRepository(_ScopedRepository):

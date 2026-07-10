@@ -169,7 +169,7 @@ def _to_pdf(lines: Sequence[LineInput]) -> str:
     
     text = _to_plain_text(lines)
     for line in text.split("\n"):
-        pdf.multi_cell(0, 10, txt=line)
+        pdf.multi_cell(0, 10, text=line)
         
     pdf_bytes = pdf.output()
     return base64.b64encode(pdf_bytes).decode('utf-8')

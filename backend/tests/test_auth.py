@@ -2,7 +2,7 @@
 
 Covers:
 * Password hashing/verification (salting, tamper resistance, format).
-* The in-memory session store.
+* The persistent session store.
 * ``AuthService`` authenticate/login behavior.
 * ``POST /auth/login`` issuing a token and rejecting bad credentials.
 * The ``get_current_user`` auth gate: authenticated requests pass, while
@@ -28,6 +28,7 @@ from app.data import (
     ImageStatus,
     RepositoryFactory,
     User,
+    UserSession,
     create_all,
     create_db_engine,
     create_session_factory,
@@ -119,6 +120,14 @@ def test_session_store_resolve_unknown_and_empty(db_session) -> None:
     assert store.resolve(None) is None
     assert store.resolve("") is None
     assert store.resolve("never-issued") is None
+
+
+def test_session_store_rejects_and_removes_expired_tokens(db_session) -> None:
+    store = SessionStore(db_session, token_ttl_seconds=-1)
+    token = store.create(uuid.uuid4())
+
+    assert store.resolve(token) is None
+    assert db_session.get(UserSession, token) is None
 
 
 def test_session_store_tokens_are_unique(db_session) -> None:
