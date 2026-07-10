@@ -18,7 +18,6 @@ import type {
   ExportRequest,
   ExportResponse,
   CalibrationSessionResponse,
-  CalibrationSampleResponse,
 } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -374,56 +373,86 @@ export async function recognizeImage(
   onProgress?: (current: number, total: number) => void,
 ): Promise<RecognitionResultDto> {
   const url = `${getBaseUrl()}/images/${imageId}/recognize?stream=true`;
-
-  return new Promise((resolve, reject) => {
-    fetch(url, {
-      method: "POST",
-      credentials: "include",
-    }).then(async (response) => {
-      if (!response.ok) {
-         reject(new Error(`Failed to start recognition: ${response.status}`));
-         return;
-      }
-      if (!response.body) {
-         reject(new Error("No response body"));
-         return;
-      }
-      
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      
-      while (true) {
-         const { value, done } = await reader.read();
-         if (done) break;
-         
-         buffer += decoder.decode(value, { stream: true });
-         
-         let boundary = buffer.indexOf("\n\n");
-         while (boundary !== -1) {
-            const chunk = buffer.slice(0, boundary);
-            buffer = buffer.slice(boundary + 2);
-            
-            if (chunk.startsWith("data: ")) {
-               const dataStr = chunk.slice(6);
-               try {
-                 const event = JSON.parse(dataStr);
-                 if (event.type === "progress" && onProgress) {
-                    onProgress(event.current, event.total);
-                 } else if (event.type === "result") {
-                    resolve(normalizeRecognizeResponse(event.result));
-                 } else if (event.type === "error") {
-                    reject(new Error(event.error));
-                 }
-               } catch (e) {
-                 // parse errors
-               }
-            }
-            boundary = buffer.indexOf("\n\n");
-         }
-      }
-    }).catch(reject);
+  const response = await fetch(url, {
+    method: "POST",
+    credentials: "include",
   });
+
+  if (!response.ok) {
+    let message = `Failed to start recognition: HTTP ${response.status}`;
+    try {
+      const body = (await response.json()) as { detail?: unknown };
+      message = detailToMessage(body.detail) ?? message;
+    } catch {
+      // Preserve the status-based error for non-JSON responses.
+    }
+    throw new ApiError(response.status, message);
+  }
+  if (!response.body) {
+    throw new Error("Recognition response did not include a stream.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  const consumeEvent = (chunk: string): RecognitionResultDto | undefined => {
+    const data = chunk
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trimStart())
+      .join("\n");
+    if (!data) return undefined;
+
+    let event: unknown;
+    try {
+      event = JSON.parse(data);
+    } catch {
+      throw new Error("Recognition stream contained invalid JSON.");
+    }
+    if (!event || typeof event !== "object" || !("type" in event)) {
+      throw new Error("Recognition stream contained an invalid event.");
+    }
+
+    const typedEvent = event as Record<string, unknown>;
+    switch (typedEvent.type) {
+      case "progress":
+        if (
+          onProgress &&
+          typeof typedEvent.current === "number" &&
+          typeof typedEvent.total === "number"
+        ) {
+          onProgress(typedEvent.current, typedEvent.total);
+        }
+        return undefined;
+      case "result":
+        return normalizeRecognizeResponse(typedEvent.result as RawRecognizeResponse);
+      case "error":
+        throw new Error(
+          typeof typedEvent.error === "string"
+            ? typedEvent.error
+            : "Recognition stream failed.",
+        );
+      default:
+        return undefined;
+    }
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+
+    const events = buffer.split(/\r?\n\r?\n/);
+    buffer = done ? "" : events.pop() ?? "";
+    for (const event of events) {
+      const result = consumeEvent(event);
+      if (result) return result;
+    }
+
+    if (done) break;
+  }
+
+  throw new Error("Recognition stream ended before returning a result.");
 }
 
 /**
@@ -486,8 +515,8 @@ export async function startCalibrationSession(): Promise<CalibrationSessionRespo
  *
  * `promptIndex` is the 0-based position of the prompt within the session's
  * `prompts` array — the backend has no separate prompt id, it identifies the
- * prompt by this index (the field name and type must match exactly: a
- * mismatch here previously surfaced as a confusing 422 "[object Object]").
+ * prompt by this index. The multipart wire field is `prompt_index`, matching
+ * the FastAPI `Form` parameter exactly.
  */
 export async function submitCalibrationSample(
   sessionId: string,
@@ -496,7 +525,7 @@ export async function submitCalibrationSample(
 ): Promise<void> {
   const fd = new FormData();
   fd.append("file", file);
-  fd.append("promptIndex", promptIndex.toString());
+  fd.append("prompt_index", promptIndex.toString());
 
   await fetchJson<unknown>(`/calibration/${sessionId}/samples`, {
     method: "POST",
@@ -511,8 +540,20 @@ export interface DocumentResponse {
   image_ids: string[];
 }
 
+export async function createDocument(title: string): Promise<DocumentResponse> {
+  return fetchJson<DocumentResponse>("/documents", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+}
+
 export async function getDocuments(): Promise<DocumentResponse[]> {
   return fetchJson<DocumentResponse[]>("/documents", {
     method: "GET",
   });
+}
+
+export async function getDocument(documentId: string): Promise<DocumentResponse> {
+  return fetchJson<DocumentResponse>(`/documents/${encodeURIComponent(documentId)}`);
 }
