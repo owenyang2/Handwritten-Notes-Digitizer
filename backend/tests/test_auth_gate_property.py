@@ -95,7 +95,8 @@ def _build_app() -> tuple[TestClient, Any]:
     engine = create_db_engine("sqlite://", poolclass=StaticPool)
     create_all(engine)
     factory = create_session_factory(engine)
-    store = SessionStore()  # empty: no token will ever resolve to a user.
+    session = factory()
+    store = SessionStore(session)  # empty: no token will ever resolve to a user.
 
     # Seed baseline persisted state.
     with factory() as s:

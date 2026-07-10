@@ -1,5 +1,46 @@
+# ── Environment & secrets ─────────────────────────────────────────────────────
 .env
 .env.*
 !.env.example
 
+# ── IDE / editor ──────────────────────────────────────────────────────────────
 .vscode/
+.idea/
+*.swp
+*.swo
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.hypothesis/
+.pytest_cache/
+
+# ── Machine learning artifacts (NEVER commit trained weights to git) ──────────
+# Model weights can be hundreds of MB and contain sensitive training data.
+# Use object storage or a model registry (e.g., DVC, MLflow, HuggingFace Hub).
+*.pt
+*.pth
+*.onnx
+*.pkl
+backend/var/objectstore/models/
+
+# ── Database files ────────────────────────────────────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+
+# ── Frontend build artifacts ──────────────────────────────────────────────────
+frontend/dist/
+frontend/node_modules/
+
+# ── Docker / OS ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db

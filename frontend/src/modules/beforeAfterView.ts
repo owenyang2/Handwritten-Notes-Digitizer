@@ -111,6 +111,10 @@ export class BeforeAfterView {
   private authToken: string | undefined;
   private refreshTimer: number | null = null;
   private refreshInFlight = false;
+  private latestStatus?: PersonalizationStatusResponse;
+  private latestReport?: BeforeAfterReport;
+  private latestTrainingPairs: TrainingPairSummaryResponse[] = [];
+  private latestUnavailableReason?: string | null;
 
   constructor(options: BeforeAfterViewOptions) {
     this.mount = options.mount;
@@ -367,6 +371,48 @@ export class BeforeAfterView {
       img.src = `${this.apiBase}/personalization/training-pairs/${pair.pair_id}/image`;
       card.appendChild(img);
 
+      const zoomButton = document.createElement("button");
+      zoomButton.type = "button";
+      zoomButton.className = "training-example-zoom";
+      zoomButton.setAttribute("data-testid", "training-example-zoom");
+      zoomButton.textContent = "Zoom sample";
+      zoomButton.addEventListener("click", () => {
+        const dialog = document.createElement("div");
+        dialog.className = "training-example-zoom-dialog";
+        dialog.setAttribute("data-testid", "training-example-zoom-dialog");
+        dialog.setAttribute("role", "dialog");
+        dialog.setAttribute("aria-modal", "true");
+        dialog.setAttribute("aria-label", "Zoomed training sample");
+
+        const dialogImage = document.createElement("img");
+        dialogImage.className = "training-example-zoom-image";
+        dialogImage.src = img.src;
+        dialogImage.alt = img.alt;
+        dialog.appendChild(dialogImage);
+
+        const closeButton = document.createElement("button");
+        closeButton.type = "button";
+        closeButton.className = "training-example-zoom-close";
+        closeButton.setAttribute("data-testid", "training-example-zoom-close");
+        closeButton.textContent = "Close";
+        const close = (): void => {
+          document.removeEventListener("keydown", onKeyDown);
+          dialog.remove();
+        };
+        const onKeyDown = (event: KeyboardEvent): void => {
+          if (event.key === "Escape") close();
+        };
+        closeButton.addEventListener("click", close);
+        dialog.addEventListener("click", (event) => {
+          if (event.target === dialog) close();
+        });
+        dialog.appendChild(closeButton);
+        document.addEventListener("keydown", onKeyDown);
+        document.body.appendChild(dialog);
+        closeButton.focus();
+      });
+      card.appendChild(zoomButton);
+
       const text = document.createElement("p");
       text.className = "training-example-text";
       text.textContent = pair.corrected_text;
@@ -461,10 +507,31 @@ export class BeforeAfterView {
         actionStatus.className = "training-example-action-status training-example-action-status--pending";
         void this.deleteTrainingPair(pair.pair_id)
           .then(() => {
+            const nextStatus = this.latestStatus
+              ? {
+                  ...this.latestStatus,
+                  unused_training_pairs: pair.used
+                    ? this.latestStatus.unused_training_pairs
+                    : Math.max(0, this.latestStatus.unused_training_pairs - 1),
+                }
+              : undefined;
+            const remainingPairs = this.latestTrainingPairs.filter(
+              (candidate) => candidate.pair_id !== pair.pair_id,
+            );
+            if (nextStatus && this.latestReport) {
+              this.renderFull(
+                nextStatus,
+                this.latestReport,
+                remainingPairs,
+                this.latestUnavailableReason,
+              );
+              return;
+            }
             card.remove();
           })
-          .catch(() => {
-            actionStatus.textContent = "Could not delete this sample.";
+          .catch((err: unknown) => {
+            const message = err instanceof Error ? err.message : "Unknown error";
+            actionStatus.textContent = `Could not delete this sample: ${message}`;
             actionStatus.className = "training-example-action-status training-example-action-status--failed";
             deleteButton.disabled = false;
             saveButton.disabled = false;
@@ -784,6 +851,10 @@ export class BeforeAfterView {
     trainingPairs: TrainingPairSummaryResponse[] = [],
     unavailableReason?: string | null,
   ): void {
+    this.latestStatus = status;
+    this.latestReport = report;
+    this.latestTrainingPairs = trainingPairs;
+    this.latestUnavailableReason = unavailableReason;
     this.mount.innerHTML = "";
 
     const container = document.createElement("div");

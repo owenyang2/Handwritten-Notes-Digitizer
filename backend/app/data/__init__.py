@@ -11,6 +11,7 @@ from .base import Base, new_uuid, utcnow
 from .db import create_all, create_db_engine, create_session_factory
 from .repositories import (
     AdapterRepository,
+    DocumentRepository,
     EvaluationResultRepository,
     ImageRepository,
     RecognizedWordRepository,
@@ -29,6 +30,7 @@ from .enums import (
 )
 from .models import (
     Adapter,
+    Document,
     EvaluationResult,
     Image,
     RecognizedWord,
@@ -36,6 +38,7 @@ from .models import (
     TrainingRun,
     TrainingRunPair,
     User,
+    UserSession,
 )
 
 __all__ = [
@@ -54,6 +57,7 @@ __all__ = [
     "TrainingRunState",
     # models
     "Adapter",
+    "Document",
     "EvaluationResult",
     "Image",
     "RecognizedWord",
@@ -61,8 +65,10 @@ __all__ = [
     "TrainingRun",
     "TrainingRunPair",
     "User",
+    "UserSession",
     # repositories (per-user-scoped data-access layer)
     "UserRepository",
+    "DocumentRepository",
     "ImageRepository",
     "RecognizedWordRepository",
     "TrainingPairRepository",

@@ -64,8 +64,8 @@ def session_factory():
 
 
 @pytest.fixture()
-def client(session_factory, tmp_path) -> Iterator[tuple[TestClient, SessionStore]]:
-    store = SessionStore()
+def client(db_session, session_factory, tmp_path) -> Iterator[tuple[TestClient, SessionStore]]:
+    store = SessionStore(db_session)
     object_store = FilesystemObjectStore(str(tmp_path / "objectstore"))
 
     app = FastAPI()
@@ -550,6 +550,37 @@ def test_training_pair_image_returns_crop(client):
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("image/png")
     assert resp.content == png_bytes
+
+
+def test_training_pair_delete_removes_record_and_crop(client):
+    c, _store, sf = client
+    token, uid = _register_and_login(c, sf, "alice")
+    object_store = c.app.dependency_overrides[get_object_store]()
+    crop_path = "crops/alice/delete-me.png"
+    object_store.put(crop_path, b"sample crop")
+
+    with sf() as s:
+        pair = TrainingPair(
+            user_id=uid,
+            image_id=None,
+            source_region_key="calibration:session-delete:0",
+            region_crop_path=crop_path,
+            corrected_text="delete me",
+            origin=TrainingPairOrigin.CALIBRATION,
+        )
+        s.add(pair)
+        s.commit()
+        pair_id = pair.pair_id
+
+    resp = c.delete(
+        f"/personalization/training-pairs/{pair_id}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert resp.status_code == 204
+    assert object_store.exists(crop_path) is False
+    with sf() as s:
+        assert RepositoryFactory(s).training_pairs.get(uid, pair_id) is None
 
 
 def test_training_pair_label_edit_can_enqueue_training(client):

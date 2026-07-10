@@ -27,5 +27,5 @@ docker-logs:
 	docker compose logs -f --tail=120
 
 docker-smoke:
-	docker compose up -d --build
+	docker compose up -d --build --wait --wait-timeout 120
 	backend/.venv/bin/python scripts/doctor.py

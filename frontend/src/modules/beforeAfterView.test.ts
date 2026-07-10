@@ -690,9 +690,27 @@ describe("BeforeAfterView — training example management", () => {
       expect(calls[0].url).toContain("/personalization/training-pairs/pair-1");
       expect(calls[0].init?.method).toBe("DELETE");
       expect(mount.querySelectorAll("[data-testid='training-example-card']")).toHaveLength(0);
+      expect(mount.textContent).toContain("2/20 samples currently stored.");
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+
+  it("opens and closes a zoomed training sample", () => {
+    const mount = makeMount();
+    const view = new BeforeAfterView({ mount });
+    view.renderFull(makeStatus(), baseReport, [pair]);
+
+    mount.querySelector<HTMLButtonElement>("[data-testid='training-example-zoom']")!.click();
+
+    const dialog = document.querySelector<HTMLElement>("[data-testid='training-example-zoom-dialog']");
+    expect(dialog).not.toBeNull();
+    expect(dialog!.querySelector<HTMLImageElement>("img")!.src).toContain(
+      "/personalization/training-pairs/pair-1/image",
+    );
+
+    dialog!.querySelector<HTMLButtonElement>("[data-testid='training-example-zoom-close']")!.click();
+    expect(document.querySelector("[data-testid='training-example-zoom-dialog']")).toBeNull();
   });
 });
 

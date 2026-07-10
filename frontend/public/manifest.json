@@ -1,0 +1,17 @@
+{
+  "name": "Handwriting Notes Digitizer",
+  "short_name": "NotesDigitizer",
+  "description": "Convert your handwritten notes into digital text with high accuracy.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1e293b",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

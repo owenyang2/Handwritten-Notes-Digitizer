@@ -32,6 +32,10 @@ export class UploadUI {
   private submitButton!: HTMLButtonElement;
   private statusEl!: HTMLElement;
   private selectedFile: File | null = null;
+  private cameraBtn!: HTMLButtonElement;
+  private videoEl!: HTMLVideoElement;
+  private canvasEl!: HTMLCanvasElement;
+  private stream: MediaStream | null = null;
 
   constructor(options: UploadUIOptions) {
     this.mount = options.mount;
@@ -122,10 +126,37 @@ export class UploadUI {
       void this.handleSubmit();
     });
 
+    // --- Camera capture ---
+    this.cameraBtn = document.createElement("button");
+    this.cameraBtn.type = "button";
+    this.cameraBtn.className = "upload-camera-btn";
+    this.cameraBtn.setAttribute("data-testid", "upload-camera-btn");
+    this.cameraBtn.textContent = "Take Photo";
+
+    this.videoEl = document.createElement("video");
+    this.videoEl.autoplay = true;
+    this.videoEl.playsInline = true;
+    this.videoEl.style.display = "none";
+    this.videoEl.style.width = "100%";
+    this.videoEl.style.borderRadius = "8px";
+
+    this.canvasEl = document.createElement("canvas");
+    this.canvasEl.style.display = "none";
+
+    this.cameraBtn.addEventListener("click", () => void this.toggleCamera());
+
+    const btnWrapper = document.createElement("div");
+    btnWrapper.style.display = "flex";
+    btnWrapper.style.gap = "0.5rem";
+    btnWrapper.appendChild(this.submitButton);
+    btnWrapper.appendChild(this.cameraBtn);
+
     wrapper.appendChild(this.dropZone);
     wrapper.appendChild(this.fileInput);
+    wrapper.appendChild(this.videoEl);
+    wrapper.appendChild(this.canvasEl);
     wrapper.appendChild(this.statusEl);
-    wrapper.appendChild(this.submitButton);
+    wrapper.appendChild(btnWrapper);
     this.mount.appendChild(wrapper);
   }
 
@@ -133,10 +164,56 @@ export class UploadUI {
   // Private helpers
   // ---------------------------------------------------------------------------
 
+  private async toggleCamera(): Promise<void> {
+    if (this.stream) {
+      this.snapPhoto();
+      return;
+    }
+
+    try {
+      this.stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" },
+      });
+      this.videoEl.srcObject = this.stream;
+      this.videoEl.style.display = "block";
+      this.dropZone.style.display = "none";
+      this.cameraBtn.textContent = "Snap Photo";
+      this.updateStatus("Camera active. Frame your document.", "info");
+    } catch (err) {
+      this.updateStatus("Failed to access camera.", "error");
+    }
+  }
+
+  private snapPhoto(): void {
+    if (!this.stream) return;
+    this.canvasEl.width = this.videoEl.videoWidth;
+    this.canvasEl.height = this.videoEl.videoHeight;
+    const ctx = this.canvasEl.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(this.videoEl, 0, 0);
+
+    this.canvasEl.toBlob((blob) => {
+      if (!blob) return;
+      const file = new File([blob], "camera-capture.jpg", { type: "image/jpeg" });
+      this.stopCamera();
+      this.handleFileSelected(file);
+    }, "image/jpeg", 0.9);
+  }
+
+  private stopCamera(): void {
+    if (this.stream) {
+      this.stream.getTracks().forEach((t) => t.stop());
+      this.stream = null;
+    }
+    this.videoEl.style.display = "none";
+    this.dropZone.style.display = "flex";
+    this.cameraBtn.textContent = "Take Photo";
+  }
+
   private handleFileSelected(file: File): void {
     // Client-side hints only (backend is the source of truth for rejection).
     if (!ACCEPTED_IMAGE_TYPES.includes(file.type as (typeof ACCEPTED_IMAGE_TYPES)[number])) {
-      this.showStatus(
+      this.updateStatus(
         `⚠ "${file.name}" is not a PNG or JPEG. Please choose a different file.`,
         "error",
       );
@@ -145,7 +222,7 @@ export class UploadUI {
       return;
     }
     if (file.size > MAX_UPLOAD_BYTES) {
-      this.showStatus(
+      this.updateStatus(
         `⚠ "${file.name}" is larger than 10 MB. Please choose a smaller file.`,
         "error",
       );
@@ -154,14 +231,14 @@ export class UploadUI {
       return;
     }
     if (file.size === 0) {
-      this.showStatus(`⚠ "${file.name}" is empty. Please choose a valid image.`, "error");
+      this.updateStatus(`⚠ "${file.name}" is empty. Please choose a valid image.`, "error");
       this.selectedFile = null;
       this.submitButton.disabled = true;
       return;
     }
 
     this.selectedFile = file;
-    this.showStatus(`Selected: ${file.name}`, "info");
+    this.updateStatus(`Selected: ${file.name}`, "info");
     this.submitButton.disabled = false;
   }
 
@@ -169,7 +246,7 @@ export class UploadUI {
     if (!this.selectedFile || !this.onSubmit) return;
 
     this.submitButton.disabled = true;
-    this.showStatus("Uploading…", "info");
+    this.updateStatus("Uploading…", "info");
 
     try {
       await this.onSubmit(this.selectedFile);
@@ -177,15 +254,15 @@ export class UploadUI {
       // render() on the Editor; we reset to allow another upload.
       this.selectedFile = null;
       this.fileInput.value = "";
-      this.showStatus("Upload complete.", "success");
+      this.updateStatus("Upload complete.", "success");
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Upload failed.";
-      this.showStatus(`Error: ${message}`, "error");
+      this.updateStatus(`Error: ${message}`, "error");
       this.submitButton.disabled = false;
     }
   }
 
-  private showStatus(
+  public updateStatus(
     message: string,
     type: "info" | "error" | "success",
   ): void {

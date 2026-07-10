@@ -26,6 +26,14 @@ export interface CapabilityStatus {
 export interface HealthResponse {
   status: "ok" | "degraded" | "unavailable";
   capabilities: Record<CapabilityName, CapabilityStatus>;
+  /**
+   * Whether the base HTR model is trained.
+   * - "trained"   — a real trained artifact is present; recognition is reliable
+   * - "untrained" — no model file found; recognition output will be garbage
+   * - "loading"   — model file exists but has not been loaded yet
+   * - "unknown"   — status could not be determined
+   */
+  model_status?: "trained" | "untrained" | "loading" | "unknown";
 }
 
 // ---------------------------------------------------------------------------
@@ -94,15 +102,17 @@ export interface SubmitCorrectionResponse {
 // Export  (POST /export)
 // ---------------------------------------------------------------------------
 
+export type ExportFormat = "plain" | "markdown" | "pdf";
+
 export interface ExportRequest {
   image_id: string;
-  format: "plain" | "markdown";
+  format: ExportFormat;
 }
 
 export interface ExportSuccessResponse {
   status: "success";
   text: string;
-  format: "plain" | "markdown";
+  format: ExportFormat;
 }
 
 export interface ExportEmptyResponse {

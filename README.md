@@ -52,7 +52,14 @@ Run the project health check with:
 make doctor
 ```
 
-The doctor script checks the local model artifact, backend health, frontend/API proxy health, common `.env` path mistakes, model loading, and Docker model visibility when Compose is running.
+The doctor script checks the local model artifact, migrations for the active
+runtime (the Compose database when Docker is running), backend health,
+frontend/API proxy health, common `.env` path mistakes, model loading, and
+Docker model visibility. It returns a non-zero exit code for failed checks;
+unavailable optional local endpoints are warnings.
+
+`make docker-smoke` builds the Compose stack, waits for its health checks, then
+runs the same diagnostic.
 
 ## Local Development
 
@@ -91,6 +98,23 @@ Proxy:    http://127.0.0.1:5173/api/health
 ```
 
 For local backend commands, run from the repo root through the Make targets or from `backend/` directly. The Docker `.env` uses `/app/var/objectstore`, while local backend defaults expect `backend/var/objectstore`.
+
+## Database Migrations
+
+Application startup upgrades the configured database to the checked-in Alembic
+head revision before serving requests. To inspect migration drift directly:
+
+```bash
+cd backend
+.venv/bin/alembic check
+```
+
+For an explicit upgrade outside application startup:
+
+```bash
+cd backend
+.venv/bin/alembic upgrade head
+```
 
 ## Testing
 

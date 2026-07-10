@@ -18,7 +18,6 @@ import type {
   ExportRequest,
   ExportResponse,
   CalibrationSessionResponse,
-  CalibrationSampleResponse,
 } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -139,6 +138,7 @@ async function fetchJson<T>(
 interface RawHealthResponse {
   status: string;
   capabilities: Record<string, boolean>;
+  model_status?: "trained" | "untrained" | "loading" | "unknown";
 }
 
 /** Map backend capability keys → frontend CapabilityName. */
@@ -174,6 +174,7 @@ export async function getHealth(): Promise<HealthResponse> {
   return {
     status: allAvailable ? "ok" : "degraded",
     capabilities,
+    model_status: raw.model_status ?? "unknown",
   };
 }
 
@@ -349,9 +350,12 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
  * Upload a PNG/JPEG image.  Returns the new image_id.
  * Authentication is enforced by the backend (Req 1.5, 10.4).
  */
-export async function uploadImage(file: File): Promise<UploadImageResponse> {
+export async function uploadImage(file: File, documentId?: string): Promise<UploadImageResponse> {
   const formData = new FormData();
   formData.append("file", file);
+  if (documentId) {
+    formData.append("document_id", documentId);
+  }
   return fetchJson<UploadImageResponse>("/images", {
     method: "POST",
     body: formData,
@@ -366,11 +370,89 @@ export async function uploadImage(file: File): Promise<UploadImageResponse> {
  */
 export async function recognizeImage(
   imageId: string,
+  onProgress?: (current: number, total: number) => void,
 ): Promise<RecognitionResultDto> {
-  const raw = await fetchJson<RawRecognizeResponse>(`/images/${imageId}/recognize`, {
+  const url = `${getBaseUrl()}/images/${imageId}/recognize?stream=true`;
+  const response = await fetch(url, {
     method: "POST",
+    credentials: "include",
   });
-  return normalizeRecognizeResponse(raw);
+
+  if (!response.ok) {
+    let message = `Failed to start recognition: HTTP ${response.status}`;
+    try {
+      const body = (await response.json()) as { detail?: unknown };
+      message = detailToMessage(body.detail) ?? message;
+    } catch {
+      // Preserve the status-based error for non-JSON responses.
+    }
+    throw new ApiError(response.status, message);
+  }
+  if (!response.body) {
+    throw new Error("Recognition response did not include a stream.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  const consumeEvent = (chunk: string): RecognitionResultDto | undefined => {
+    const data = chunk
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trimStart())
+      .join("\n");
+    if (!data) return undefined;
+
+    let event: unknown;
+    try {
+      event = JSON.parse(data);
+    } catch {
+      throw new Error("Recognition stream contained invalid JSON.");
+    }
+    if (!event || typeof event !== "object" || !("type" in event)) {
+      throw new Error("Recognition stream contained an invalid event.");
+    }
+
+    const typedEvent = event as Record<string, unknown>;
+    switch (typedEvent.type) {
+      case "progress":
+        if (
+          onProgress &&
+          typeof typedEvent.current === "number" &&
+          typeof typedEvent.total === "number"
+        ) {
+          onProgress(typedEvent.current, typedEvent.total);
+        }
+        return undefined;
+      case "result":
+        return normalizeRecognizeResponse(typedEvent.result as RawRecognizeResponse);
+      case "error":
+        throw new Error(
+          typeof typedEvent.error === "string"
+            ? typedEvent.error
+            : "Recognition stream failed.",
+        );
+      default:
+        return undefined;
+    }
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+
+    const events = buffer.split(/\r?\n\r?\n/);
+    buffer = done ? "" : events.pop() ?? "";
+    for (const event of events) {
+      const result = consumeEvent(event);
+      if (result) return result;
+    }
+
+    if (done) break;
+  }
+
+  throw new Error("Recognition stream ended before returning a result.");
 }
 
 /**
@@ -433,22 +515,45 @@ export async function startCalibrationSession(): Promise<CalibrationSessionRespo
  *
  * `promptIndex` is the 0-based position of the prompt within the session's
  * `prompts` array — the backend has no separate prompt id, it identifies the
- * prompt by this index (the field name and type must match exactly: a
- * mismatch here previously surfaced as a confusing 422 "[object Object]").
+ * prompt by this index. The multipart wire field is `prompt_index`, matching
+ * the FastAPI `Form` parameter exactly.
  */
 export async function submitCalibrationSample(
   sessionId: string,
   promptIndex: number,
   file: File,
-): Promise<CalibrationSampleResponse> {
-  const formData = new FormData();
-  formData.append("prompt_index", String(promptIndex));
-  formData.append("file", file);
-  return fetchJson<CalibrationSampleResponse>(
-    `/calibration/${sessionId}/samples`,
-    {
-      method: "POST",
-      body: formData,
-    },
-  );
+): Promise<void> {
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("prompt_index", promptIndex.toString());
+
+  await fetchJson<unknown>(`/calibration/${sessionId}/samples`, {
+    method: "POST",
+    body: fd,
+  });
+}
+
+export interface DocumentResponse {
+  document_id: string;
+  title: string;
+  created_at: string;
+  image_ids: string[];
+}
+
+export async function createDocument(title: string): Promise<DocumentResponse> {
+  return fetchJson<DocumentResponse>("/documents", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+}
+
+export async function getDocuments(): Promise<DocumentResponse[]> {
+  return fetchJson<DocumentResponse[]>("/documents", {
+    method: "GET",
+  });
+}
+
+export async function getDocument(documentId: string): Promise<DocumentResponse> {
+  return fetchJson<DocumentResponse>(`/documents/${encodeURIComponent(documentId)}`);
 }

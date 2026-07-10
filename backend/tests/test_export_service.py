@@ -363,7 +363,7 @@ def db_session() -> Iterator[Session]:
 @pytest.fixture()
 def client(db_session: Session) -> Iterator[TestClient]:
     """TestClient with DB and session store overrides."""
-    session_store = SessionStore()
+    session_store = SessionStore(db_session)
     app = create_app()
 
     def _override_db_session() -> Iterator[Session]:

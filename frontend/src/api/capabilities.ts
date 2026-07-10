@@ -30,6 +30,7 @@ export async function refreshCapabilities(): Promise<HealthResponse> {
         : "Backend unreachable";
     snapshot = {
       status: "unavailable",
+      model_status: "unknown",
       capabilities: {
         upload: { available: false, reason },
         recognition: { available: false, reason },
@@ -46,7 +47,7 @@ export async function refreshCapabilities(): Promise<HealthResponse> {
 /**
  * Return `true` iff the given capability was available in the last snapshot.
  * If `refreshCapabilities()` has not been called yet, returns `true`
- * (optimistic default — the backend will enforce the real gate).
+ * (optimistic default — the backend will enforce the real gate).\
  */
 export function isAvailable(capability: CapabilityName): boolean {
   if (!snapshot) return true; // optimistic until first health check
@@ -56,4 +57,14 @@ export function isAvailable(capability: CapabilityName): boolean {
 /** The full snapshot, or `null` if not yet fetched. */
 export function getSnapshot(): HealthResponse | null {
   return snapshot;
+}
+
+/**
+ * Return the base model training status.
+ * "untrained" means recognition will produce garbage output — the UI should
+ * display a prominent warning in this case.
+ * Returns `null` if the health check has not completed yet.
+ */
+export function getModelStatus(): HealthResponse["model_status"] | null {
+  return snapshot?.model_status ?? null;
 }

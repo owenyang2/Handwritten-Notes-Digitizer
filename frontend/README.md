@@ -38,7 +38,14 @@ src/
     editor.ts                 Editor — display + inline correction (Req 3, 4)
     calibrationUI.ts          Calibration UI — optional cold-start flow (Req 9)
     beforeAfterView.ts        Before/After accuracy view (Req 7)
+    galleryUI.ts              Document-history list and document selection
 ```
+
+## Document History
+
+The first uploaded image creates a document named after its file. Later uploads
+are added to the selected document, so multi-page notes stay grouped. Selecting
+a document from the history reopens its most recently reviewed page.
 
 ## Property-based tests
 

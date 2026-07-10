@@ -487,6 +487,54 @@ describe("Editor.render() — display alongside image (Req 3.3)", () => {
     expect(box.style.height).toBe("20%");
   });
 
+  it("numbers image regions with the matching one-based line review index", () => {
+    const mount = makeMount();
+    const editor = new Editor({ mount });
+
+    editor.render(
+      {
+        recognizedAnyText: true,
+        lines: [
+          { index: 0, text: "first", region: { x: 0, y: 0, width: 80, height: 20 }, words: [] },
+          { index: 3, text: "fourth", region: { x: 0, y: 30, width: 80, height: 20 }, words: [] },
+        ],
+      },
+      IMAGE_URL,
+    );
+
+    const labels = mount.querySelectorAll<HTMLElement>("[data-testid='editor-region-label']");
+    expect(Array.from(labels, (label) => label.textContent)).toEqual(["1", "4"]);
+    expect(labels[1].getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("selects and raises a region when its matching line review receives focus", () => {
+    const mount = makeMount();
+    const editor = new Editor({ mount });
+
+    editor.render(
+      {
+        recognizedAnyText: true,
+        lines: [
+          { index: 0, text: "first", region: { x: 0, y: 0, width: 80, height: 20 }, words: [] },
+          { index: 1, text: "second", region: { x: 0, y: 5, width: 80, height: 20 }, words: [] },
+        ],
+      },
+      IMAGE_URL,
+    );
+
+    const cards = mount.querySelectorAll<HTMLElement>("[data-testid='editor-line-review']");
+    const secondTextarea = cards[1].querySelector<HTMLTextAreaElement>(
+      "[data-testid='editor-line-textarea']",
+    )!;
+    secondTextarea.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+
+    const secondBox = mount.querySelector<HTMLElement>(
+      "[data-testid='editor-region-box'][data-line-index='1']",
+    )!;
+    expect(secondBox.classList.contains("editor-region-box--selected")).toBe(true);
+    expect(cards[1].classList.contains("editor-line-review--selected")).toBe(true);
+  });
+
   it("lets users mark a false-positive line as not text", () => {
     const mount = makeMount();
     const editor = new Editor({ mount });

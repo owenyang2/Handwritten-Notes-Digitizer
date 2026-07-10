@@ -59,6 +59,7 @@ import numpy as np
 import torch
 from torch import Tensor, nn
 from torch.utils.data import DataLoader, Dataset
+import torchvision.transforms.v2 as transforms
 
 from app.ml.htr_config import ALPHABET
 from app.ml.htr_model import CRNN
@@ -215,16 +216,32 @@ def _evaluate_cer(
 
 
 class _AdapterDataset(Dataset):
-    """Thin Dataset wrapper around a list of :class:`LabeledSample`."""
+    """Thin Dataset wrapper around a list of :class:`LabeledSample`.
+    
+    Optionally applies data augmentation to the images.
+    """
 
-    def __init__(self, samples: list[LabeledSample]) -> None:
+    def __init__(self, samples: list[LabeledSample], is_train: bool = False) -> None:
         self._samples = samples
+        self.is_train = is_train
+        if self.is_train:
+            self.transform = transforms.Compose([
+                transforms.RandomRotation(degrees=5, fill=1.0),
+                transforms.ElasticTransform(alpha=10.0, sigma=2.0),
+                transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 2.0))
+            ])
+        else:
+            self.transform = None
 
     def __len__(self) -> int:
         return len(self._samples)
 
     def __getitem__(self, index: int) -> LabeledSample:
-        return self._samples[index]
+        sample = self._samples[index]
+        if self.transform is not None:
+            image = self.transform(sample.image)
+            return LabeledSample(image=image, text=sample.text)
+        return sample
 
 
 # ---------------------------------------------------------------------------
@@ -322,7 +339,7 @@ def train_adapter(
     generator.manual_seed(seed)
 
     loader = DataLoader(
-        _AdapterDataset(training_pairs),
+        _AdapterDataset(training_pairs, is_train=True),
         batch_size=effective_batch_size,
         shuffle=True,
         generator=generator,

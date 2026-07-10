@@ -28,9 +28,9 @@ from __future__ import annotations
 from io import BytesIO
 import uuid
 from functools import lru_cache
-from typing import Annotated, Iterator
+from typing import Annotated, Iterator, Optional
 
-from fastapi import APIRouter, Depends, File, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Response, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -104,6 +104,7 @@ class ImageRejectedResponse(BaseModel):
 )
 def submit_image(
     file: Annotated[UploadFile, File(description="PNG or JPEG image, ≤ 10 MB")],
+    document_id: Annotated[Optional[uuid.UUID], Form()] = None,
     user: User = Depends(get_current_user),
     repos: RepositoryFactory = Depends(get_repositories),
     store: ObjectStore = Depends(get_object_store),
@@ -131,6 +132,20 @@ def submit_image(
             },
         )
 
+    if (
+        document_id is not None
+        and repos.documents.get(user.user_id, document_id) is None
+    ):
+        # Check ownership before writing the image. Besides returning the same
+        # non-disclosing 404 used elsewhere, this prevents orphaned objects
+        # when a client supplies an unknown or another user's document id.
+        from fastapi import HTTPException
+
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
+        )
+
     # Map the detected ImageFormat enum from the validator result.
     image_format: ImageFormat = result.image_format  # type: ignore[assignment]
 
@@ -142,22 +157,29 @@ def submit_image(
     suffix = suffix_map.get(image_format, "")
 
     # Persist bytes in the object store (Req 1.6).
-    storage_path = store.put_image_bytes(
-        str(user.user_id), file_bytes, suffix=suffix
-    )
-
-    # Create a relational Image record associated with the submitting user.
-    image = repos.images.add(
-        Image(
+    storage_path: str | None = None
+    try:
+        storage_path = store.put_image_bytes(
+            str(user.user_id), file_bytes, suffix=suffix
+        )
+        db_image = Image(
             user_id=user.user_id,
+            document_id=document_id,
             storage_path=storage_path,
             format=image_format,
             size_bytes=result.size_bytes,
             status=ImageStatus.ACCEPTED,
         )
-    )
-    # Commit so the record is visible outside this request.
-    repos.session.commit()
+        image = repos.images.add(db_image)
+        repos.session.commit()
+    except Exception:
+        repos.session.rollback()
+        if storage_path is not None:
+            try:
+                store.delete(storage_path)
+            except Exception:
+                pass
+        raise
 
     return ImageAcceptedResponse(image_id=image.image_id)
 

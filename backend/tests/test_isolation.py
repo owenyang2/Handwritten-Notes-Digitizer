@@ -128,14 +128,14 @@ def _make_user(session: Session, username: str, password: str = "pw") -> User:
 
 
 @pytest.fixture()
-def app_client(session_factory):
+def app_client(db_session, session_factory):
     """App exposing owned-resource endpoints gated by auth + isolation.
 
     Each GET endpoint funnels a per-user-scoped repository lookup through the
     isolation helpers, so a cross-user request yields a 404. A dedicated
     ``/raise-cross-user`` endpoint exercises the ``CrossUserAccessError`` handler.
     """
-    store = SessionStore()
+    store = SessionStore(db_session)
 
     def _override_db_session() -> Iterator[Session]:
         with session_factory() as s:

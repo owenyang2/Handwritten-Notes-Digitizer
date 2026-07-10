@@ -31,6 +31,8 @@ convention.
 
 import os
 
+os.environ["HND_ENVIRONMENT"] = "test"
+
 from hypothesis import HealthCheck, Verbosity, settings
 
 # Minimum iterations every property-based test must run (tasks.md requirement).
@@ -63,3 +65,11 @@ settings.register_profile(
 # Load the requested profile (defaults to "default"); this applies the >=100
 # iteration floor across the whole test session.
 settings.load_profile(os.getenv("HYPOTHESIS_PROFILE", "default"))
+
+import pytest
+from typing import Iterator
+from sqlalchemy.orm import Session
+@pytest.fixture()
+def db_session(session_factory) -> Iterator[Session]:
+    with session_factory() as s:
+        yield s

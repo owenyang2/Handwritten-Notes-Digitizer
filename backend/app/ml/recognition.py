@@ -525,6 +525,7 @@ def assemble_result(
     model: CRNN,
     *,
     normalized: np.ndarray | None = None,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> RecognitionResult:
     """Run crops through the model and assemble the ordered result.
 
@@ -542,7 +543,10 @@ def assemble_result(
     recognized_lines: list[RecognizedLine] = []
     any_text = False
 
-    for line in seg_result.lines:
+    for idx, line in enumerate(seg_result.lines):
+        if progress_callback is not None:
+            progress_callback(idx, len(seg_result.lines))
+
         recognized_words: list[RecognizedWord] = []
 
         if normalized is not None and line.words:
@@ -609,6 +613,7 @@ def recognize(
     adapter: object | None = None,
     model: CRNN | None = None,
     config: HTRModelConfig | None = None,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> RecognitionResult:
     """Recognize handwritten text in a preprocessed image.
 
@@ -654,7 +659,12 @@ def recognize(
     inference_model = _compose_model(model, adapter)
 
     seg_result = segment(image)
-    return assemble_result(seg_result, inference_model, normalized=image.normalized)
+    return assemble_result(
+        seg_result, 
+        inference_model, 
+        normalized=image.normalized,
+        progress_callback=progress_callback
+    )
 
 
 def recognize_bytes(
@@ -662,6 +672,7 @@ def recognize_bytes(
     adapter: object | None = None,
     model: CRNN | None = None,
     config: HTRModelConfig | None = None,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> RecognitionResult:
     """Convenience wrapper: decode + preprocess raw image bytes, then recognize.
 
@@ -670,8 +681,16 @@ def recognize_bytes(
     app.ml.preprocessing.ImageDecodeError
         If ``image_bytes`` cannot be decoded as an image.
     """
+    from app.ml.preprocessing import preprocess
+
     preprocessed = preprocess(image_bytes)
-    return recognize(preprocessed, adapter=adapter, model=model, config=config)
+    return recognize(
+        preprocessed, 
+        adapter=adapter, 
+        model=model, 
+        config=config,
+        progress_callback=progress_callback
+    )
 
 
 def recognize_crop(image_bytes: bytes, model: CRNN) -> str:

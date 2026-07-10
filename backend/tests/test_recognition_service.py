@@ -410,10 +410,10 @@ class TestCrossUserAdapterIsolation:
 
 
 @pytest.fixture()
-def app_client(session_factory):
+def app_client(db_session, session_factory):
     """Full app client wiring auth + recognition endpoints for integration tests."""
     store = InMemoryObjectStore()
-    session_store = SessionStore()
+    session_store = SessionStore(db_session)
 
     app = FastAPI()
     app.include_router(auth_router)
@@ -498,7 +498,7 @@ class TestRecognizeEndpoint:
 
         from app.ml.recognition import RecognitionResult as MLResult
 
-        mock_result = MLResult(lines=[], recognized_any_text=False)
+        mock_result = MLResult(lines=[], recognized_any_text=False, image_width=640, image_height=240)
         with patch(
             "app.services.recognition_service.recognize_bytes",
             return_value=mock_result,

@@ -154,11 +154,14 @@ from app.ml.recognition import (
     RecognitionResult,
     RecognizedLine,
     RecognizedWord,
+    apply_adapter,
     assemble_result,
-    greedy_ctc_decode,
+    get_base_model,
     recognize,
     recognize_bytes,
 )
+from app.ml.decode import greedy_ctc_decode
+from app.ml.engine import CRNNEngine
 from app.ml.preprocessing import preprocess
 from app.ml.segmentation import segment, Region
 

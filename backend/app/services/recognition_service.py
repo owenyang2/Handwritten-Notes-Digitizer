@@ -38,11 +38,14 @@ import os
 import tempfile
 import uuid
 from enum import Enum
-from typing import Annotated, List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple, Iterator
 
 from fastapi import APIRouter, Depends, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+import queue
+import json
 
 from app.data.enums import ImageStatus
 from app.data.models import Image, RecognizedWord, User
@@ -193,6 +196,7 @@ def run_recognition(
     object_store: ObjectStore,
     adapter: object | None = None,
     timeout: float = RECOGNITION_TIMEOUT_SECONDS,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> RecognitionServiceResult:
     """Orchestrate HTR recognition for *image* with timeout and error handling.
 
@@ -265,7 +269,10 @@ def run_recognition(
         # wall-clock timeout without blocking the event loop.
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         future: concurrent.futures.Future[RecognitionResult] = executor.submit(
-            recognize_bytes, image_bytes, resolved_adapter
+            recognize_bytes,
+            image_bytes,
+            adapter=resolved_adapter,
+            progress_callback=progress_callback,
         )
 
         try:
@@ -421,44 +428,76 @@ class RecognizeResponse(BaseModel):
 
 @router.post(
     "/images/{image_id}/recognize",
-    response_model=RecognizeResponse,
     status_code=status.HTTP_200_OK,
     summary="Trigger recognition for an accepted image",
     description=(
         "Runs the HTR engine on the identified image with a 10-second timeout. "
-        "Returns the recognition result, a no-text indicator, a timeout error "
-        "(image retained), or an engine-failure error (data unchanged). "
+        "Returns a Server-Sent Events (SSE) stream yielding progress updates, "
+        "and finishes with the final RecognitionResult JSON payload. "
         "Requires authentication. Returns 503 when the recognition capability "
         "is unavailable (Req 11.6)."
     ),
 )
 def recognize_image(
     image_id: uuid.UUID,
+    stream: bool = False,
     _guard: None = Depends(require_capability("recognition")),
     user: User = Depends(get_current_user),
     repos: RepositoryFactory = Depends(get_repositories),
     store: ObjectStore = Depends(_get_object_store_dep),
-) -> RecognizeResponse:
+):
     """POST /images/{image_id}/recognize — run recognition (Req 2.3–2.7, 10.3).
 
     Scoped to the authenticated user: returns 404 for images owned by others
-    (Req 10.3, 10.5).
+    (Req 10.3, 10.5). Returns SSE stream if stream=True, else JSON RecognizeResponse.
     """
     image: Image = get_or_404(repos.images.get(user.user_id, image_id))
-
-    # Select user's adapter if one exists (Req 5.4, 5.5 — wired fully in 8.2).
     adapter = repos.adapters.get_active_for_user(user.user_id)
 
-    svc_result = run_recognition(image, repos, store, adapter=adapter)
+    if not stream:
+        svc_result = run_recognition(image, repos, store, adapter=adapter)
+        return RecognizeResponse(
+            outcome=svc_result.outcome,
+            image_id=svc_result.image_id,
+            lines=svc_result.lines,
+            image_width=svc_result.image_width,
+            image_height=svc_result.image_height,
+            error_message=svc_result.error_message,
+        )
 
-    return RecognizeResponse(
-        outcome=svc_result.outcome,
-        image_id=svc_result.image_id,
-        lines=svc_result.lines,
-        image_width=svc_result.image_width,
-        image_height=svc_result.image_height,
-        error_message=svc_result.error_message,
-    )
+    q = queue.Queue()
+
+    def on_progress(current: int, total: int) -> None:
+        q.put({"type": "progress", "current": current, "total": total})
+
+    def worker() -> None:
+        try:
+            svc_result = run_recognition(image, repos, store, adapter=adapter, progress_callback=on_progress)
+            
+            resp = RecognizeResponse(
+                outcome=svc_result.outcome,
+                image_id=svc_result.image_id,
+                lines=svc_result.lines,
+                image_width=svc_result.image_width,
+                image_height=svc_result.image_height,
+                error_message=svc_result.error_message,
+            )
+            q.put({"type": "result", "result": resp.model_dump(mode="json")})
+        except Exception as e:
+            q.put({"type": "error", "error": str(e)})
+
+    def event_stream() -> Iterator[str]:
+        # We start the worker inside the generator so that the thread executes only when streaming starts.
+        import threading
+        threading.Thread(target=worker, daemon=True).start()
+        
+        while True:
+            item = q.get()
+            yield f"data: {json.dumps(item)}\n\n"
+            if item["type"] in ("result", "error"):
+                break
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 # ---- GET /images/{image_id}/result ---------------------------------------- #

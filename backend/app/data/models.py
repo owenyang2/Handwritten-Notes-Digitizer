@@ -61,6 +61,12 @@ class User(Base):
     training_pairs: Mapped[list["TrainingPair"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    sessions: Mapped[list["UserSession"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    documents: Mapped[list["Document"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
     adapter: Mapped[Optional["Adapter"]] = relationship(
         back_populates="user", cascade="all, delete-orphan", uselist=False
     )
@@ -69,6 +75,41 @@ class User(Base):
     )
     evaluation_results: Mapped[list["EvaluationResult"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
+    )
+
+
+class UserSession(Base):
+    """A persistent authentication session for a user."""
+
+    __tablename__ = "user_sessions"
+
+    token: Mapped[str] = mapped_column(String(255), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    expires_at: Mapped[_dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[_dt.datetime] = created_at_column()
+
+    user: Mapped["User"] = relationship(back_populates="sessions")
+
+
+class Document(Base):
+    """A logical grouping of multiple handwriting images (Notebook/Document)."""
+
+    __tablename__ = "documents"
+
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=new_uuid
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    title: Mapped[str] = mapped_column(String(255), default="Untitled Note")
+    created_at: Mapped[_dt.datetime] = created_at_column()
+
+    user: Mapped["User"] = relationship(back_populates="documents")
+    images: Mapped[list["Image"]] = relationship(
+        back_populates="document", cascade="all, delete-orphan", order_by="Image.created_at"
     )
 
 
@@ -83,6 +124,9 @@ class Image(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False, index=True
     )
+    document_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, ForeignKey("documents.document_id", ondelete="CASCADE"), nullable=True, index=True
+    )
     storage_path: Mapped[str] = mapped_column(String(1024), nullable=False)
     format: Mapped[ImageFormat] = mapped_column(
         SAEnum(ImageFormat, name="image_format"), nullable=False
@@ -96,6 +140,7 @@ class Image(Base):
     created_at: Mapped[_dt.datetime] = created_at_column()
 
     user: Mapped["User"] = relationship(back_populates="images")
+    document: Mapped[Optional["Document"]] = relationship(back_populates="images")
     recognized_words: Mapped[list["RecognizedWord"]] = relationship(
         back_populates="image", cascade="all, delete-orphan"
     )

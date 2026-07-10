@@ -127,7 +127,8 @@ def isolation_client():
     engine = create_db_engine("sqlite://", poolclass=StaticPool)
     create_all(engine)
     factory = create_session_factory(engine)
-    store = SessionStore()
+    session = factory()
+    store = SessionStore(session)
 
     # Two distinct users, created and authenticated once.
     with factory() as s:

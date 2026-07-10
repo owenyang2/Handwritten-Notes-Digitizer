@@ -15,9 +15,13 @@ from __future__ import annotations
 import os
 import random
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
@@ -30,7 +34,10 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_prefix="HND_",
-        env_file=".env",
+        # The repository-root .env configures Docker Compose and contains
+        # container paths. Application settings must only read backend/.env so
+        # local commands work regardless of the process working directory.
+        env_file=BACKEND_ROOT / ".env",
         env_file_encoding="utf-8",
         extra="ignore",
     )
