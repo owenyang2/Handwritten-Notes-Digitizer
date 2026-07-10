@@ -29,7 +29,8 @@ from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Response,
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.data.db import create_all, create_db_engine, create_session_factory
+from app.data.db import create_db_engine, create_session_factory
+from app.data.migrations import upgrade_database
 from app.data.models import User
 from app.data.repositories import RepositoryFactory
 from app.config.settings import get_settings
@@ -79,11 +80,12 @@ router = APIRouter(tags=["auth"])
 def _default_session_factory() -> sessionmaker[Session]:
     """Lazily build the app's session factory from configured settings.
 
-    Tables are created for the SQLite demo path; production would use
-    migrations. Cached so a single engine/factory is reused across requests.
+    Schema upgrades run before the first request so every runtime uses the
+    checked-in Alembic history. The factory is cached for process lifetime.
     """
-    engine = create_db_engine()
-    create_all(engine)
+    database_url = get_settings().database_url
+    upgrade_database(database_url)
+    engine = create_db_engine(database_url)
     return create_session_factory(engine)
 
 

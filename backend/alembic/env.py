@@ -28,7 +28,11 @@ if config.config_file_name is not None:
 # for 'autogenerate' support
 target_metadata = Base.metadata
 
-def get_url():
+def get_url() -> str:
+    """Use an explicit programmatic URL when supplied, else application settings."""
+    configured_url = config.get_main_option("sqlalchemy.url")
+    if configured_url and configured_url != "driver://user:pass@localhost/dbname":
+        return configured_url
     return get_settings().database_url
 
 def run_migrations_offline() -> None:

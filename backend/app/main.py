@@ -35,6 +35,8 @@ async def lifespan(app: FastAPI):
 
     Startup:
     * Fixed seeds / deterministic backends (Req 11.1, 11.3).
+    * Upgrade the database schema before serving any route, including partial
+      deployments that intentionally disable personalization training.
     * The personalization Async Training Worker (design's Component Map) is
       started here so QUEUED training runs — created by the
       Correction_Pipeline/Calibration_Service once a user crosses the
@@ -47,13 +49,17 @@ async def lifespan(app: FastAPI):
     """
     settings = get_settings()
     configure_determinism(settings)
+    from app.services.auth_api import _default_session_factory
+
+    # Initializing the shared factory applies pending Alembic migrations. This
+    # must not depend on the optional training worker being enabled.
+    session_factory = _default_session_factory()
 
     if get_component_availability().get("training_worker", True):
-        from app.services.auth_api import _default_session_factory
         from app.services.images_api import get_object_store
         from app.services.training_worker import start_background_worker, stop_background_worker
 
-        start_background_worker(_default_session_factory(), get_object_store())
+        start_background_worker(session_factory, get_object_store())
         try:
             yield
         finally:

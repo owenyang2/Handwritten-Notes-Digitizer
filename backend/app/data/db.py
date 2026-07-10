@@ -1,8 +1,8 @@
 """Engine and session factory for the relational data model.
 
-Reads the database URL from the central settings module. ``create_all`` is a
-convenience for the SQLite demo/test path; production schema management would
-use migrations. This module only *reads* configuration; it does not modify it.
+Reads the database URL from the central settings module. ``create_all`` remains
+a convenience for isolated test databases; application startup uses Alembic via
+``app.data.migrations``. This module only *reads* configuration.
 """
 
 from __future__ import annotations

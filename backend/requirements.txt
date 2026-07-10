@@ -2,6 +2,10 @@
 # Reproducibility requirement (Req 11.1): all versions are pinned exactly so
 # the container/build is deterministic and requires no manual code edits.
 
+# PyTorch's matching CPU wheels are published on this index rather than PyPI.
+# Keeping it here makes the documented local install command match Docker.
+--extra-index-url https://download.pytorch.org/whl/cpu
+
 # Web framework / API
 fastapi==0.115.6
 uvicorn==0.34.0
@@ -12,9 +16,11 @@ pydantic==2.10.4
 pydantic-settings==2.7.0
 
 # Machine learning runtime (HTR_Engine, training)
-torch==2.5.1
-torchaudio==2.5.1
-torchvision==0.20.1
+# Keep these CPU wheels aligned.  The standard torchvision wheel can lack the
+# compiled operators expected by the CPU-only torch package in Docker.
+torch==2.5.1+cpu
+torchaudio==2.5.1+cpu
+torchvision==0.20.1+cpu
 transformers==4.47.1
 numpy==1.26.4
 pyctcdecode==0.5.0
@@ -24,6 +30,7 @@ pillow==11.0.0
 
 # Persistence / ORM
 SQLAlchemy==2.0.36
+alembic==1.18.5
 
 # Document Export
 fpdf2==2.8.1

@@ -24,6 +24,7 @@ BACKEND = ROOT / "backend"
 HOST_MODEL_DIR = BACKEND / "var" / "objectstore" / "models" / "base_model"
 HOST_WEIGHTS = HOST_MODEL_DIR / "base_model.pt"
 HOST_META = HOST_MODEL_DIR / "base_model.meta.json"
+failures = 0
 
 
 def ok(message: str) -> None:
@@ -35,14 +36,18 @@ def warn(message: str) -> None:
 
 
 def fail(message: str) -> None:
+    global failures
+    failures += 1
     print(f"[fail] {message}")
 
 
-def run(cmd: list[str], *, timeout: int = 12) -> tuple[int, str]:
+def run(
+    cmd: list[str], *, timeout: int = 12, cwd: Path = ROOT
+) -> tuple[int, str]:
     try:
         completed = subprocess.run(
             cmd,
-            cwd=ROOT,
+            cwd=cwd,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -101,8 +106,8 @@ def check_env() -> None:
         if "HND_OBJECT_STORE_PATH=/app/var/objectstore" in text:
             warn(
                 "root .env uses the container object-store path. That is correct "
-                "for docker compose, but run local backend commands from backend/ "
-                "or unset HND_OBJECT_STORE_PATH."
+                "for docker compose; backend settings intentionally ignore this "
+                "file for local commands."
             )
     else:
         warn(".env is missing; docker compose will use defaults")
@@ -147,6 +152,38 @@ def check_python_model_smoke() -> None:
         os.chdir(previous_cwd)
 
 
+def check_migrations() -> None:
+    print("\nDatabase migrations")
+    compose_code, compose_backend = run(["docker", "compose", "ps", "-q", "backend"])
+    if compose_code == 0 and compose_backend:
+        command = [
+            "docker",
+            "compose",
+            "exec",
+            "-T",
+            "backend",
+            "python",
+            "-m",
+            "alembic",
+            "check",
+        ]
+        location = "Compose database"
+        cwd = ROOT
+    elif (BACKEND / "hnd.db").exists():
+        command = [str(BACKEND / ".venv" / "bin" / "python"), "-m", "alembic", "check"]
+        location = "local database"
+        cwd = BACKEND
+    else:
+        warn("no running Compose backend or local backend/hnd.db; skipping migration check")
+        return
+
+    code, output = run(command, cwd=cwd)
+    if code == 0:
+        ok(f"Alembic schema matches the ORM models ({location})")
+    else:
+        fail(f"Alembic schema check failed ({location}): {output}")
+
+
 def check_docker() -> None:
     print("\nDocker compose")
     code, output = run(["docker", "compose", "ps"])
@@ -185,11 +222,12 @@ def main() -> int:
     print(f"Handwriting Notes Digitizer doctor\nroot: {ROOT}")
     check_host_model()
     check_env()
+    check_migrations()
     check_local_health()
     check_python_model_smoke()
     check_docker()
     print("\nDone.")
-    return 0
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":

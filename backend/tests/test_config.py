@@ -1,6 +1,7 @@
 """Unit tests for the central config module and deterministic seeding."""
 
 import random
+from pathlib import Path
 
 from app.config import (
     Settings,
@@ -17,6 +18,11 @@ def test_settings_have_deterministic_defaults():
     assert settings.cudnn_benchmark is False
     # Upload limit matches the 10 MB rule used by validation (Req 1.3).
     assert settings.max_upload_bytes == 10 * 1024 * 1024
+
+
+def test_settings_dotenv_path_is_anchored_to_backend_directory():
+    expected = Path(__file__).resolve().parents[1] / ".env"
+    assert Path(Settings.model_config["env_file"]) == expected
 
 
 def test_get_settings_is_cached_singleton():

@@ -130,8 +130,14 @@ This checks:
 - backend health at `http://127.0.0.1:8000/health`
 - Vite proxy health at `http://127.0.0.1:5173/api/health`
 - Docker/nginx proxy health at `http://127.0.0.1/api/health`
+- Alembic migration drift against the active runtime database (the Compose
+  database when Docker is running)
 - Python model loading through the backend code
 - Docker container visibility of the mounted model, when Compose is running
+
+The command returns a non-zero exit code for failed required checks. Missing
+optional local services remain warnings. `make docker-smoke` waits for the
+Compose health checks before invoking this diagnostic.
 
 Common run commands:
 

@@ -25,13 +25,10 @@ WORKDIR /app
 # requirements.txt changes, not on every source edit.
 COPY backend/requirements.txt requirements.txt
 
-# Install CPU-only PyTorch wheel separately first so Docker layer caching is
-# maximised.  We override the torch index to the CPU-only build because the
-# standard PyPI wheel includes CUDA libraries and is ~2 GB.
+# Install all requirements against the CPU index.  Installing torchvision from
+# a different index can omit compiled operators such as NMS and prevents the
+# application from importing.
 RUN pip install --no-cache-dir --upgrade pip==24.3.1 \
-    && pip install --no-cache-dir \
-        --extra-index-url https://download.pytorch.org/whl/cpu \
-        torch==2.5.1+cpu \
     && pip install --no-cache-dir -r requirements.txt
 
 # ── Application source ───────────────────────────────────────────────────────
