@@ -44,6 +44,9 @@ vi.mock("../api/client.js", () => ({
   uploadImage: vi.fn(),
   recognizeImage: vi.fn(),
   getRecognitionResult: vi.fn(),
+  createDocument: vi.fn(),
+  getDocument: vi.fn(),
+  getDocuments: vi.fn(),
   getProcessedImageUrl: vi.fn((imageId: string) => `/api/images/${imageId}/processed`),
   submitCorrection: vi.fn(),
   exportText: vi.fn(),
@@ -355,6 +358,13 @@ describe("bootstrap() — upload to recognition wiring (Req 11.4)", () => {
     });
 
     vi.mocked(apiClient.uploadImage).mockResolvedValue({ image_id: "img-123" });
+    vi.mocked(apiClient.createDocument).mockResolvedValue({
+      document_id: "doc-123",
+      title: "hw",
+      created_at: "2026-07-01T00:00:00Z",
+      image_ids: [],
+    });
+    vi.mocked(apiClient.getDocuments).mockResolvedValue([]);
     vi.mocked(apiClient.getProcessedImageUrl).mockImplementation(
       (imageId: string) => `/api/images/${imageId}/processed`,
     );
@@ -442,6 +452,21 @@ describe("bootstrap() — upload to recognition wiring (Req 11.4)", () => {
     expect(root.querySelector("[data-testid='upload-drop-zone']")).not.toBeNull();
   });
 
+  it("keeps calibration visible by default and switches workspace tool tabs", async () => {
+    await bootstrap(root);
+
+    const calibrationPanel = root.querySelector<HTMLElement>("#utility-panel-calibration")!;
+    const historyPanel = root.querySelector<HTMLElement>("#utility-panel-history")!;
+    expect(calibrationPanel.hidden).toBe(false);
+    expect(historyPanel.hidden).toBe(true);
+    expect(root.querySelector("[data-testid='calibration-start-btn']")).not.toBeNull();
+
+    root.querySelector<HTMLButtonElement>("#utility-tab-history")!.click();
+
+    expect(calibrationPanel.hidden).toBe(true);
+    expect(historyPanel.hidden).toBe(false);
+  });
+
   it("editor section is hidden before a file is uploaded", async () => {
     await bootstrap(root);
 
@@ -471,7 +496,8 @@ describe("bootstrap() — upload to recognition wiring (Req 11.4)", () => {
     btn.click();
 
     await vi.waitFor(() => {
-      expect(apiClient.uploadImage).toHaveBeenCalledWith(file);
+      expect(apiClient.createDocument).toHaveBeenCalledWith("hw");
+      expect(apiClient.uploadImage).toHaveBeenCalledWith(file, "doc-123");
       expect(apiClient.recognizeImage).toHaveBeenCalledWith("img-123", expect.any(Function));
       expect(apiClient.getProcessedImageUrl).toHaveBeenCalledWith("img-123");
       expect(root.querySelector<HTMLImageElement>("[data-testid='editor-image']")?.src)

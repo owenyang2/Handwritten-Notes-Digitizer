@@ -288,6 +288,21 @@ export class Editor {
         block.setAttribute("data-testid", "editor-line-review");
         block.setAttribute("data-line-index", String(lineIdx));
 
+        const selectReviewLine = (): void => {
+          overlay.querySelectorAll(".editor-region-box--selected").forEach((el) => {
+            el.classList.remove("editor-region-box--selected");
+          });
+          this.mount.querySelectorAll(".editor-line-review--selected").forEach((el) => {
+            el.classList.remove("editor-line-review--selected");
+          });
+          overlay.querySelector<HTMLElement>(
+            `[data-testid='editor-region-box'][data-line-index='${lineIdx}']`,
+          )?.classList.add("editor-region-box--selected");
+          block.classList.add("editor-line-review--selected");
+        };
+        block.addEventListener("pointerdown", selectReviewLine);
+        block.addEventListener("focusin", selectReviewLine);
+
         const label = document.createElement("label");
         label.className = "editor-line-label";
         const conf = lineConfidenceMap.get(lineIdx) ?? 1.0;
@@ -595,6 +610,13 @@ export class Editor {
       box.setAttribute("aria-label", `Move line ${line.index + 1} training crop`);
       applyBoxStyle(box, region);
 
+      const lineNumber = document.createElement("span");
+      lineNumber.className = "editor-region-label";
+      lineNumber.setAttribute("data-testid", "editor-region-label");
+      lineNumber.setAttribute("aria-hidden", "true");
+      lineNumber.textContent = String(line.index + 1);
+      box.appendChild(lineNumber);
+
       const handle = document.createElement("div");
       handle.className = "editor-region-resize-handle";
       handle.setAttribute("data-testid", "editor-region-resize-handle");
@@ -606,9 +628,13 @@ export class Editor {
           el.classList.remove("editor-region-box--selected");
         });
         box.classList.add("editor-region-box--selected");
+        this.mount.querySelectorAll(".editor-line-review--selected").forEach((el) => {
+          el.classList.remove("editor-line-review--selected");
+        });
         const card = this.mount.querySelector<HTMLElement>(
           `[data-testid='editor-line-review'][data-line-index='${line.index}']`,
         );
+        card?.classList.add("editor-line-review--selected");
         card?.scrollIntoView?.({ block: "nearest" });
       };
 

@@ -1,4 +1,5 @@
 import { getDocuments } from "../api/client.js";
+import type { DocumentResponse } from "../api/client.js";
 
 export class GalleryUI {
   private container: HTMLElement;
@@ -11,38 +12,65 @@ export class GalleryUI {
     this.onSelectDocument = onSelectDocument;
   }
 
-  public async render() {
-    this.container.innerHTML = "<h3>Document History</h3><p>Loading...</p>";
-    
+  public async render(): Promise<void> {
+    this.container.replaceChildren(this.createHeading(), this.createMessage("Loading..."));
+
     try {
       const docs = await getDocuments();
-      
-      this.container.innerHTML = "<h3>Document History</h3>";
-      const list = document.createElement("ul");
-      list.className = "workflow-list";
-      
+      this.container.replaceChildren(this.createHeading());
+
       if (docs.length === 0) {
-        this.container.innerHTML += "<p>No documents found.</p>";
+        this.container.appendChild(this.createMessage("No documents found."));
         return;
       }
-      
-      docs.forEach((doc: any) => {
-        const li = document.createElement("li");
-        li.className = "workflow-item";
-        li.style.cursor = "pointer";
-        li.innerHTML = `
-          <strong class="workflow-item-label">${doc.title}</strong>
-          <span class="workflow-item-desc">${new Date(doc.created_at).toLocaleDateString()} - ${doc.image_ids.length} pages</span>
-        `;
-        li.addEventListener("click", () => {
-          this.onSelectDocument(doc.document_id);
-        });
-        list.appendChild(li);
-      });
-      
+
+      const list = document.createElement("ul");
+      list.className = "workflow-list";
+      docs.forEach((doc) => list.appendChild(this.createDocumentItem(doc)));
       this.container.appendChild(list);
-    } catch (err: any) {
-      this.container.innerHTML = `<h3>Document History</h3><p style="color: red">${err.message}</p>`;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Could not load documents.";
+      const status = this.createMessage(message);
+      status.classList.add("gallery-status--error");
+      this.container.replaceChildren(this.createHeading(), status);
     }
+  }
+
+  private createHeading(): HTMLHeadingElement {
+    const heading = document.createElement("h3");
+    heading.textContent = "Document History";
+    return heading;
+  }
+
+  private createMessage(message: string): HTMLParagraphElement {
+    const status = document.createElement("p");
+    status.className = "gallery-status";
+    status.textContent = message;
+    return status;
+  }
+
+  private createDocumentItem(doc: DocumentResponse): HTMLLIElement {
+    const item = document.createElement("li");
+    item.className = "workflow-item";
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "gallery-document";
+    button.addEventListener("click", () => this.onSelectDocument(doc.document_id));
+
+    const title = document.createElement("strong");
+    title.className = "workflow-item-label";
+    title.textContent = doc.title;
+    button.appendChild(title);
+
+    const metadata = document.createElement("span");
+    metadata.className = "workflow-item-desc";
+    const date = new Date(doc.created_at);
+    const dateLabel = Number.isNaN(date.getTime()) ? "Unknown date" : date.toLocaleDateString();
+    metadata.textContent = `${dateLabel} - ${doc.image_ids.length} pages`;
+    button.appendChild(metadata);
+
+    item.appendChild(button);
+    return item;
   }
 }

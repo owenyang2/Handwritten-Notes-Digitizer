@@ -176,3 +176,23 @@ python3 -m pytest tests/test_personalization_api.py -q
 - Add health panel in UI with live backend reachability and last successful API call timestamps.
 - Add integration test that verifies frontend export handles all backend export `status` variants.
 - Add CI check for frontend-backend contract drift (schema snapshot/type generation).
+
+## 8) Refactor follow-up
+
+- Repaired document repository scoping and exposed the document model/repository
+  through the persistence package.
+- Document creation, grouping, and latest-page reopening are now wired into the
+  frontend review workflow.
+- Uploads validate the selected document before object storage writes, and
+  compensate by deleting stored bytes if the database transaction fails.
+- Recognition SSE parsing now handles CRLF event boundaries and reliably rejects
+  malformed, failed, or prematurely closed streams.
+- Repaired the empty initial Alembic revision with a static schema snapshot and
+  made application startup upgrade to the checked-in Alembic head revision.
+- Aligned Docker and local PyTorch installs on the matching CPU wheel index so
+  torchvision loads its compiled operators reliably.
+- Anchored application dotenv loading to `backend/.env`; the repository-root
+  `.env` remains Docker Compose-only and can no longer leak container paths
+  into local tests.
+- Made `make docker-smoke` wait for Compose health checks and made
+  `make doctor` return a failing exit status when a required check fails.

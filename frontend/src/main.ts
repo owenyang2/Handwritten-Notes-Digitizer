@@ -12,6 +12,8 @@ import { Editor } from "./modules/editor.js";
 import { CalibrationUI } from "./modules/calibrationUI.js";
 import { BeforeAfterView } from "./modules/beforeAfterView.js";
 import { AuthGate } from "./modules/authGate.js";
+import { GalleryUI } from "./modules/galleryUI.js";
+import { registerServiceWorker } from "./serviceWorker.js";
 import "./styles.css";
 import {
   uploadImage,
@@ -23,6 +25,9 @@ import {
   getCurrentUser,
   logout,
   getProcessedImageUrl,
+  createDocument,
+  getDocument,
+  getRecognitionResult,
   ApiError,
 } from "./api/client.js";
 import { refreshCapabilities, isAvailable } from "./api/capabilities.js";
@@ -164,12 +169,76 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
   sideColumn.className = "side-column";
   workGrid.appendChild(sideColumn);
 
+  const utilityTabList = document.createElement("div");
+  utilityTabList.className = "utility-tab-list";
+  utilityTabList.setAttribute("role", "tablist");
+  utilityTabList.setAttribute("aria-label", "Workspace tools");
+  sideColumn.appendChild(utilityTabList);
+
+  const utilityPanels = document.createElement("div");
+  utilityPanels.className = "utility-tab-panels";
+  sideColumn.appendChild(utilityPanels);
+
+  type UtilityTabId = "calibration" | "training" | "export" | "history";
+  const utilityTabs = new Map<UtilityTabId, { button: HTMLButtonElement; panel: HTMLElement }>();
+  let activeUtilityTab: UtilityTabId = "calibration";
+
+  const activateUtilityTab = (tabId: UtilityTabId): void => {
+    const target = utilityTabs.get(tabId);
+    if (!target || target.button.hidden) return;
+    activeUtilityTab = tabId;
+    for (const [id, tab] of utilityTabs) {
+      const active = id === tabId;
+      tab.button.setAttribute("aria-selected", active ? "true" : "false");
+      tab.panel.hidden = !active;
+    }
+  };
+
+  const addUtilityTab = (tabId: UtilityTabId, label: string): HTMLElement => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "utility-tab";
+    button.id = `utility-tab-${tabId}`;
+    button.textContent = label;
+    button.setAttribute("role", "tab");
+    button.setAttribute("aria-controls", `utility-panel-${tabId}`);
+    button.setAttribute("aria-selected", tabId === activeUtilityTab ? "true" : "false");
+    button.addEventListener("click", () => activateUtilityTab(tabId));
+    utilityTabList.appendChild(button);
+
+    const panel = document.createElement("div");
+    panel.className = "utility-tab-panel";
+    panel.id = `utility-panel-${tabId}`;
+    panel.setAttribute("role", "tabpanel");
+    panel.setAttribute("aria-labelledby", button.id);
+    panel.hidden = tabId !== activeUtilityTab;
+    utilityPanels.appendChild(panel);
+    utilityTabs.set(tabId, { button, panel });
+    return panel;
+  };
+
+  const setUtilityTabVisible = (tabId: UtilityTabId, visible: boolean): void => {
+    const tab = utilityTabs.get(tabId);
+    if (!tab) return;
+    tab.button.hidden = !visible;
+    tab.panel.hidden = !visible || activeUtilityTab !== tabId;
+    if (!visible && activeUtilityTab === tabId) {
+      const firstAvailable = [...utilityTabs.entries()].find(([, value]) => !value.button.hidden);
+      if (firstAvailable) activateUtilityTab(firstAvailable[0]);
+    }
+  };
+
+  const calibrationPanel = addUtilityTab("calibration", "Calibration");
+  const trainingPanel = addUtilityTab("training", "Training");
+  const exportPanel = addUtilityTab("export", "Export");
+  const historyPanel = addUtilityTab("history", "History");
+
   // --- Personalization guide + status (visible when capability is available) ---
   const personalizationSection = document.createElement("section");
   personalizationSection.className = "app-section app-section--personalization panel";
   personalizationSection.setAttribute("data-testid", "personalization-section");
   personalizationSection.setAttribute("aria-label", "Personal handwriting learning");
-  sideColumn.appendChild(personalizationSection);
+  trainingPanel.appendChild(personalizationSection);
 
   // --- Upload section ---
   const uploadSection = document.createElement("section");
@@ -192,14 +261,21 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
   exportSection.setAttribute("data-testid", "export-section");
   exportSection.setAttribute("aria-label", "Export text");
   exportSection.style.display = "none";
-  sideColumn.appendChild(exportSection);
+  exportPanel.appendChild(exportSection);
 
   // --- Calibration section (always available but optional) ---
   const calibrationSection = document.createElement("section");
   calibrationSection.className = "app-section app-section--calibration panel";
   calibrationSection.setAttribute("data-testid", "calibration-section-wrapper");
   calibrationSection.setAttribute("aria-label", "Optional calibration");
-  sideColumn.appendChild(calibrationSection);
+  calibrationPanel.appendChild(calibrationSection);
+
+  const gallerySection = document.createElement("section");
+  gallerySection.id = "document-history";
+  gallerySection.className = "app-section app-section--gallery panel";
+  gallerySection.setAttribute("data-testid", "document-history");
+  gallerySection.setAttribute("aria-label", "Document history");
+  historyPanel.appendChild(gallerySection);
 
   // --- Before/After metrics (nested inside personalization section) ---
   const beforeAfterSection = document.createElement("div");
@@ -224,6 +300,68 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
   // Track state for corrections and export.
   let currentImageId: string | null = null;
   let currentImageUrl: string | null = null;
+  let currentDocumentId: string | null = null;
+
+  const renderRecognition = (imageId: string, recognitionDto: RecognitionResultDto): void => {
+    const recognitionResult = mapResult(recognitionDto);
+    currentImageId = imageId;
+    currentImageUrl = getProcessedImageUrl(imageId);
+
+    editor.setOnCorrection(async (wordIndex, lineIndex, originalText, correctedText) => {
+      if (!currentImageId || !isAvailable("correction")) return;
+
+      const line = recognitionResult.lines.find((candidate) => candidate.index === lineIndex);
+      const word = line?.words.find((candidate) => candidate.index === wordIndex);
+      if (!word) return;
+
+      try {
+        await submitCorrection(currentImageId, {
+          word_index: wordIndex,
+          line_index: lineIndex,
+          region: word.region,
+          recognized_text: originalText,
+          corrected_text: correctedText,
+        });
+        refreshPersonalization();
+      } catch {
+        throw new Error("Correction could not be saved to training data.");
+      }
+    });
+
+    editor.setOnLineCorrection(async (lineIndex, region, originalText, correctedText) => {
+      if (!currentImageId || !isAvailable("correction")) return;
+      await submitCorrection(currentImageId, {
+        line_index: lineIndex,
+        region,
+        recognized_text: originalText,
+        corrected_text: correctedText,
+        store_if_unchanged: true,
+      });
+      refreshPersonalization();
+    });
+
+    editor.render(recognitionResult, currentImageUrl);
+    editorSection.style.display = "";
+    buildExportSection(exportSection, imageId, editor);
+    exportSection.style.display = "";
+  };
+
+  const gallery = new GalleryUI("document-history", (documentId) => {
+    void (async () => {
+      currentDocumentId = documentId;
+      const document = await getDocument(documentId);
+      const imageId = document.image_ids.at(-1);
+      if (!imageId) {
+        uploadUI.updateStatus(`Selected ${document.title}. Add an image to begin review.`, "info");
+        return;
+      }
+      renderRecognition(imageId, await getRecognitionResult(imageId));
+      uploadUI.updateStatus(`Opened ${document.title}.`, "success");
+    })().catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : "Could not open the document.";
+      uploadUI.updateStatus(`Error: ${message}`, "error");
+    });
+  });
 
   // ------------------------------------------------------------------
   // 4. Wire the upload → recognize → editor flow
@@ -234,8 +372,14 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
       throw new Error("Upload capability is currently unavailable.");
     }
 
-    // Step 1: Upload the image (POST /images).
-    const { image_id: imageId } = await uploadImage(file);
+    if (!currentDocumentId) {
+      const title = file.name.replace(/\.[^.]+$/, "").trim() || "Untitled Note";
+      const document = await createDocument(title);
+      currentDocumentId = document.document_id;
+    }
+
+    // Step 1: Upload the image into the selected document group.
+    const { image_id: imageId } = await uploadImage(file, currentDocumentId);
     currentImageId = imageId;
     // Create an object URL for the image preview. URL.createObjectURL may not
     // be available in all environments (e.g., SSR/test); fall back gracefully.
@@ -270,66 +414,12 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
       throw err;
     }
 
-    // Step 3: Map result and render the editor.
-    const recognitionResult = mapResult(recognitionDto);
-    currentImageUrl = getProcessedImageUrl(imageId);
-
-    // Wire up correction callback before rendering.
-    editor.setOnCorrection(async (
-      wordIndex: number,
-      lineIndex: number,
-      originalText: string,
-      correctedText: string,
-    ) => {
-      if (!currentImageId || !isAvailable("correction")) return;
-
-      // Find the word's region from the recognition result.
-      const line = recognitionResult.lines.find((l) => l.index === lineIndex);
-      const word = line?.words.find((w) => w.index === wordIndex);
-      if (!word) return;
-
-      try {
-        await submitCorrection(currentImageId, {
-          word_index: wordIndex,
-          line_index: lineIndex,
-          region: word.region,
-          recognized_text: originalText,
-          corrected_text: correctedText,
-        });
-        refreshPersonalization();
-      } catch {
-        // The Editor keeps the local text change either way, but it needs to
-        // know whether the region-backed training pair was actually saved.
-        throw new Error("Correction could not be saved to training data.");
-      }
-    });
-
-    editor.setOnLineCorrection(async (
-      lineIndex,
-      region,
-      originalText,
-      correctedText,
-    ) => {
-      if (!currentImageId || !isAvailable("correction")) return;
-      await submitCorrection(currentImageId, {
-        line_index: lineIndex,
-        region,
-        recognized_text: originalText,
-        corrected_text: correctedText,
-        store_if_unchanged: true,
-      });
-      refreshPersonalization();
-    });
-
-    editor.render(recognitionResult, currentImageUrl!);
-    editorSection.style.display = "";
-
-    // Show export section once the editor is populated.
-    buildExportSection(exportSection, imageId, editor);
-    exportSection.style.display = "";
+    renderRecognition(imageId, recognitionDto);
+    void gallery.render();
   });
 
   uploadUI.render();
+  void gallery.render();
 
   // ------------------------------------------------------------------
   // 5. Wire the calibration flow (optional, Req 9)
@@ -362,10 +452,12 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
     // Hide calibration section if the capability is unavailable.
     if (!isAvailable("calibration")) {
       calibrationSection.style.display = "none";
+      setUtilityTabVisible("calibration", false);
     }
 
     if (!isAvailable("personalization")) {
       personalizationSection.style.display = "none";
+      setUtilityTabVisible("training", false);
     } else {
       refreshPersonalization();
     }
@@ -506,15 +598,15 @@ function buildCalibrationSection(
   section.innerHTML = "";
 
   const heading = document.createElement("h2");
-  heading.textContent = "Optional calibration";
+  heading.textContent = "Calibration samples";
   heading.className = "calibration-start-heading";
   section.appendChild(heading);
 
   const description = document.createElement("p");
   description.className = "calibration-start-desc";
   description.textContent =
-    "Write a few provided sentences to build training examples quickly. " +
-    "This is optional — correcting words on your own uploaded notes works the same way.";
+    "Write a few provided sentences to create high-quality training examples quickly. " +
+    "Correcting your own uploaded notes works too.";
   section.appendChild(description);
 
   const statusEl = document.createElement("p");
@@ -648,5 +740,6 @@ function renderAccountBar(root: HTMLElement, username: string): void {
 
 const appRoot = document.getElementById("app");
 if (appRoot) {
+  registerServiceWorker();
   start(appRoot).catch(console.error);
 }
