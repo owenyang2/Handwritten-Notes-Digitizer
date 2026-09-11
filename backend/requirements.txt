@@ -27,6 +27,8 @@ pyctcdecode==0.5.0
 pygtrie==2.5.0
 # Image handling
 pillow==11.0.0
+pypdfium2==4.30.0
+huggingface_hub==0.27.1
 
 # Persistence / ORM
 SQLAlchemy==2.0.36

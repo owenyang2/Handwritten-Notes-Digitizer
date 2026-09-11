@@ -1,20 +1,18 @@
 # Handwriting Notes Digitizer
 
-A local web app for uploading handwriting images, reviewing recognized text, and turning corrected line crops into personalization training data.
+A local web app for importing handwritten PDFs or images, reviewing formula crops as editable LaTeX, and exporting a versioned document containing prose, mathematics, and retained figures.
 
-The project is built around a FastAPI backend, a Vite/TypeScript frontend, and a line-trained CRNN/CTC handwriting recognition model. The current review workflow treats line regions as the primary training unit because the base model was trained on line images. Word boxes are shown when segmentation and token alignment are reliable, but reviewed line crops are the safest source of clean training examples.
+The project is built around a FastAPI backend, a Vite/TypeScript frontend, durable recognition jobs, and pluggable formula engines. The original CRNN/CTC prose recognizer remains available for legacy line workflows; formula recognition uses a real, artifact-backed UniMERNet-small adapter or the native compact PyTorch image-to-LaTeX model. No missing or untrained model is presented as a successful recognition capability.
 
 ## What It Does
 
-- Upload PNG/JPEG handwriting samples.
-- Run OCR-style handwriting recognition through the backend model pipeline.
-- Review detected line regions directly on the processed image.
-- Drag or resize line boxes before saving them as training crops.
-- Edit recognized line text before adding it to the training queue.
-- Mark false-positive detections, such as dots or non-text marks, as `Not text`.
-- Manage collected training samples by editing labels or deleting bad crops.
-- Export reviewed text as plain text or Markdown.
-- Personalize recognition with per-user adapter training when enough clean examples are collected.
+- Import multipage PDF, PNG, or JPEG notes while retaining the original asset and a normalized page raster.
+- Select complete formula crops manually, or run deterministic page-layout detection as a reviewable starting point.
+- Run recognition through a durable, owner-scoped job and keep raw output, alternatives, truncation, score, and model provenance.
+- Review the original crop beside editable LaTeX and a rendered preview; corrections are immutable, version-checked revisions.
+- Reorder, split, merge, exclude, and mark unresolved regions without losing the source crop.
+- Export the active reviewed revision as Markdown, LaTeX, HTML, or a controlled PDF.
+- Explicitly opt reviewed crops into the personal training dataset; no review is silently used for training.
 
 ## Quick Start
 
@@ -144,32 +142,30 @@ Backend-specific commands:
 
 ```bash
 cd backend
-.venv/bin/python3 -m pytest -q
+PYTHONPATH=.. .venv/bin/python3 -m pytest -q
 ```
 
 ## How Recognition Works
 
-1. The frontend uploads an image to the backend.
-2. The backend stores the original image and preprocesses it for recognition.
-3. Segmentation detects line regions and possible word regions in processed-image coordinates.
-4. The CRNN/CTC model decodes each line crop.
-5. The frontend displays the same processed image used by the backend so overlay boxes match the pixels being reviewed.
-6. Users correct the line text and crop area before saving clean training examples.
+1. The backend stores the unmodified upload and creates ordered page records. PDF pages are rasterized; photos are orientation-normalized and transparency is flattened while the original is retained.
+2. A reviewer selects a complete expression, or starts with the bounded page-layout heuristic. Coordinates identify the page-raster version used for the crop.
+3. A durable worker sends each crop to the configured formula engine. A missing, corrupt, incompatible, or truncated model result stays visibly unavailable or unresolved.
+4. The review UI keeps the original crop, editable LaTeX, rendered preview, raw prediction, and alternatives together.
+5. Saving creates an immutable review revision. Exports assemble the same active revision, so edits and exclusions cannot disappear between preview and download.
 
-If a detected line is just a dot, scanner mark, or bad crop, use `Not text`. That excludes it from export and prevents it from being saved as training data.
+The compact model is trained with `training/cli.py`; UniMERNet-small is downloaded separately with `scripts/download_unimernet.py`. The repository intentionally contains no licensed handwriting corpus or pretrained weights, so health reports formula recognition as unavailable until a verified artifact is installed.
 
 ## Training Data Workflow
 
-Reviewed line crops and calibration examples become `TrainingPair` records. The personalization worker can train a small per-user adapter after enough unused samples are available.
+Reviewed crops become `TrainingExample` records only when the reviewer explicitly gives consent. The existing prose personalization worker can train a per-user adapter after enough eligible examples are collected; compact formula training is an offline, manifest-driven run through `training/cli.py`.
 
 Important behavior:
 
-- Editing text in the review box changes the reviewed/exported text.
-- `Save line for training` adds the current line crop plus the corrected label to the training sample queue.
-- Editing a stored sample label updates future training data.
-- Deleting a stored sample removes that bad crop from future training.
-- Editing or deleting a sample does not retroactively change an adapter that has already finished training.
-- New adapters are accepted only when evaluation says they improve recognition.
+- Editing LaTeX changes only the next saved review revision; a version conflict is reported instead of overwriting another edit.
+- A crop enters the formula dataset only after explicit consent, with its crop hash, exact review revision, source page, and split/provenance recorded.
+- Dataset loading rejects missing images, unsupported labels, duplicate IDs, and source documents crossing train/dev/test splits.
+- The training checkpoint includes model/tokenizer configuration, optimizer/scheduler/scaler, RNG state, epoch and data position, manifest path, and dataset digest.
+- Adapter/model promotion remains evidence-gated; unavailable evaluation data never becomes a synthetic accuracy claim.
 
 ## Project Layout
 
@@ -185,6 +181,14 @@ frontend/
 
 docs/
   AI_MODEL_AND_DOCKER.md
+  MATH_NOTES_IMPLEMENTATION_PLAN.md
+  MATH_NOTES_MODEL_CARD.md
+  MATH_NOTES_DATA_CARD.md
+  MATH_NOTES_RUNBOOK.md
+
+training/              Native PyTorch formula dataset, model training, and profiling
+benchmarks/            Verified-manifest metrics and report runner
+notebooks/             Thin Colab/Kaggle launchers
 
 scripts/
   doctor.py            Runtime and wiring diagnostic script
@@ -206,12 +210,19 @@ Most settings have safe defaults. Common knobs:
 - `FRONTEND_PORT`: host port for the nginx frontend, default `80`.
 - `VITE_API_BASE_URL`: leave empty for same-origin `/api` proxying.
 - `HND_OBJECT_STORE_PATH`: object-store root for images, crops, adapters, and models.
-- `HND_RECOGNITION_TIMEOUT_SECONDS`: recognition request time budget.
+- `HND_RECOGNITION_TIMEOUT_SECONDS`: recognition job deadline.
 - `HND_PERSONALIZATION_TRIGGER_THRESHOLD`: unused training-pair count needed to trigger personalization.
+- `HND_FORMULA_ENGINE`: `unimernet`, `compact`, or `auto` formula backend selection.
 
 ## More Documentation
 
 - [AI model and Docker wiring](docs/AI_MODEL_AND_DOCKER.md)
+- [Math-notes implementation plan](docs/MATH_NOTES_IMPLEMENTATION_PLAN.md)
+- [Math-notes setup and operations guide](docs/MATH_NOTES_SETUP_GUIDE.md)
+- [Math-notes model card](docs/MATH_NOTES_MODEL_CARD.md)
+- [Math-notes data card](docs/MATH_NOTES_DATA_CARD.md)
+- [Math-notes runbook](docs/MATH_NOTES_RUNBOOK.md)
+- [Benchmark runner](benchmarks/README.md)
 - [Implementation history and runbook](IMPLEMENTATION_HISTORY_AND_RUNBOOK.md)
 - [Frontend README](frontend/README.md)
 - [Property testing notes](PROPERTY_TESTING.md)

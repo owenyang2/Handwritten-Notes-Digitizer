@@ -40,6 +40,7 @@ services:
       # - "8000:8000"
       - "127.0.0.1:8000:8000"
     environment:
+      HND_ENVIRONMENT: "${HND_ENVIRONMENT:-production}"
       # ── Reproducibility / determinism ──────────────────────────────────
       HND_RANDOM_SEED: "${HND_RANDOM_SEED:-1337}"
       HND_DETERMINISTIC: "${HND_DETERMINISTIC:-true}"
@@ -52,9 +53,17 @@ services:
       # ── Recognition limits ─────────────────────────────────────────────
       HND_MAX_UPLOAD_BYTES: "${HND_MAX_UPLOAD_BYTES:-10485760}"
       HND_RECOGNITION_TIMEOUT_SECONDS: "${HND_RECOGNITION_TIMEOUT_SECONDS:-10.0}"
+      HND_PDF_RASTER_DPI: "${HND_PDF_RASTER_DPI:-200}"
+      HND_PDF_MAX_PAGES: "${HND_PDF_MAX_PAGES:-50}"
+      HND_PDF_MAX_PIXELS: "${HND_PDF_MAX_PIXELS:-40000000}"
+      HND_FORMULA_ENGINE: "${HND_FORMULA_ENGINE:-auto}"
 
       # ── Personalization ────────────────────────────────────────────────
       HND_PERSONALIZATION_TRIGGER_THRESHOLD: "${HND_PERSONALIZATION_TRIGGER_THRESHOLD:-20}"
+      HND_HELD_OUT_FRACTION: "${HND_HELD_OUT_FRACTION:-0.2}"
+      HND_HELD_OUT_MIN_PAIRS: "${HND_HELD_OUT_MIN_PAIRS:-5}"
+      HND_MAX_TRAINING_EPOCHS: "${HND_MAX_TRAINING_EPOCHS:-50}"
+      HND_ALLOW_SYNTHETIC_EVAL: "${HND_ALLOW_SYNTHETIC_EVAL:-false}"
 
       # ── Partial-deployment component toggles (Req 11.5) ───────────────
       # Set any of these to "false" / "0" / "no" to disable the component.
