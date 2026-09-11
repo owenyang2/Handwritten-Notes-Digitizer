@@ -888,6 +888,30 @@ export interface DocumentResponse {
   source_kind?: string;
   pages?: DocumentPageSummary[];
   active_revision_id?: string | null;
+  updated_at?: string;
+  archived_at?: string | null;
+  trashed_at?: string | null;
+  sync_version?: number;
+  default_language?: string;
+  course_context?: string | null;
+  source_metadata?: Record<string, unknown> | null;
+}
+
+export interface DocumentListOptions {
+  query?: string;
+  includeArchived?: boolean;
+  includeTrashed?: boolean;
+  view?: "active" | "archived" | "trash";
+  limit?: number;
+  offset?: number;
+}
+
+export interface UpdateDocumentRequest {
+  title?: string;
+  archived?: boolean;
+  default_language?: string;
+  course_context?: string | null;
+  expected_sync_version?: number;
 }
 
 export async function createDocument(title: string): Promise<DocumentResponse> {
@@ -898,12 +922,160 @@ export async function createDocument(title: string): Promise<DocumentResponse> {
   });
 }
 
-export async function getDocuments(): Promise<DocumentResponse[]> {
-  return fetchJson<DocumentResponse[]>("/documents", {
+export async function getDocuments(options: DocumentListOptions = {}): Promise<DocumentResponse[]> {
+  const params = new URLSearchParams();
+  if (options.query?.trim()) params.set("query", options.query.trim());
+  if (options.includeArchived) params.set("include_archived", "true");
+  if (options.includeTrashed) params.set("include_trashed", "true");
+  if (options.view) params.set("view", options.view);
+  if (options.limit !== undefined) params.set("limit", String(options.limit));
+  if (options.offset !== undefined) params.set("offset", String(options.offset));
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return fetchJson<DocumentResponse[]>(`/documents${suffix}`, {
     method: "GET",
   });
 }
 
 export async function getDocument(documentId: string): Promise<DocumentResponse> {
   return fetchJson<DocumentResponse>(`/documents/${encodeURIComponent(documentId)}`);
+}
+
+export async function updateDocument(
+  documentId: string,
+  update: UpdateDocumentRequest,
+): Promise<DocumentResponse> {
+  return fetchJson<DocumentResponse>(`/documents/${encodeURIComponent(documentId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(update),
+  });
+}
+
+export async function restoreDocument(documentId: string): Promise<DocumentResponse> {
+  return fetchJson<DocumentResponse>(
+    `/documents/${encodeURIComponent(documentId)}/restore`,
+    { method: "POST" },
+  );
+}
+
+export async function trashDocument(documentId: string): Promise<DocumentResponse> {
+  return fetchJson<DocumentResponse>(`/documents/${encodeURIComponent(documentId)}`, {
+    method: "DELETE",
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Cross-device synchronization
+// ---------------------------------------------------------------------------
+
+export interface SyncOperationRequest {
+  client_id: string;
+  client_operation_id: string;
+  document_id: string;
+  base_sync_version: number;
+  entity_type: string;
+  entity_id?: string | null;
+  operation_type: string;
+  payload: Record<string, unknown>;
+}
+
+export interface SyncAcceptedOperation {
+  client_id: string;
+  client_operation_id: string;
+  operation_id: string;
+  server_sequence: number;
+  document_id: string;
+  sync_version: number;
+  idempotent: boolean;
+}
+
+export interface SyncConflict {
+  conflict_id: string;
+  document_id: string;
+  client_id: string;
+  client_operation_id: string;
+  base_sync_version: number;
+  current_sync_version: number;
+  entity_type: string;
+  entity_id: string | null;
+  operation_type: string;
+  payload: Record<string, unknown>;
+  status: string;
+  resolution: Record<string, unknown> | null;
+  created_at: string;
+  resolved_at: string | null;
+}
+
+export interface SyncPushResponse {
+  accepted: SyncAcceptedOperation[];
+  conflicts: SyncConflict[];
+  current_versions: Record<string, number>;
+}
+
+export interface SyncChange {
+  server_sequence: number;
+  operation_id: string;
+  document_id: string;
+  client_id: string;
+  client_operation_id: string;
+  base_sync_version: number;
+  sync_version: number;
+  entity_type: string;
+  entity_id: string | null;
+  operation_type: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface SyncPullResponse {
+  items: SyncChange[];
+  next_cursor: number;
+  has_more: boolean;
+}
+
+export async function pushSyncOperations(
+  operations: SyncOperationRequest[],
+): Promise<SyncPushResponse> {
+  return fetchJson<SyncPushResponse>("/sync/push", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ operations }),
+  });
+}
+
+export async function pullSyncOperations(
+  cursor = 0,
+  limit = 50,
+): Promise<SyncPullResponse> {
+  const params = new URLSearchParams({
+    cursor: String(cursor),
+    limit: String(limit),
+  });
+  return fetchJson<SyncPullResponse>(`/sync/pull?${params.toString()}`, {
+    method: "GET",
+  });
+}
+
+export async function listSyncConflicts(
+  includeResolved = false,
+): Promise<SyncConflict[]> {
+  const suffix = includeResolved ? "?include_resolved=true" : "";
+  return fetchJson<SyncConflict[]>(`/sync/conflicts${suffix}`, {
+    method: "GET",
+  });
+}
+
+export async function resolveSyncConflict(
+  conflictId: string,
+  decision: "keep_server" | "retry_as_new",
+  details: Record<string, unknown> = {},
+): Promise<SyncConflict> {
+  return fetchJson<SyncConflict>(
+    `/sync/conflicts/${encodeURIComponent(conflictId)}/resolve`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ decision, details }),
+    },
+  );
 }

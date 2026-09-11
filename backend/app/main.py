@@ -32,6 +32,7 @@ from app.services.images_api import router as images_router
 from app.services.isolation import register_isolation_handlers
 from app.services.recognition_service import router as recognition_router
 from app.services.personalization_api import router as personalization_router
+from app.services.sync_api import router as sync_router
 from app.ml.recognition import get_loaded_model_status
 from app.services.capability_registry import get_component_availability, get_capability_availability
 
@@ -158,6 +159,9 @@ def create_app() -> FastAPI:
     # GET /personalization/status (Req 5.6, 5.7)
     # GET /personalization/evaluation (Req 7.3)
     app.include_router(personalization_router)
+
+    # Cross-device document operation log and conflict protocol.
+    app.include_router(sync_router)
 
     # Cross-user isolation: map framework-agnostic CrossUserAccessError to a 404
     # (not 403) so another user's resource existence is never disclosed

@@ -31,6 +31,18 @@ export interface PersonalizationStatusResponse {
   max_training_epochs: number;
 }
 
+export interface ModelAssignmentSummaryResponse {
+  assignment_id: string;
+  task: string;
+  base_model_version: string;
+  adapter_version: string;
+  personalized: boolean;
+  active: boolean;
+  activation_reason: string;
+  created_at: string;
+  retired_at: string | null;
+}
+
 export interface EvaluationApiResponse {
   availability: "available" | "unavailable";
   before_cer: number | null;
@@ -114,6 +126,7 @@ export class BeforeAfterView {
   private latestStatus?: PersonalizationStatusResponse;
   private latestReport?: BeforeAfterReport;
   private latestTrainingPairs: TrainingPairSummaryResponse[] = [];
+  private latestAssignments: ModelAssignmentSummaryResponse[] = [];
   private latestUnavailableReason?: string | null;
 
   constructor(options: BeforeAfterViewOptions) {
@@ -177,6 +190,26 @@ export class BeforeAfterView {
       throw new Error(`Training-pairs fetch failed: ${resp.status} ${resp.statusText}`);
     }
     return resp.json() as Promise<TrainingPairListResponse>;
+  }
+
+  /** Fetch safe model-routing evidence for the authenticated user. */
+  async fetchAssignments(): Promise<ModelAssignmentSummaryResponse[]> {
+    const headers: Record<string, string> = {};
+    if (this.authToken) {
+      headers["Authorization"] = `Bearer ${this.authToken}`;
+    }
+    const resp = await fetch(`${this.apiBase}/personalization/assignments`, {
+      headers,
+      credentials: "include",
+    });
+    // Keep the status view usable against an older backend during a rolling
+    // deploy; assignment evidence is additive and a missing endpoint means
+    // there is simply no evidence to display yet.
+    if (resp.status === 404) return [];
+    if (!resp.ok) {
+      throw new Error(`Model-assignment fetch failed: ${resp.status} ${resp.statusText}`);
+    }
+    return resp.json() as Promise<ModelAssignmentSummaryResponse[]>;
   }
 
   /** Update the label text for one stored training example. */
@@ -524,6 +557,7 @@ export class BeforeAfterView {
                 this.latestReport,
                 remainingPairs,
                 this.latestUnavailableReason,
+                this.latestAssignments,
               );
               return;
             }
@@ -627,6 +661,80 @@ export class BeforeAfterView {
       section.appendChild(reasonP);
     }
 
+    return section;
+  }
+
+  private buildAssignmentsSection(
+    assignments: ModelAssignmentSummaryResponse[],
+  ): HTMLElement {
+    const section = document.createElement("section");
+    section.className = "personalization-assignments";
+    section.setAttribute("data-testid", "personalization-assignments");
+
+    const heading = document.createElement("h3");
+    heading.textContent = "Model routing evidence";
+    section.appendChild(heading);
+
+    const description = document.createElement("p");
+    description.textContent =
+      "Each recognition result records the task and exact base/adapter assignment used. " +
+      "Only compatible active adapters are eligible; no checkpoint paths are shown here.";
+    section.appendChild(description);
+
+    if (assignments.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "personalization-assignments-empty";
+      empty.textContent = "No model assignment has been recorded yet.";
+      section.appendChild(empty);
+      return section;
+    }
+
+    const table = document.createElement("table");
+    table.className = "personalization-assignments-table";
+    table.setAttribute("data-testid", "personalization-assignments-table");
+    table.setAttribute("aria-label", "Model routing evidence");
+
+    const head = document.createElement("thead");
+    const headRow = document.createElement("tr");
+    ["Task", "Base model", "Adapter", "State", "Activated"].forEach((label) => {
+      const cell = document.createElement("th");
+      cell.scope = "col";
+      cell.textContent = label;
+      headRow.appendChild(cell);
+    });
+    head.appendChild(headRow);
+    table.appendChild(head);
+
+    const body = document.createElement("tbody");
+    for (const assignment of assignments) {
+      const row = document.createElement("tr");
+      row.setAttribute("data-testid", "personalization-assignment");
+
+      const task = document.createElement("td");
+      task.textContent = assignment.task.replaceAll("_", " ");
+      row.appendChild(task);
+
+      const base = document.createElement("td");
+      base.textContent = assignment.base_model_version;
+      row.appendChild(base);
+
+      const adapter = document.createElement("td");
+      adapter.textContent = assignment.personalized
+        ? `Personal adapter (${assignment.adapter_version})`
+        : "Base only";
+      row.appendChild(adapter);
+
+      const state = document.createElement("td");
+      state.textContent = assignment.active ? "Active" : "Retired";
+      row.appendChild(state);
+
+      const activated = document.createElement("td");
+      activated.textContent = new Date(assignment.created_at).toLocaleString();
+      row.appendChild(activated);
+      body.appendChild(row);
+    }
+    table.appendChild(body);
+    section.appendChild(table);
     return section;
   }
 
@@ -850,10 +958,12 @@ export class BeforeAfterView {
     report: BeforeAfterReport,
     trainingPairs: TrainingPairSummaryResponse[] = [],
     unavailableReason?: string | null,
+    assignments: ModelAssignmentSummaryResponse[] = [],
   ): void {
     this.latestStatus = status;
     this.latestReport = report;
     this.latestTrainingPairs = trainingPairs;
+    this.latestAssignments = assignments;
     this.latestUnavailableReason = unavailableReason;
     this.mount.replaceChildren();
 
@@ -864,6 +974,7 @@ export class BeforeAfterView {
     container.appendChild(this.buildPipelineGuideSection(status));
     container.appendChild(this.buildStatusSection(status));
     container.appendChild(this.buildTimelineSection(status));
+    container.appendChild(this.buildAssignmentsSection(assignments));
     container.appendChild(this.buildTrainingExamplesSection(trainingPairs));
     container.appendChild(this.buildEvaluationSection(report, unavailableReason));
     this.mount.appendChild(container);
@@ -879,14 +990,21 @@ export class BeforeAfterView {
     this.renderLoading();
 
     try {
-      const [statusData, evalData, pairsData] = await Promise.all([
+      const [statusData, evalData, pairsData, assignments] = await Promise.all([
         this.fetchStatus(),
         this.fetchEvaluation(),
         this.fetchTrainingPairs(),
+        this.fetchAssignments(),
       ]);
 
       const report = reportFromApi(evalData);
-      this.renderFull(statusData, report, pairsData.items, evalData.unavailable_reason);
+      this.renderFull(
+        statusData,
+        report,
+        pairsData.items,
+        evalData.unavailable_reason,
+        assignments,
+      );
       this.updateRefreshPolling(statusData.training_state);
     } catch (err: unknown) {
       const message =

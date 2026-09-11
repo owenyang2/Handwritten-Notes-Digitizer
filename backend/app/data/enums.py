@@ -81,3 +81,19 @@ class TrainingExampleSplit(str, enum.Enum):
     DEV = "dev"
     TEST = "test"
     UNASSIGNED = "unassigned"
+
+
+class ModelTask(str, enum.Enum):
+    """Recognition task names used by the model-assignment registry.
+
+    These values are deliberately stored as ordinary strings in the registry
+    so adding a new task does not require a database enum migration.  The enum
+    still gives callers one canonical vocabulary at the application boundary.
+    """
+
+    PROSE_RASTER = "prose_raster"
+    MATH_RASTER = "math_raster"
+    MATH_INK = "math_ink"
+    RERANKER = "reranker"
+    MIXED_RASTER = "mixed_raster"
+    FIGURE = "figure"

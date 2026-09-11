@@ -31,13 +31,16 @@ import datetime as _dt
 import uuid
 from typing import Optional, Sequence
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from .base import utcnow
 from .enums import AdapterStatus, RecognitionJobState, TrainingRunState
 from .models import (
     Adapter,
     Document,
+    DocumentConflict,
+    DocumentOperation,
     DocumentPage,
     DocumentRegion,
     DocumentRevision,
@@ -45,6 +48,7 @@ from .models import (
     Image,
     ImageLineReview,
     ModelArtifact,
+    ModelAssignment,
     RecognizedWord,
     RegionPrediction,
     RegionReview,
@@ -110,8 +114,22 @@ class UserRepository(_ScopedRepository):
 class DocumentRepository(_ScopedRepository):
     """Per-user access to document aggregates and their image groups."""
 
-    def create(self, user_id: UUIDLike | str, title: str) -> Document:
-        doc = Document(user_id=_as_uuid(user_id), title=title)
+    def create(
+        self,
+        user_id: UUIDLike | str,
+        title: str,
+        *,
+        default_language: str = "en",
+        course_context: str | None = None,
+        source_metadata: dict | None = None,
+    ) -> Document:
+        doc = Document(
+            user_id=_as_uuid(user_id),
+            title=title,
+            default_language=default_language,
+            course_context=course_context,
+            source_metadata=source_metadata,
+        )
         self._session.add(doc)
         self._session.flush()
         return doc
@@ -123,16 +141,273 @@ class DocumentRepository(_ScopedRepository):
         stmt = select(Document).where(
             Document.document_id == _as_uuid(document_id),
             Document.user_id == _as_uuid(user_id),
+            Document.deleted_at.is_(None),
         )
         return self._session.scalars(stmt).one_or_none()
 
-    def list_for_user(self, user_id: UUIDLike | str) -> list[Document]:
+    def _library_statement(
+        self,
+        user_id: UUIDLike | str,
+        *,
+        query: str | None = None,
+        include_archived: bool = False,
+        include_trashed: bool = False,
+        view: str | None = None,
+    ):
+        stmt = select(Document).where(
+            Document.user_id == _as_uuid(user_id),
+            Document.deleted_at.is_(None),
+        )
+        if view == "active":
+            stmt = stmt.where(
+                Document.archived_at.is_(None), Document.trashed_at.is_(None)
+            )
+        elif view == "archived":
+            stmt = stmt.where(
+                Document.archived_at.is_not(None), Document.trashed_at.is_(None)
+            )
+        elif view == "trash":
+            stmt = stmt.where(Document.trashed_at.is_not(None))
+        else:
+            if not include_archived:
+                stmt = stmt.where(Document.archived_at.is_(None))
+            if not include_trashed:
+                stmt = stmt.where(Document.trashed_at.is_(None))
+        if query:
+            stmt = stmt.where(
+                func.lower(Document.title).contains(
+                    query.strip().lower(), autoescape=True
+                )
+            )
+        return stmt
+
+    def list_for_user(
+        self,
+        user_id: UUIDLike | str,
+        *,
+        query: str | None = None,
+        include_archived: bool = False,
+        include_trashed: bool = False,
+        view: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[Document]:
+        """List a user's live documents with safe library filters.
+
+        ``deleted_at`` is always excluded.  Trash is opt-in so the normal
+        library cannot accidentally reopen a discarded note; archived notes
+        are also opt-in for the active library view.
+        """
+        stmt = self._library_statement(
+            user_id,
+            query=query,
+            include_archived=include_archived,
+            include_trashed=include_trashed,
+            view=view,
+        )
+        stmt = stmt.order_by(Document.updated_at.desc(), Document.document_id.desc())
+        stmt = stmt.limit(max(1, min(limit, 100))).offset(max(0, offset))
+        return list(self._session.scalars(stmt).all())
+
+    def count_for_user(
+        self,
+        user_id: UUIDLike | str,
+        *,
+        query: str | None = None,
+        include_archived: bool = False,
+        include_trashed: bool = False,
+        view: str | None = None,
+    ) -> int:
+        """Count the same filtered library view used by ``list_for_user``."""
+        stmt = self._library_statement(
+            user_id,
+            query=query,
+            include_archived=include_archived,
+            include_trashed=include_trashed,
+            view=view,
+        )
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        return int(self._session.scalar(count_stmt) or 0)
+
+    def update_metadata(
+        self,
+        user_id: UUIDLike | str,
+        document_id: UUIDLike | str,
+        *,
+        title: str | None = None,
+        archived: bool | None = None,
+        default_language: str | None = None,
+        course_context: str | None = None,
+        set_course_context: bool = False,
+        expected_sync_version: int | None = None,
+    ) -> Optional[Document]:
+        """Update owner-scoped library metadata and advance the sync version."""
+        document = self.get(user_id, document_id)
+        if document is None:
+            return None
+        if (
+            expected_sync_version is not None
+            and expected_sync_version != document.sync_version
+        ):
+            raise ValueError(
+                f"Document is stale; expected sync version {document.sync_version}."
+            )
+        if title is not None:
+            document.title = title
+        if archived is not None:
+            document.archived_at = utcnow() if archived else None
+        if default_language is not None:
+            document.default_language = default_language
+        if set_course_context:
+            document.course_context = course_context
+        document.sync_version += 1
+        document.updated_at = utcnow()
+        self._session.flush()
+        return document
+
+    def touch(
+        self,
+        user_id: UUIDLike | str,
+        document_id: UUIDLike | str,
+        *,
+        bump_sync_version: bool = True,
+    ) -> Optional[Document]:
+        """Mark related content changes in the document library metadata."""
+        document = self.get(user_id, document_id)
+        if document is None:
+            return None
+        if bump_sync_version:
+            document.sync_version += 1
+        document.updated_at = utcnow()
+        self._session.flush()
+        return document
+
+    def trash(
+        self, user_id: UUIDLike | str, document_id: UUIDLike | str
+    ) -> Optional[Document]:
+        document = self.get(user_id, document_id)
+        if document is None:
+            return None
+        if document.trashed_at is None:
+            document.trashed_at = utcnow()
+            document.sync_version += 1
+            document.updated_at = utcnow()
+            self._session.flush()
+        return document
+
+    def restore(
+        self, user_id: UUIDLike | str, document_id: UUIDLike | str
+    ) -> Optional[Document]:
+        document = self.get(user_id, document_id)
+        if document is None:
+            return None
+        if document.trashed_at is not None:
+            document.trashed_at = None
+            document.sync_version += 1
+            document.updated_at = utcnow()
+            self._session.flush()
+        return document
+
+
+class DocumentSyncRepository(_ScopedRepository):
+    """Owner-scoped access to accepted sync operations and conflicts."""
+
+    def get_operation(
+        self,
+        user_id: UUIDLike | str,
+        client_id: str,
+        client_operation_id: UUIDLike | str,
+    ) -> Optional[DocumentOperation]:
+        stmt = select(DocumentOperation).where(
+            DocumentOperation.user_id == _as_uuid(user_id),
+            DocumentOperation.client_id == client_id,
+            DocumentOperation.client_operation_id == _as_uuid(client_operation_id),
+        )
+        return self._session.scalars(stmt).one_or_none()
+
+    def get_conflict(
+        self,
+        user_id: UUIDLike | str,
+        conflict_id: UUIDLike | str,
+    ) -> Optional[DocumentConflict]:
+        stmt = select(DocumentConflict).where(
+            DocumentConflict.conflict_id == _as_uuid(conflict_id),
+            DocumentConflict.user_id == _as_uuid(user_id),
+        )
+        return self._session.scalars(stmt).one_or_none()
+
+    def get_conflict_for_operation(
+        self,
+        user_id: UUIDLike | str,
+        client_id: str,
+        client_operation_id: UUIDLike | str,
+    ) -> Optional[DocumentConflict]:
+        stmt = select(DocumentConflict).where(
+            DocumentConflict.user_id == _as_uuid(user_id),
+            DocumentConflict.client_id == client_id,
+            DocumentConflict.client_operation_id == _as_uuid(client_operation_id),
+        )
+        return self._session.scalars(stmt).one_or_none()
+
+    def add_operation(self, operation: DocumentOperation) -> DocumentOperation:
+        self._session.add(operation)
+        self._session.flush()
+        return operation
+
+    def add_conflict(self, conflict: DocumentConflict) -> DocumentConflict:
+        self._session.add(conflict)
+        self._session.flush()
+        return conflict
+
+    def list_operations(
+        self,
+        user_id: UUIDLike | str,
+        *,
+        cursor: int = 0,
+        limit: int = 50,
+    ) -> Sequence[DocumentOperation]:
+        """Return at most ``limit + 1`` changes after a global server cursor."""
         stmt = (
-            select(Document)
-            .where(Document.user_id == _as_uuid(user_id))
-            .order_by(Document.created_at.desc())
+            select(DocumentOperation)
+            .where(
+                DocumentOperation.user_id == _as_uuid(user_id),
+                DocumentOperation.server_sequence > max(0, cursor),
+            )
+            .order_by(DocumentOperation.server_sequence)
+            .limit(max(1, min(limit, 101)))
         )
         return list(self._session.scalars(stmt).all())
+
+    def list_conflicts(
+        self,
+        user_id: UUIDLike | str,
+        *,
+        include_resolved: bool = False,
+    ) -> Sequence[DocumentConflict]:
+        stmt = select(DocumentConflict).where(
+            DocumentConflict.user_id == _as_uuid(user_id)
+        )
+        if not include_resolved:
+            stmt = stmt.where(DocumentConflict.status == "pending")
+        stmt = stmt.order_by(DocumentConflict.created_at.desc())
+        return list(self._session.scalars(stmt).all())
+
+    def resolve_conflict(
+        self,
+        user_id: UUIDLike | str,
+        conflict_id: UUIDLike | str,
+        *,
+        resolution: dict,
+    ) -> Optional[DocumentConflict]:
+        conflict = self.get_conflict(user_id, conflict_id)
+        if conflict is None:
+            return None
+        if conflict.status != "resolved":
+            conflict.status = "resolved"
+            conflict.resolution = resolution
+            conflict.resolved_at = utcnow()
+            self._session.flush()
+        return conflict
 
 
 class ImageRepository(_ScopedRepository):
@@ -665,6 +940,76 @@ class ModelArtifactRepository(_ScopedRepository):
         return list(self._session.scalars(stmt).all())
 
 
+class ModelAssignmentRepository(_ScopedRepository):
+    """Per-user model resolution records used for prediction provenance."""
+
+    def add(self, assignment: ModelAssignment) -> ModelAssignment:
+        self._session.add(assignment)
+        self._session.flush()
+        return assignment
+
+    def get_by_key(
+        self,
+        user_id: UUIDLike | str,
+        task: str,
+        assignment_key: str,
+    ) -> Optional[ModelAssignment]:
+        stmt = select(ModelAssignment).where(
+            ModelAssignment.user_id == _as_uuid(user_id),
+            ModelAssignment.task == task,
+            ModelAssignment.assignment_key == assignment_key,
+        )
+        return self._session.scalars(stmt).one_or_none()
+
+    def get_active(
+        self, user_id: UUIDLike | str, task: str
+    ) -> Optional[ModelAssignment]:
+        stmt = select(ModelAssignment).where(
+            ModelAssignment.user_id == _as_uuid(user_id),
+            ModelAssignment.task == task,
+            ModelAssignment.active.is_(True),
+        )
+        return self._session.scalars(stmt).first()
+
+    def list_for_user(
+        self, user_id: UUIDLike | str, *, include_inactive: bool = True
+    ) -> Sequence[ModelAssignment]:
+        stmt = select(ModelAssignment).where(
+            ModelAssignment.user_id == _as_uuid(user_id)
+        )
+        if not include_inactive:
+            stmt = stmt.where(ModelAssignment.active.is_(True))
+        stmt = stmt.order_by(
+            ModelAssignment.task,
+            ModelAssignment.created_at.desc(),
+            ModelAssignment.assignment_id.desc(),
+        )
+        return list(self._session.scalars(stmt).all())
+
+    def retire_active(
+        self, user_id: UUIDLike | str, task: str, *, except_id: uuid.UUID | None = None
+    ) -> None:
+        stmt = select(ModelAssignment).where(
+            ModelAssignment.user_id == _as_uuid(user_id),
+            ModelAssignment.task == task,
+            ModelAssignment.active.is_(True),
+        )
+        for assignment in self._session.scalars(stmt).all():
+            if except_id is not None and assignment.assignment_id == except_id:
+                continue
+            assignment.active = False
+            assignment.retired_at = utcnow()
+
+    def activate(self, assignment: ModelAssignment) -> ModelAssignment:
+        self.retire_active(
+            assignment.user_id, assignment.task, except_id=assignment.assignment_id
+        )
+        assignment.active = True
+        assignment.retired_at = None
+        self._session.flush()
+        return assignment
+
+
 class TrainingPairRepository(_ScopedRepository):
     """Per-user access to :class:`TrainingPair` rows (Req 10.2, 10.5).
 
@@ -869,6 +1214,7 @@ class RepositoryFactory:
         self._session = session
         self.users = UserRepository(session)
         self.documents = DocumentRepository(session)
+        self.sync = DocumentSyncRepository(session)
         self.images = ImageRepository(session)
         self.recognized_words = RecognizedWordRepository(session)
         self.line_reviews = ImageLineReviewRepository(session)
@@ -881,6 +1227,7 @@ class RepositoryFactory:
         self.training_examples = TrainingExampleRepository(session)
         self.recognition_jobs = RecognitionJobRepository(session)
         self.model_artifacts = ModelArtifactRepository(session)
+        self.model_assignments = ModelAssignmentRepository(session)
         self.training_pairs = TrainingPairRepository(session)
         self.adapters = AdapterRepository(session)
         self.training_runs = TrainingRunRepository(session)
@@ -894,6 +1241,7 @@ class RepositoryFactory:
 __all__ = [
     "UserRepository",
     "ImageRepository",
+    "DocumentSyncRepository",
     "RecognizedWordRepository",
     "ImageLineReviewRepository",
     "DocumentPageRepository",
@@ -905,6 +1253,7 @@ __all__ = [
     "TrainingExampleRepository",
     "RecognitionJobRepository",
     "ModelArtifactRepository",
+    "ModelAssignmentRepository",
     "TrainingPairRepository",
     "AdapterRepository",
     "TrainingRunRepository",

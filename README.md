@@ -218,6 +218,7 @@ Most settings have safe defaults. Common knobs:
 
 - [AI model and Docker wiring](docs/AI_MODEL_AND_DOCKER.md)
 - [Math-notes implementation plan](docs/MATH_NOTES_IMPLEMENTATION_PLAN.md)
+- [Personalized notes platform implementation plan](docs/PERSONALIZED_NOTES_PLATFORM_IMPLEMENTATION_PLAN.md)
 - [Math-notes setup and operations guide](docs/MATH_NOTES_SETUP_GUIDE.md)
 - [Math-notes model card](docs/MATH_NOTES_MODEL_CARD.md)
 - [Math-notes data card](docs/MATH_NOTES_DATA_CARD.md)

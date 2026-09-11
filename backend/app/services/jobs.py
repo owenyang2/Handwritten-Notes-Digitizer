@@ -247,6 +247,16 @@ def _run_job(job_id: uuid.UUID, session_factory: sessionmaker[Session], store: O
                         [region.bbox_x, region.bbox_y, region.bbox_width, region.bbox_height],
                     )
                     result = recognize_formula_crop(crop)
+                    from app.services.model_resolution import resolve_model_assignment, task_for_mode
+
+                    resolved = resolve_model_assignment(
+                        repos,
+                        job.user_id,
+                        task=task_for_mode(job.mode),
+                        engine_id=result.engine_id,
+                        engine_version=result.engine_version,
+                        provenance=getattr(result, "provenance", None),
+                    )
                 except Exception as exc:
                     retry_requested = _queue_retry(
                         session,
@@ -260,6 +270,7 @@ def _run_job(job_id: uuid.UUID, session_factory: sessionmaker[Session], store: O
                 ]
                 prediction = RegionPrediction(
                     region_id=region.region_id,
+                    model_assignment_id=resolved.assignment.assignment_id,
                     engine_id=result.engine_id,
                     engine_version=result.engine_version,
                     raw_output=result.text,
@@ -268,7 +279,14 @@ def _run_job(job_id: uuid.UUID, session_factory: sessionmaker[Session], store: O
                     status="ok" if result.available else "unavailable",
                     latency_ms=result.latency_ms,
                     alternatives=candidate_dicts[1:] or None,
-                    provenance=getattr(result, "provenance", None),
+                    provenance={
+                        **dict(getattr(result, "provenance", None) or {}),
+                        "model_assignment_id": str(resolved.assignment.assignment_id),
+                        "model_task": resolved.task,
+                        "base_model_version": resolved.base_model_version,
+                        "adapter_version": resolved.adapter_version,
+                        "personalized": resolved.personalized,
+                    },
                     settings=getattr(result, "settings", None),
                 )
                 repos.region_predictions.add(prediction)

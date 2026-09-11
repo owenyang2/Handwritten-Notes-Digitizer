@@ -111,6 +111,20 @@ class TrainingPairSummaryResponse(BaseModel):
     used: bool
 
 
+class ModelAssignmentSummaryResponse(BaseModel):
+    """Safe model provenance for one user/task assignment."""
+
+    assignment_id: uuid.UUID
+    task: str
+    base_model_version: str
+    adapter_version: str
+    personalized: bool
+    active: bool
+    activation_reason: str
+    created_at: datetime
+    retired_at: datetime | None = None
+
+
 class TrainingPairListResponse(BaseModel):
     """Collection of the user's personalization training examples."""
 
@@ -380,6 +394,38 @@ def get_evaluation(
         delta_wer=result.delta_wer,
         unavailable_reason=unavailable_reason,
     )
+
+
+@router.get(
+    "/assignments",
+    response_model=list[ModelAssignmentSummaryResponse],
+    summary="List model assignments used for this account",
+    description=(
+        "Returns the versioned base/adapter assignments used by this user's "
+        "recognition requests. It contains no note content or raw checkpoint paths."
+    ),
+)
+def list_model_assignments(
+    include_inactive: bool = True,
+    user: User = Depends(get_current_user),
+    repos: RepositoryFactory = Depends(get_repositories),
+) -> list[ModelAssignmentSummaryResponse]:
+    return [
+        ModelAssignmentSummaryResponse(
+            assignment_id=assignment.assignment_id,
+            task=assignment.task,
+            base_model_version=assignment.base_model_version,
+            adapter_version=assignment.adapter_version,
+            personalized=assignment.adapter_id is not None,
+            active=assignment.active,
+            activation_reason=assignment.activation_reason,
+            created_at=assignment.created_at,
+            retired_at=assignment.retired_at,
+        )
+        for assignment in repos.model_assignments.list_for_user(
+            user.user_id, include_inactive=include_inactive
+        )
+    ]
 
 
 @router.get(

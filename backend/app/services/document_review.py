@@ -179,6 +179,7 @@ def create_document_revision(
     review endpoint keeps a specialized path so the just-created immutable
     review can be included in the same initial snapshot.
     """
+    repos.documents.touch(user_id, document.document_id)
     if document.active_revision_id is None and not force:
         return None
     revision = DocumentRevision(
@@ -303,6 +304,7 @@ def post_region_review(
     if page is not None:
         document = repos.documents.get(user.user_id, page.document_id)
         if document is not None:
+            repos.documents.touch(user.user_id, document.document_id)
             document_revision = DocumentRevision(
                 document_id=document.document_id,
                 revision_number=repos.document_revisions.next_number(user.user_id, document.document_id),

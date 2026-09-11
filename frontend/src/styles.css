@@ -188,6 +188,40 @@ button:focus-visible {
   transform: none;
 }
 
+.gallery-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin: 0.6rem 0;
+}
+
+.gallery-search {
+  min-width: 10rem;
+  flex: 1 1 12rem;
+}
+
+.gallery-view,
+.gallery-search-submit,
+.gallery-action {
+  min-height: 2rem;
+  padding: 0.35rem 0.55rem;
+}
+
+.gallery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+}
+
+.gallery-action {
+  font-size: 0.78rem;
+}
+
+.gallery-action--danger {
+  color: var(--danger, #c2410c);
+}
+
 .gallery-status--error {
   color: var(--danger, #c2410c);
 }
@@ -786,7 +820,8 @@ button:focus-visible {
 .personalization-guide h2,
 .before-after-status h3,
 .training-examples h3,
-.personalization-timeline h3 {
+.personalization-timeline h3,
+.personalization-assignments h3 {
   margin: 0 0 0.45rem;
   font-size: 1.05rem;
   letter-spacing: 0;
@@ -796,6 +831,7 @@ button:focus-visible {
 .calibration-start-desc,
 .personalization-guide-intro,
 .training-examples > p,
+.personalization-assignments > p,
 .calibration-description {
   margin: 0 0 0.85rem;
   color: var(--muted);
@@ -817,7 +853,8 @@ button:focus-visible {
 .before-after-status,
 .before-after-metrics,
 .training-examples,
-.personalization-timeline {
+.personalization-timeline,
+.personalization-assignments {
   border-top: 1px solid var(--line);
   padding-top: 0.9rem;
   margin-top: 0.9rem;
@@ -902,6 +939,31 @@ button:focus-visible {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
   gap: 0.7rem;
+}
+
+.personalization-assignments-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.personalization-assignments-table th,
+.personalization-assignments-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 0.45rem 0.35rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.personalization-assignments-table th {
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.personalization-assignments-empty {
+  color: var(--muted);
 }
 
 .training-example-card {

@@ -24,12 +24,14 @@ from sqlalchemy import (
     Enum as SAEnum,
     Float,
     ForeignKey,
+    Index,
     Integer,
     JSON,
     String,
     Text,
     UniqueConstraint,
     Uuid,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -83,6 +85,15 @@ class User(Base):
     training_examples: Mapped[list["TrainingExample"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    model_assignments: Mapped[list["ModelAssignment"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    document_operations: Mapped[list["DocumentOperation"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    document_conflicts: Mapped[list["DocumentConflict"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class UserSession(Base):
@@ -116,6 +127,24 @@ class Document(Base):
     original_path: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
     active_revision_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid, nullable=True)
     created_at: Mapped[_dt.datetime] = created_at_column()
+    updated_at: Mapped[_dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+    archived_at: Mapped[Optional[_dt.datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    trashed_at: Mapped[Optional[_dt.datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    deleted_at: Mapped[Optional[_dt.datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    sync_version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    default_language: Mapped[str] = mapped_column(
+        String(32), default="en", nullable=False
+    )
+    course_context: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_metadata: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
     user: Mapped["User"] = relationship(back_populates="documents")
     images: Mapped[list["Image"]] = relationship(
@@ -126,6 +155,12 @@ class Document(Base):
     )
     revisions: Mapped[list["DocumentRevision"]] = relationship(
         back_populates="document", cascade="all, delete-orphan", order_by="DocumentRevision.revision_number"
+    )
+    operations: Mapped[list["DocumentOperation"]] = relationship(
+        back_populates="document", cascade="all, delete-orphan", order_by="DocumentOperation.server_sequence"
+    )
+    conflicts: Mapped[list["DocumentConflict"]] = relationship(
+        back_populates="document", cascade="all, delete-orphan", order_by="DocumentConflict.created_at"
     )
 
 
@@ -310,6 +345,12 @@ class RegionPrediction(Base):
     region_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("document_regions.region_id", ondelete="CASCADE"), nullable=False, index=True
     )
+    model_assignment_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid,
+        ForeignKey("model_assignments.assignment_id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     engine_id: Mapped[str] = mapped_column(String(64), nullable=False)
     engine_version: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     raw_output: Mapped[str] = mapped_column(Text, nullable=False, default="")
@@ -323,6 +364,7 @@ class RegionPrediction(Base):
     created_at: Mapped[_dt.datetime] = created_at_column()
 
     region: Mapped["DocumentRegion"] = relationship(back_populates="predictions")
+    model_assignment: Mapped[Optional["ModelAssignment"]] = relationship()
 
 
 class RegionReview(Base):
@@ -401,6 +443,122 @@ class DocumentRevision(Base):
     created_at: Mapped[_dt.datetime] = created_at_column()
 
     document: Mapped["Document"] = relationship(back_populates="revisions")
+
+
+class DocumentOperation(Base):
+    """One accepted, idempotent client mutation in the document sync log.
+
+    ``server_sequence`` is the cursor exposed to clients.  It is deliberately
+    database-assigned and global so a client can resume a pull after any
+    process restart without relying on timestamps.  ``client_operation_id``
+    is the caller's idempotency key; the same key is never applied twice for a
+    user/client pair.
+    """
+
+    __tablename__ = "document_operations"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "client_id",
+            "client_operation_id",
+            name="uq_document_operation_client_key",
+        ),
+        Index(
+            "ix_document_operations_document_sequence",
+            "document_id",
+            "server_sequence",
+        ),
+    )
+
+    server_sequence: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
+    operation_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, unique=True, default=new_uuid, nullable=False
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("users.user_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("documents.document_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    client_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    client_operation_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    base_sync_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    document_sync_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    entity_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    operation_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[_dt.datetime] = created_at_column()
+
+    user: Mapped["User"] = relationship(back_populates="document_operations")
+    document: Mapped["Document"] = relationship(back_populates="operations")
+
+
+class DocumentConflict(Base):
+    """A client mutation rejected by optimistic document-version checking.
+
+    Conflicts retain the submitted operation payload instead of silently
+    dropping it.  A client can inspect the record, choose a resolution, and
+    retry as a new operation after reconciling with the server state.
+    """
+
+    __tablename__ = "document_conflicts"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "client_id",
+            "client_operation_id",
+            name="uq_document_conflict_client_key",
+        ),
+        Index(
+            "ix_document_conflicts_document_status",
+            "document_id",
+            "status",
+        ),
+    )
+
+    conflict_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=new_uuid
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("users.user_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("documents.document_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    client_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    client_operation_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    base_sync_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    current_sync_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    entity_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    operation_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="pending"
+    )
+    resolution: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[_dt.datetime] = created_at_column()
+    resolved_at: Mapped[Optional[_dt.datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    user: Mapped["User"] = relationship(back_populates="document_conflicts")
+    document: Mapped["Document"] = relationship(back_populates="conflicts")
 
 
 class ReviewRevision(Base):
@@ -589,6 +747,61 @@ class Adapter(Base):
     created_at: Mapped[_dt.datetime] = created_at_column()
 
     user: Mapped["User"] = relationship(back_populates="adapter")
+
+
+class ModelAssignment(Base):
+    """Immutable, auditable model resolution for one user and task.
+
+    A row represents one exact base/adapter combination.  The resolver reuses
+    an existing row for the same combination and retires the previous active
+    row when a new combination is selected.  Predictions point at this row so
+    a later model change can never rewrite the provenance of old output.
+    """
+
+    __tablename__ = "model_assignments"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "assignment_key", name="uq_model_assignment_user_key"
+        ),
+        Index(
+            "uq_model_assignment_active_task",
+            "user_id",
+            "task",
+            unique=True,
+            sqlite_where=text("active = 1"),
+            postgresql_where=text("active = true"),
+        ),
+    )
+
+    assignment_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=new_uuid
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("users.user_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    task: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    assignment_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    base_model_version: Mapped[str] = mapped_column(String(255), nullable=False)
+    adapter_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, ForeignKey("adapters.adapter_id", ondelete="SET NULL"), nullable=True
+    )
+    adapter_version: Mapped[str] = mapped_column(
+        String(255), nullable=False, default="base"
+    )
+    activation_reason: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="base_default"
+    )
+    metrics: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[_dt.datetime] = created_at_column()
+    retired_at: Mapped[Optional[_dt.datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    user: Mapped["User"] = relationship(back_populates="model_assignments")
 
 
 class TrainingRun(Base):

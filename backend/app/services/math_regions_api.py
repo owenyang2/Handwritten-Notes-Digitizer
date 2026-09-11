@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 
 from app.config.settings import get_settings
+from app.data.enums import ModelTask
 from app.data.models import DocumentRegion, RegionPrediction, User
 from app.data.object_store import ObjectStore
 from app.data.repositories import RepositoryFactory
@@ -19,6 +20,7 @@ from app.services.auth_api import get_current_user, get_repositories
 from app.services.document_review import create_document_revision
 from app.services.images_api import get_object_store
 from app.services.isolation import get_or_404
+from app.services.model_resolution import resolve_model_assignment
 
 router = APIRouter(tags=["math-regions"])
 
@@ -85,6 +87,11 @@ class RecognizeRegionResponse(BaseModel):
     score: float | None = None
     candidates: list[dict] = []
     latency_ms: float | None = None
+    model_assignment_id: uuid.UUID | None = None
+    model_task: str | None = None
+    base_model_version: str | None = None
+    adapter_version: str | None = None
+    personalized: bool = False
 
 
 class RegionDetailResponse(BaseModel):
@@ -105,6 +112,11 @@ class RegionDetailResponse(BaseModel):
     score: float | None = None
     truncated: bool = False
     crop_sha256: str | None = None
+    model_assignment_id: uuid.UUID | None = None
+    model_task: str | None = None
+    base_model_version: str | None = None
+    adapter_version: str | None = None
+    personalized: bool = False
 
 
 class PatchRegionRequest(BaseModel):
@@ -251,6 +263,14 @@ def recognize_region(
         [region.bbox_x, region.bbox_y, region.bbox_width, region.bbox_height],
     )
     result = recognize_formula_crop(crop)
+    resolved = resolve_model_assignment(
+        repos,
+        user.user_id,
+        task=ModelTask.MATH_RASTER,
+        engine_id=result.engine_id,
+        engine_version=result.engine_version,
+        provenance=getattr(result, "provenance", None),
+    )
     candidate_dicts = [
         {
             "text": candidate.text,
@@ -270,7 +290,15 @@ def recognize_region(
         status="ok" if result.available else "unavailable",
         latency_ms=result.latency_ms,
         alternatives=candidate_dicts[1:] or None,
-        provenance=getattr(result, "provenance", None),
+        model_assignment_id=resolved.assignment.assignment_id,
+        provenance={
+            **dict(getattr(result, "provenance", None) or {}),
+            "model_assignment_id": str(resolved.assignment.assignment_id),
+            "model_task": resolved.task,
+            "base_model_version": resolved.base_model_version,
+            "adapter_version": resolved.adapter_version,
+            "personalized": resolved.personalized,
+        },
         settings=getattr(result, "settings", None),
     )
     repos.region_predictions.add(prediction)
@@ -289,6 +317,11 @@ def recognize_region(
         score=prediction.score,
         candidates=candidate_dicts,
         latency_ms=result.latency_ms,
+        model_assignment_id=resolved.assignment.assignment_id,
+        model_task=resolved.task,
+        base_model_version=resolved.base_model_version,
+        adapter_version=resolved.adapter_version,
+        personalized=resolved.personalized,
     )
 
 
@@ -527,6 +560,29 @@ def list_page_regions(
                 score=prediction.score if prediction is not None else None,
                 truncated=bool(prediction.truncated) if prediction is not None else False,
                 crop_sha256=region.crop_sha256,
+                model_assignment_id=(
+                    prediction.model_assignment_id if prediction is not None else None
+                ),
+                model_task=(
+                    prediction.model_assignment.task
+                    if prediction is not None and prediction.model_assignment is not None
+                    else None
+                ),
+                base_model_version=(
+                    prediction.model_assignment.base_model_version
+                    if prediction is not None and prediction.model_assignment is not None
+                    else None
+                ),
+                adapter_version=(
+                    prediction.model_assignment.adapter_version
+                    if prediction is not None and prediction.model_assignment is not None
+                    else None
+                ),
+                personalized=bool(
+                    prediction is not None
+                    and prediction.model_assignment is not None
+                    and prediction.model_assignment.adapter_id is not None
+                ),
             )
         )
     return details

@@ -171,6 +171,8 @@ def submit_image(
             status=ImageStatus.ACCEPTED,
         )
         image = repos.images.add(db_image)
+        if document_id is not None:
+            repos.documents.touch(user.user_id, document_id)
         repos.session.commit()
     except Exception:
         repos.session.rollback()

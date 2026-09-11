@@ -16,6 +16,7 @@ import {
 } from "./beforeAfterView.js";
 import type { BeforeAfterReport } from "../types.js";
 import type {
+  ModelAssignmentSummaryResponse,
   PersonalizationStatusResponse,
   EvaluationApiResponse,
 } from "./beforeAfterView.js";
@@ -495,6 +496,61 @@ describe("BeforeAfterView.renderFull() — status section (Req 5.6, 5.7)", () =>
     // Only one container after the second render.
     const containers = mount.querySelectorAll("[data-testid='before-after-container']");
     expect(containers.length).toBe(1);
+  });
+});
+
+describe("BeforeAfterView.renderFull() — model routing evidence", () => {
+  it("shows safe active and retired assignment metadata", () => {
+    const mount = document.createElement("div");
+    const view = new BeforeAfterView({ mount });
+    const report: BeforeAfterReport = {
+      availability: "unavailable",
+      beforeCer: null,
+      beforeWer: null,
+      afterCer: null,
+      afterWer: null,
+      deltaCer: null,
+      deltaWer: null,
+    };
+    const assignments: ModelAssignmentSummaryResponse[] = [
+      {
+        assignment_id: "assignment-1",
+        task: "math_raster",
+        base_model_version: "formula-engine:1.2:model_id=small",
+        adapter_version: "base",
+        personalized: false,
+        active: true,
+        activation_reason: "base_default",
+        created_at: "2026-09-11T12:00:00Z",
+        retired_at: null,
+      },
+      {
+        assignment_id: "assignment-2",
+        task: "prose_raster",
+        base_model_version: "htr:1.0",
+        adapter_version: "adapter-2",
+        personalized: true,
+        active: false,
+        activation_reason: "personal_adapter",
+        created_at: "2026-09-10T12:00:00Z",
+        retired_at: "2026-09-11T12:00:00Z",
+      },
+    ];
+
+    view.renderFull(
+      makeStatus(),
+      report,
+      [],
+      null,
+      assignments,
+    );
+
+    expect(mount.querySelector("[data-testid='personalization-assignments-table']")).not.toBeNull();
+    expect(mount.querySelectorAll("[data-testid='personalization-assignment']")).toHaveLength(2);
+    expect(mount.textContent).toContain("math raster");
+    expect(mount.textContent).toContain("Base only");
+    expect(mount.textContent).toContain("Personal adapter (adapter-2)");
+    expect(mount.textContent).toContain("Retired");
   });
 });
 
