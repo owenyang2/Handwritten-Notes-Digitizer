@@ -32,6 +32,18 @@ export type LineCorrectionCallback = (
   correctedText: string,
 ) => Promise<unknown> | unknown;
 
+export interface LineReviewPayload {
+  line_index: number;
+  reviewed_text: string;
+  excluded: boolean;
+  region: Region;
+}
+
+/** Persist a line's review/exclusion state independently of training data. */
+export type ReviewChangeCallback = (
+  review: LineReviewPayload,
+) => Promise<unknown> | unknown;
+
 /**
  * Return the recognized words in reading order: lines ordered top-to-bottom by
  * line index, and words within each line ordered left-to-right by word index
@@ -53,14 +65,20 @@ export interface EditorOptions {
   onCorrection?: CorrectionCallback;
   /** Called when a reviewed line crop should be saved as training data. */
   onLineCorrection?: LineCorrectionCallback;
+  /** Called whenever a line's persisted review state changes. */
+  onReviewChange?: ReviewChangeCallback;
 }
 
 export class Editor {
   private readonly mount: HTMLElement;
   private onCorrection?: CorrectionCallback;
   private onLineCorrection?: LineCorrectionCallback;
+  private onReviewChange?: ReviewChangeCallback;
   private lineOrder: number[] = [];
   private currentLineTexts = new Map<number, string>();
+  private currentLineRegions = new Map<number, Region>();
+  private currentWordTexts = new Map<string, string>();
+  private reviewSaveQueues = new Map<number, Promise<unknown>>();
   private ignoredLineIndices = new Set<number>();
   private lineLevelEdits = false;
   private sortMode: "reading-order" | "confidence" = "reading-order";
@@ -71,6 +89,7 @@ export class Editor {
     this.mount = options.mount;
     this.onCorrection = options.onCorrection;
     this.onLineCorrection = options.onLineCorrection;
+    this.onReviewChange = options.onReviewChange;
   }
 
   /** Update the correction callback after construction (used by main.ts wiring). */
@@ -81,6 +100,19 @@ export class Editor {
   /** Update the line-level correction callback after construction. */
   setOnLineCorrection(handler: LineCorrectionCallback): void {
     this.onLineCorrection = handler;
+  }
+
+  /** Update the persisted review-state callback after construction. */
+  setOnReviewChange(handler: ReviewChangeCallback): void {
+    this.onReviewChange = handler;
+  }
+
+  /** Wait for any in-flight line-review writes before an export/reload. */
+  async flushReviewSaves(): Promise<void> {
+    while (this.reviewSaveQueues.size > 0) {
+      const pending = [...this.reviewSaveQueues.values()];
+      await Promise.all(pending.map((save) => save.catch(() => undefined)));
+    }
   }
 
   /** True when the user edited a line that has no safe word-region alignment. */
@@ -113,6 +145,50 @@ export class Editor {
     return paragraphs.map((paragraph) => paragraph.join("\n")).join("\n\n");
   }
 
+  /** Snapshot of line reviews to persist on the backend before export/reload. */
+  getReviewPayload(): LineReviewPayload[] {
+    return this.lineOrder.map((lineIndex) => {
+      const line = this.currentResult?.lines.find((item) => item.index === lineIndex);
+      return {
+        line_index: lineIndex,
+        reviewed_text: this.currentLineTexts.get(lineIndex) ?? line?.text ?? "",
+        excluded: this.ignoredLineIndices.has(lineIndex),
+        region:
+          this.currentLineRegions.get(lineIndex) ??
+          line?.region ??
+          { x: 0, y: 0, width: 0, height: 0 },
+      };
+    });
+  }
+
+  private persistReviewChange(lineIndex: number): Promise<unknown> | unknown {
+    if (!this.onReviewChange) return undefined;
+    const review = this.getReviewPayload().find((item) => item.line_index === lineIndex);
+    if (!review) return undefined;
+
+    // Ignore/restore and textarea blur can happen back-to-back (for example,
+    // clicking "Not text" blurs the field first). Serialize writes per line so
+    // an older request can never arrive after and overwrite the newer state.
+    const previous = this.reviewSaveQueues.get(lineIndex) ?? Promise.resolve();
+    const next = previous
+      .catch(() => undefined)
+      .then(() => this.onReviewChange!(review));
+    this.reviewSaveQueues.set(lineIndex, next);
+    next.then(
+      () => {
+        if (this.reviewSaveQueues.get(lineIndex) === next) {
+          this.reviewSaveQueues.delete(lineIndex);
+        }
+      },
+      () => {
+        if (this.reviewSaveQueues.get(lineIndex) === next) {
+          this.reviewSaveQueues.delete(lineIndex);
+        }
+      },
+    );
+    return next;
+  }
+
   /**
    * Render the image + recognized text and enable inline editing.
    *
@@ -129,11 +205,15 @@ export class Editor {
    */
   render(result: RecognitionResult, imageUrl: string): void {
     // Clear previous content.
-    this.mount.innerHTML = "";
+    this.mount.replaceChildren();
     this.lineOrder = [];
     // Only reset text/edits if this is a new image/result, not just a re-render.
-    if (this.currentResult !== result) {
+    const isNewResult = this.currentResult !== result;
+    if (isNewResult) {
       this.currentLineTexts = new Map();
+      this.currentLineRegions = new Map();
+      this.currentWordTexts = new Map();
+      this.reviewSaveQueues = new Map();
       this.ignoredLineIndices = new Set();
       this.lineLevelEdits = false;
     }
@@ -213,10 +293,16 @@ export class Editor {
       sortLabel.className = "editor-sort-label";
       const sortSelect = document.createElement("select");
       sortSelect.className = "editor-sort-select";
-      sortSelect.innerHTML = `
-        <option value="reading-order" ${this.sortMode === "reading-order" ? "selected" : ""}>Reading Order</option>
-        <option value="confidence" ${this.sortMode === "confidence" ? "selected" : ""}>Lowest Confidence</option>
-      `;
+      for (const optionSpec of [
+        ["reading-order", "Reading Order"],
+        ["confidence", "Lowest Confidence"],
+      ] as const) {
+        const option = document.createElement("option");
+        option.value = optionSpec[0];
+        option.textContent = optionSpec[1];
+        option.selected = this.sortMode === optionSpec[0];
+        sortSelect.appendChild(option);
+      }
       sortSelect.addEventListener("change", (e) => {
         this.sortMode = (e.target as HTMLSelectElement).value as "reading-order" | "confidence";
         this.render(this.currentResult!, this.currentImageUrl!);
@@ -225,8 +311,6 @@ export class Editor {
       reviewSummary.appendChild(sortLabel);
       textPanel.appendChild(reviewSummary);
 
-      // Req 3.2: render words in reading order.
-      const words = readingOrder(result);
       const textContent = document.createElement("div");
       textContent.className = "editor-words";
       textContent.setAttribute("data-testid", "editor-words");
@@ -269,15 +353,31 @@ export class Editor {
       this.lineOrder = sortedLineIndices;
 
       // Render a <span> per word in reading order, with line breaks between lines.
-      let wordPos = 0;
       for (let li = 0; li < sortedLineIndices.length; li++) {
         const lineIdx = sortedLineIndices[li];
         const lineWords = lineMap.get(lineIdx) ?? [];
         const line = result.lines.find((l) => l.index === lineIdx);
-        const initialLineText =
-          (line?.text && line.text.trim()) ||
-          lineWords.map((word) => word.text).filter((text) => text.length > 0).join(" ");
-        this.currentLineTexts.set(lineIdx, initialLineText);
+        const recognizedLineText = line?.reviewed
+          ? (line.text ?? "")
+          : (line?.text?.trim() ||
+            lineWords.map((word) => word.text).filter((text) => text.length > 0).join(" "));
+        // A sort-mode change re-renders the same result object. Preserve any
+        // text the reviewer has already typed instead of resetting it to the
+        // recognition output on every render.
+        if (!this.currentLineTexts.has(lineIdx)) {
+          this.currentLineTexts.set(lineIdx, recognizedLineText);
+        }
+        if (line && !this.currentLineRegions.has(lineIdx)) {
+          this.currentLineRegions.set(lineIdx, { ...line.region });
+        }
+        if (isNewResult) {
+          if (line?.excluded) {
+            this.ignoredLineIndices.add(lineIdx);
+            this.lineLevelEdits = true;
+          } else if (line?.reviewed) {
+            this.lineLevelEdits = true;
+          }
+        }
 
         if (!line) continue;
 
@@ -316,7 +416,7 @@ export class Editor {
         textarea.setAttribute("data-line-index", String(lineIdx));
         textarea.setAttribute("aria-label", `Recognized line ${lineIdx + 1}`);
         textarea.maxLength = MAX_WORD_CHARS;
-        textarea.value = initialLineText;
+        textarea.value = this.currentLineTexts.get(lineIdx) ?? recognizedLineText;
         if (line.alignmentReason) {
           textarea.title = line.alignmentReason;
         }
@@ -335,7 +435,7 @@ export class Editor {
           warningDiv.style.fontSize = "0.85rem";
           warningDiv.style.marginTop = "4px";
           const wordsStr = lowConfWords.map(w => `"${w.text}"`).join(", ");
-          warningDiv.innerHTML = `⚠️ Low confidence words: ${wordsStr}`;
+          warningDiv.textContent = `Low confidence words: ${wordsStr}`;
           label.appendChild(warningDiv);
         }
 
@@ -365,6 +465,16 @@ export class Editor {
         actionStatus.setAttribute("data-testid", "editor-line-action-status");
         actionStatus.setAttribute("aria-live", "polite");
 
+        // Persist a line edit when the reviewer leaves the field. This keeps
+        // ordinary text corrections durable without issuing a request for
+        // every keystroke; the explicit save/export paths still persist too.
+        textarea.addEventListener("change", () => {
+          Promise.resolve(this.persistReviewChange(lineIdx)).catch(() => {
+            actionStatus.textContent = "Could not save this line review.";
+            actionStatus.className = "editor-line-action-status editor-line-action-status--failed";
+          });
+        });
+
         saveButton.addEventListener("click", () => {
           if (!this.onLineCorrection) return;
           saveButton.disabled = true;
@@ -372,27 +482,31 @@ export class Editor {
           actionStatus.className = "editor-line-action-status editor-line-action-status--pending";
           const correctedText = textarea.value.slice(0, MAX_WORD_CHARS);
           this.currentLineTexts.set(lineIdx, correctedText);
-          const saveResult = this.onLineCorrection(
-            lineIdx,
-            regionEditor.getRegion(),
-            initialLineText,
-            correctedText,
-          );
-          if (saveResult instanceof Promise) {
-            saveResult
-              .then(() => {
-                actionStatus.textContent = "Saved as reviewed line training data.";
-                actionStatus.className = "editor-line-action-status editor-line-action-status--saved";
-              })
-              .catch(() => {
-                actionStatus.textContent = "Could not save this line to training data.";
-                actionStatus.className = "editor-line-action-status editor-line-action-status--failed";
-                saveButton.disabled = false;
-              });
-          } else {
-            actionStatus.textContent = "Saved as reviewed line training data.";
-            actionStatus.className = "editor-line-action-status editor-line-action-status--saved";
+          let saveResult: Promise<unknown> | unknown;
+          try {
+            saveResult = this.onLineCorrection(
+              lineIdx,
+              regionEditor.getRegion(),
+              recognizedLineText,
+              correctedText,
+            );
+          } catch {
+            actionStatus.textContent = "Could not save this line to training data.";
+            actionStatus.className = "editor-line-action-status editor-line-action-status--failed";
+            saveButton.disabled = false;
+            return;
           }
+          Promise.resolve(saveResult)
+            .then(() => this.persistReviewChange(lineIdx))
+            .then(() => {
+              actionStatus.textContent = "Saved as reviewed line training data.";
+              actionStatus.className = "editor-line-action-status editor-line-action-status--saved";
+            })
+            .catch(() => {
+              actionStatus.textContent = "Could not save this line to training data.";
+              actionStatus.className = "editor-line-action-status editor-line-action-status--failed";
+              saveButton.disabled = false;
+            });
         });
 
         ignoreButton.addEventListener("click", () => {
@@ -417,7 +531,22 @@ export class Editor {
             this.currentLineTexts.set(lineIdx, textarea.value);
           }
           this.lineLevelEdits = true;
+          Promise.resolve(this.persistReviewChange(lineIdx)).catch(() => {
+            actionStatus.textContent = "Could not save this line review.";
+          });
         });
+
+        if (this.ignoredLineIndices.has(lineIdx)) {
+          block.classList.add("editor-line-review--ignored");
+          const regionBox = overlay.querySelector<HTMLElement>(
+            `[data-testid='editor-region-box'][data-line-index='${lineIdx}']`,
+          );
+          regionBox?.classList.add("editor-region-box--ignored");
+          ignoreButton.setAttribute("aria-pressed", "true");
+          ignoreButton.textContent = "Restore line";
+          textarea.disabled = true;
+          saveButton.disabled = true;
+        }
 
         block.appendChild(actionRow);
         block.appendChild(actionStatus);
@@ -434,10 +563,15 @@ export class Editor {
         const chips = document.createElement("div");
         chips.className = "editor-token-chips";
 
-        const exportWords = lineWords.map((word) => word.text);
+        const exportWords = lineWords.map(
+          (word) => this.currentWordTexts.get(`${lineIdx}:${word.index}`) ?? word.text,
+        );
 
         for (let wi = 0; wi < lineWords.length; wi++) {
-          const word = words[wordPos++];
+          // Use the words belonging to this line directly. The review list may
+          // be sorted by confidence, so a single flattened reading-order
+          // array would associate chips with the wrong line after sorting.
+          const word = lineWords[wi];
 
           // The "original" recognized text for this word slot (used for change
           // detection). We track the *latest confirmed* text so re-corrections
@@ -448,7 +582,8 @@ export class Editor {
           const recognizedText = word.text;
           // currentDisplayText tracks what is currently shown (may change after
           // a confirmed edit).
-          let currentDisplayText = recognizedText;
+          const wordKey = `${lineIdx}:${word.index}`;
+          let currentDisplayText = this.currentWordTexts.get(wordKey) ?? recognizedText;
 
           // Trailing space separates words on the same line (not after last word).
           const trailingSpace = wi < lineWords.length - 1 ? " " : "";
@@ -501,6 +636,7 @@ export class Editor {
               // Remove the input, restore text.
               span.removeChild(input);
               currentDisplayText = newText;
+              this.currentWordTexts.set(wordKey, newText);
               span.textContent = newText + capturedTrailingSpace;
               exportWords[wi] = newText;
               this.currentLineTexts.set(
@@ -587,7 +723,7 @@ export class Editor {
     regionState: Map<number, Region>,
     bounds: { width: number; height: number },
   ): void {
-    overlay.innerHTML = "";
+    overlay.replaceChildren();
     if (result.lines.length === 0) return;
 
     const applyBoxStyle = (box: HTMLElement, region: Region): void => {
@@ -665,6 +801,7 @@ export class Editor {
               };
           const clamped = this.clampRegion(next, bounds);
           regionState.set(line.index, clamped);
+          this.currentLineRegions.set(line.index, { ...clamped });
           applyBoxStyle(box, clamped);
         };
 

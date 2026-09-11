@@ -221,7 +221,7 @@ export class BeforeAfterView {
 
   /** Clear the mount and show a loading spinner. */
   private renderLoading(): void {
-    this.mount.innerHTML = "";
+    this.mount.replaceChildren();
     const el = document.createElement("p");
     el.className = "before-after-loading";
     el.setAttribute("data-testid", "before-after-loading");
@@ -231,7 +231,7 @@ export class BeforeAfterView {
 
   /** Render an error message inside the mount. */
   private renderError(message: string): void {
-    this.mount.innerHTML = "";
+    this.mount.replaceChildren();
     const el = document.createElement("p");
     el.className = "before-after-error";
     el.setAttribute("data-testid", "before-after-error");
@@ -831,7 +831,7 @@ export class BeforeAfterView {
    * fetched the report. To fetch-and-render in one step, call `refresh()`.
    */
   render(report: BeforeAfterReport, unavailableReason?: string | null): void {
-    this.mount.innerHTML = "";
+    this.mount.replaceChildren();
 
     const container = document.createElement("div");
     container.className = "before-after-container";
@@ -855,7 +855,7 @@ export class BeforeAfterView {
     this.latestReport = report;
     this.latestTrainingPairs = trainingPairs;
     this.latestUnavailableReason = unavailableReason;
-    this.mount.innerHTML = "";
+    this.mount.replaceChildren();
 
     const container = document.createElement("div");
     container.className = "before-after-container";

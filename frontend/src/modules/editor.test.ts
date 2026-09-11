@@ -598,6 +598,93 @@ describe("Editor.render() — display alongside image (Req 3.3)", () => {
     expect(editor.getExportText("plain")).toBe("Jack quietly moved up front\n.");
   });
 
+  it("persists line exclusion changes through the review callback", async () => {
+    const reviews: Array<{ line_index: number; reviewed_text: string; excluded: boolean }> = [];
+    const mount = makeMount();
+    const editor = new Editor({
+      mount,
+      onReviewChange: (review) => {
+        reviews.push({
+          line_index: review.line_index,
+          reviewed_text: review.reviewed_text,
+          excluded: review.excluded,
+        });
+      },
+    });
+    editor.render(
+      {
+        recognizedAnyText: true,
+        lines: [
+          {
+            index: 0,
+            text: "false positive",
+            region: { x: 10, y: 10, width: 120, height: 20 },
+            words: [],
+          },
+        ],
+      },
+      IMAGE_URL,
+    );
+
+    mount.querySelector<HTMLButtonElement>("[data-testid='editor-line-ignore']")!.click();
+    await vi.waitFor(() => {
+      expect(reviews).toEqual([
+        { line_index: 0, reviewed_text: "", excluded: true },
+      ]);
+    });
+  });
+
+  it("keeps edited line text when the review list is re-sorted", () => {
+    const mount = makeMount();
+    const editor = new Editor({ mount });
+    editor.render(
+      {
+        recognizedAnyText: true,
+        lines: [
+          {
+            index: 0,
+            text: "first line",
+            region: { x: 0, y: 0, width: 100, height: 20 },
+            words: [{ index: 0, text: "first", region: { x: 0, y: 0, width: 50, height: 20 }, confidence: 0.9 }],
+          },
+          {
+            index: 1,
+            text: "second line",
+            region: { x: 0, y: 30, width: 100, height: 20 },
+            words: [{ index: 0, text: "second", region: { x: 0, y: 30, width: 50, height: 20 }, confidence: 0.2 }],
+          },
+        ],
+      },
+      IMAGE_URL,
+    );
+
+    const first = mount.querySelector<HTMLTextAreaElement>(
+      "[data-testid='editor-line-textarea'][data-line-index='0']",
+    )!;
+    first.value = "corrected first line";
+    first.dispatchEvent(new Event("input", { bubbles: true }));
+
+    const sort = mount.querySelector<HTMLSelectElement>(".editor-sort-select")!;
+    sort.value = "confidence";
+    sort.dispatchEvent(new Event("change", { bubbles: true }));
+
+    expect(
+      mount.querySelector<HTMLTextAreaElement>(
+        "[data-testid='editor-line-textarea'][data-line-index='0']",
+      )!.value,
+    ).toBe("corrected first line");
+    expect(
+      mount.querySelector<HTMLElement>(
+        "[data-testid='editor-word'][data-line-index='1']",
+      )!.textContent,
+    ).toContain("second");
+    expect(
+      mount.querySelector<HTMLElement>(
+        "[data-testid='editor-word'][data-line-index='0']",
+      )!.textContent,
+    ).toContain("first");
+  });
+
   it("still shows the image when no text is recognized (Req 3.4)", () => {
     const mount = makeMount();
     const editor = new Editor({ mount });
@@ -1210,5 +1297,37 @@ describe("Task 10.4 — Editor requirements coverage", () => {
     expect(mount.querySelector("[data-testid='editor-word-input']")).toBeNull();
     const spans = mount.querySelectorAll("[data-testid='editor-word']");
     expect(spans[0].textContent!.trimEnd()).toBe("");
+  });
+});
+
+describe("Editor low-confidence warning is text, not HTML", () => {
+  it("renders markup in recognized text as literal characters", () => {
+    const mount = document.createElement("div");
+    document.body.appendChild(mount);
+    const editor = new Editor({ mount });
+    editor.render(
+      {
+        recognizedAnyText: true,
+        lines: [
+          {
+            index: 0,
+            region: { x: 0, y: 0, width: 80, height: 20 },
+            text: '<img src=x onerror=alert(1)>',
+            words: [
+              {
+                index: 0,
+                text: '<img src=x onerror=alert(1)>',
+                region: { x: 0, y: 0, width: 80, height: 20 },
+                confidence: 0.2,
+              },
+            ],
+          },
+        ],
+      },
+      "https://example.com/page.png",
+    );
+    expect(mount.querySelector("img[src='x']")).toBeNull();
+    expect(mount.textContent).toContain("<img src=x onerror=alert(1)>");
+    mount.remove();
   });
 });

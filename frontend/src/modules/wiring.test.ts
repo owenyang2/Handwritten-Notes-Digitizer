@@ -49,7 +49,20 @@ vi.mock("../api/client.js", () => ({
   getDocuments: vi.fn(),
   getProcessedImageUrl: vi.fn((imageId: string) => `/api/images/${imageId}/processed`),
   submitCorrection: vi.fn(),
+  saveImageReviews: vi.fn(),
   exportText: vi.fn(),
+  exportPdf: vi.fn(),
+  importDocument: vi.fn(),
+  createPageRegion: vi.fn(),
+  createRecognitionJob: vi.fn(),
+  getRecognitionJob: vi.fn(),
+  waitForRecognitionJob: vi.fn(),
+  retryRecognitionJob: vi.fn(),
+  recognizeRegion: vi.fn(),
+  saveRegionReview: vi.fn(),
+  listPageRegions: vi.fn(),
+  getPageRasterUrl: vi.fn((pageId: string) => `/api/pages/${pageId}/raster`),
+  exportDocument: vi.fn(),
   startCalibrationSession: vi.fn(),
   submitCalibrationSample: vi.fn(),
   ApiError: class ApiError extends Error {
@@ -118,12 +131,12 @@ describe("UploadUI — rendering and interaction", () => {
     expect(btn.disabled).toBe(false);
   });
 
-  it("shows an error status for a non-image MIME type", () => {
+    it("accepts a PDF upload", () => {
     const ui = new UploadUI({ mount });
     ui.render();
 
     const fileInput = mount.querySelector<HTMLInputElement>("[data-testid='upload-file-input']")!;
-    const file = new File(["data"], "doc.pdf", { type: "application/pdf" });
+    const file = new File(["%PDF"], "doc.pdf", { type: "application/pdf" });
     Object.defineProperty(fileInput, "files", {
       value: { 0: file, length: 1, item: () => file },
       configurable: true,
@@ -131,7 +144,25 @@ describe("UploadUI — rendering and interaction", () => {
     fileInput.dispatchEvent(new Event("change"));
 
     const status = mount.querySelector("[data-testid='upload-status']")!;
-    expect(status.textContent).toMatch(/not a png or jpeg/i);
+    expect(status.textContent).toMatch(/selected: doc\.pdf/i);
+    const btn = mount.querySelector<HTMLButtonElement>("[data-testid='upload-submit-btn']")!;
+    expect(btn.disabled).toBe(false);
+  });
+
+  it("shows an error status for a non-image MIME type", () => {
+    const ui = new UploadUI({ mount });
+    ui.render();
+
+    const fileInput = mount.querySelector<HTMLInputElement>("[data-testid='upload-file-input']")!;
+    const file = new File(["data"], "notes.txt", { type: "text/plain" });
+    Object.defineProperty(fileInput, "files", {
+      value: { 0: file, length: 1, item: () => file },
+      configurable: true,
+    });
+    fileInput.dispatchEvent(new Event("change"));
+
+    const status = mount.querySelector("[data-testid='upload-status']")!;
+    expect(status.textContent).toMatch(/not a png, jpeg, or pdf/i);
     const btn = mount.querySelector<HTMLButtonElement>("[data-testid='upload-submit-btn']")!;
     expect(btn.disabled).toBe(true);
   });
@@ -365,6 +396,7 @@ describe("bootstrap() — upload to recognition wiring (Req 11.4)", () => {
       image_ids: [],
     });
     vi.mocked(apiClient.getDocuments).mockResolvedValue([]);
+    vi.mocked(apiClient.listPageRegions).mockResolvedValue([]);
     vi.mocked(apiClient.getProcessedImageUrl).mockImplementation(
       (imageId: string) => `/api/images/${imageId}/processed`,
     );
@@ -393,6 +425,8 @@ describe("bootstrap() — upload to recognition wiring (Req 11.4)", () => {
       text: "hello world",
       format: "plain",
     });
+    vi.mocked(apiClient.saveImageReviews).mockResolvedValue(undefined);
+    vi.mocked(apiClient.exportPdf).mockResolvedValue(new Blob(["%PDF"], { type: "application/pdf" }));
 
     vi.stubGlobal(
       "fetch",
@@ -563,6 +597,88 @@ describe("bootstrap() — upload to recognition wiring (Req 11.4)", () => {
     });
   });
 
+  it("shows the formula review workspace after a PDF import", async () => {
+    vi.mocked(apiClient.importDocument).mockResolvedValueOnce({
+      document_id: "doc-pdf",
+      title: "calculus",
+      page_count: 1,
+      pages: [{
+        page_id: "page-1",
+        page_index: 0,
+        image_id: "img-page-1",
+        width: 320,
+        height: 180,
+        dpi: 200,
+        coordinate_space: "page-raster-v1",
+      }],
+    });
+
+    await bootstrap(root);
+    const fileInput = root.querySelector<HTMLInputElement>("[data-testid='upload-file-input']")!;
+    const file = new File(["%PDF-1.7"], "calculus.pdf", { type: "application/pdf" });
+    Object.defineProperty(fileInput, "files", {
+      value: { 0: file, length: 1, item: () => file },
+      configurable: true,
+    });
+    fileInput.dispatchEvent(new Event("change"));
+    root.querySelector<HTMLButtonElement>("[data-testid='upload-submit-btn']")!.click();
+
+    await vi.waitFor(() => {
+      const section = root.querySelector<HTMLElement>("[data-testid='math-notes-section']")!;
+      expect(section.style.display).not.toBe("none");
+      expect(section.textContent).toContain("Formula review");
+    });
+    expect(apiClient.importDocument).toHaveBeenCalledWith(file, "calculus");
+  });
+
+  it("reopens an imported document from history without requiring a legacy result", async () => {
+    vi.mocked(apiClient.getDocuments).mockResolvedValueOnce([{
+      document_id: "doc-pdf",
+      title: "calculus",
+      created_at: "2026-07-01T00:00:00Z",
+      image_ids: ["img-page-1"],
+      pages: [{
+        page_id: "page-1",
+        page_index: 0,
+        image_id: "img-page-1",
+        width: 320,
+        height: 180,
+        dpi: 200,
+        coordinate_space: "page-raster-v1",
+      }],
+    }]);
+    vi.mocked(apiClient.getDocument).mockResolvedValueOnce({
+      document_id: "doc-pdf",
+      title: "calculus",
+      created_at: "2026-07-01T00:00:00Z",
+      image_ids: ["img-page-1"],
+      pages: [{
+        page_id: "page-1",
+        page_index: 0,
+        image_id: "img-page-1",
+        width: 320,
+        height: 180,
+        dpi: 200,
+        coordinate_space: "page-raster-v1",
+      }],
+    });
+
+    await bootstrap(root);
+    const historyButton = await vi.waitFor(() => {
+      const found = root.querySelector<HTMLButtonElement>(".gallery-document");
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    historyButton.click();
+
+    await vi.waitFor(() => {
+      const section = root.querySelector<HTMLElement>("[data-testid='math-notes-section']")!;
+      expect(section.style.display).not.toBe("none");
+      expect(section.textContent).toContain("Formula review");
+    });
+    expect(apiClient.getRecognitionResult).not.toHaveBeenCalled();
+  });
+
   it("confirmed correction calls submitCorrection with correct data", async () => {
     await bootstrap(root);
 
@@ -654,7 +770,7 @@ describe("bootstrap() — upload to recognition wiring (Req 11.4)", () => {
     createSpy.mockRestore();
   });
 
-  it("exports edited uncertain line text locally instead of stale backend rows", async () => {
+  it("persists edited uncertain line text then exports through the backend", async () => {
     const originalCreateURL = URL.createObjectURL;
     const originalRevokeURL = URL.revokeObjectURL;
     URL.createObjectURL = vi.fn().mockReturnValue("blob:line-edit");
@@ -717,8 +833,13 @@ describe("bootstrap() — upload to recognition wiring (Req 11.4)", () => {
     exportBtn.click();
 
     await vi.waitFor(() => {
-      expect(apiClient.exportText).not.toHaveBeenCalled();
-      expect(URL.createObjectURL).toHaveBeenCalled();
+      expect(apiClient.saveImageReviews).toHaveBeenCalled();
+      expect(apiClient.exportText).toHaveBeenCalledWith(
+        expect.objectContaining({
+          image_id: "img-123",
+          format: "plain",
+        }),
+      );
       expect(root.querySelector("[data-testid='export-status']")!.textContent).toMatch(/ready/i);
     });
 
@@ -991,6 +1112,11 @@ describe("API client module — exports expected functions", () => {
     expect(typeof clientModule.recognizeImage).toBe("function");
     expect(typeof clientModule.submitCorrection).toBe("function");
     expect(typeof clientModule.exportText).toBe("function");
+    expect(typeof clientModule.saveImageReviews).toBe("function");
+    expect(typeof clientModule.exportPdf).toBe("function");
+    expect(typeof clientModule.importDocument).toBe("function");
+    expect(typeof clientModule.createPageRegion).toBe("function");
+    expect(typeof clientModule.exportDocument).toBe("function");
     expect(typeof clientModule.startCalibrationSession).toBe("function");
     expect(typeof clientModule.submitCalibrationSample).toBe("function");
   });

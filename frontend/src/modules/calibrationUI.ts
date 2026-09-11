@@ -49,7 +49,7 @@ export class CalibrationUI {
    * Req 9.4: invalid submissions are reported inline.
    */
   render(prompts: CalibrationPrompt[]): void {
-    this.mount.innerHTML = "";
+    this.mount.replaceChildren();
 
     const section = document.createElement("section");
     section.className = "calibration-section";

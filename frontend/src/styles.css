@@ -1135,3 +1135,60 @@ button:focus-visible {
     min-height: 18rem;
   }
 }
+
+.math-notes-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(16rem, 0.8fr);
+  gap: 1rem;
+}
+
+.math-editor {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0.75rem;
+  align-items: stretch;
+}
+
+.math-editor-crop,
+.math-editor-preview,
+.math-editor-source {
+  width: 100%;
+  min-height: 8rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.math-editor-source {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  padding: 0.6rem;
+}
+
+.math-editor-preview {
+  padding: 0.6rem;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.review-queue {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.review-queue [data-unresolved="true"] {
+  color: var(--amber);
+}
+
+.math-notes-export {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+@media (max-width: 900px) {
+  .math-notes-layout,
+  .math-editor {
+    grid-template-columns: 1fr;
+  }
+}
