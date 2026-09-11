@@ -19,11 +19,13 @@ import uuid
 from typing import Optional
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
     Enum as SAEnum,
     Float,
     ForeignKey,
     Integer,
+    JSON,
     String,
     Text,
     UniqueConstraint,
@@ -37,6 +39,8 @@ from .enums import (
     EvaluationAvailability,
     ImageFormat,
     ImageStatus,
+    RecognitionJobState,
+    TrainingExampleSplit,
     TrainingPairOrigin,
     TrainingRunState,
 )
@@ -76,6 +80,9 @@ class User(Base):
     evaluation_results: Mapped[list["EvaluationResult"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    training_examples: Mapped[list["TrainingExample"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class UserSession(Base):
@@ -105,11 +112,20 @@ class Document(Base):
         Uuid, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False, index=True
     )
     title: Mapped[str] = mapped_column(String(255), default="Untitled Note")
+    source_kind: Mapped[str] = mapped_column(String(32), default="images", nullable=False)
+    original_path: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    active_revision_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid, nullable=True)
     created_at: Mapped[_dt.datetime] = created_at_column()
 
     user: Mapped["User"] = relationship(back_populates="documents")
     images: Mapped[list["Image"]] = relationship(
         back_populates="document", cascade="all, delete-orphan", order_by="Image.created_at"
+    )
+    pages: Mapped[list["DocumentPage"]] = relationship(
+        back_populates="document", cascade="all, delete-orphan", order_by="DocumentPage.page_index"
+    )
+    revisions: Mapped[list["DocumentRevision"]] = relationship(
+        back_populates="document", cascade="all, delete-orphan", order_by="DocumentRevision.revision_number"
     )
 
 
@@ -144,6 +160,9 @@ class Image(Base):
     recognized_words: Mapped[list["RecognizedWord"]] = relationship(
         back_populates="image", cascade="all, delete-orphan"
     )
+    line_reviews: Mapped[list["ImageLineReview"]] = relationship(
+        back_populates="image", cascade="all, delete-orphan"
+    )
 
 
 class RecognizedWord(Base):
@@ -168,6 +187,328 @@ class RecognizedWord(Base):
     confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     image: Mapped["Image"] = relationship(back_populates="recognized_words")
+
+
+class ImageLineReview(Base):
+    """Persisted line-level review and exclusion state for an image."""
+
+    __tablename__ = "image_line_reviews"
+    __table_args__ = (
+        UniqueConstraint("image_id", "line_index", name="uq_image_line_review"),
+    )
+
+    review_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=new_uuid
+    )
+    image_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("images.image_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    line_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    reviewed_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    excluded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    region_x: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    region_y: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    region_width: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    region_height: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[_dt.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        onupdate=utcnow,
+        nullable=False,
+    )
+
+    image: Mapped["Image"] = relationship(back_populates="line_reviews")
+
+
+class DocumentPage(Base):
+    """One rasterized page of an imported document."""
+
+    __tablename__ = "document_pages"
+    __table_args__ = (
+        UniqueConstraint("document_id", "page_index", name="uq_document_page_index"),
+    )
+
+    page_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=new_uuid
+    )
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("documents.document_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    page_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    original_path: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    raster_path: Mapped[str] = mapped_column(String(1024), nullable=False)
+    image_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, ForeignKey("images.image_id", ondelete="SET NULL"), nullable=True
+    )
+    width: Mapped[int] = mapped_column(Integer, nullable=False)
+    height: Mapped[int] = mapped_column(Integer, nullable=False)
+    dpi: Mapped[int] = mapped_column(Integer, nullable=False, default=200)
+    rotation: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    coordinate_space: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="page-raster-v1"
+    )
+    transforms: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[_dt.datetime] = created_at_column()
+
+    document: Mapped["Document"] = relationship(back_populates="pages")
+    regions: Mapped[list["DocumentRegion"]] = relationship(
+        back_populates="page", cascade="all, delete-orphan", order_by="DocumentRegion.order_index"
+    )
+
+
+class DocumentRegion(Base):
+    """A stable crop on a document page (prose, math, or figure)."""
+
+    __tablename__ = "document_regions"
+
+    region_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=new_uuid
+    )
+    page_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("document_pages.page_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    content_type: Mapped[str] = mapped_column(String(32), nullable=False, default="math_display")
+    bbox_x: Mapped[int] = mapped_column(Integer, nullable=False)
+    bbox_y: Mapped[int] = mapped_column(Integer, nullable=False)
+    bbox_width: Mapped[int] = mapped_column(Integer, nullable=False)
+    bbox_height: Mapped[int] = mapped_column(Integer, nullable=False)
+    coordinate_space: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="page-raster-v1"
+    )
+    created_at: Mapped[_dt.datetime] = created_at_column()
+    updated_at: Mapped[_dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+    page_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    source_crop_path: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    crop_sha256: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
+    page: Mapped["DocumentPage"] = relationship(back_populates="regions")
+    predictions: Mapped[list["RegionPrediction"]] = relationship(
+        back_populates="region", cascade="all, delete-orphan"
+    )
+    reviews: Mapped[list["RegionReview"]] = relationship(
+        back_populates="region", cascade="all, delete-orphan"
+    )
+    review_revisions: Mapped[list["ReviewRevision"]] = relationship(
+        back_populates="region", cascade="all, delete-orphan"
+    )
+    training_examples: Mapped[list["TrainingExample"]] = relationship(
+        back_populates="region", cascade="all, delete-orphan"
+    )
+
+
+class RegionPrediction(Base):
+    """One engine result for a region. Reruns create new rows; reviews stay."""
+
+    __tablename__ = "region_predictions"
+
+    prediction_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=new_uuid
+    )
+    region_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("document_regions.region_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    engine_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    engine_version: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    raw_output: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    truncated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="ok")
+    latency_ms: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    alternatives: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    provenance: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    settings: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[_dt.datetime] = created_at_column()
+
+    region: Mapped["DocumentRegion"] = relationship(back_populates="predictions")
+
+
+class RegionReview(Base):
+    """Immutable reviewed text/LaTeX for a region."""
+
+    __tablename__ = "region_reviews"
+
+    review_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=new_uuid
+    )
+    region_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("document_regions.region_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    prediction_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, ForeignKey("region_predictions.prediction_id", ondelete="SET NULL"), nullable=True
+    )
+    reviewed_text: Mapped[str] = mapped_column(Text, nullable=False)
+    excluded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    crop_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    crop_sha256: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    author_user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[_dt.datetime] = created_at_column()
+
+    region: Mapped["DocumentRegion"] = relationship(back_populates="reviews")
+
+
+class ModelArtifact(Base):
+    """Recorded identity of a loadable recognition backend."""
+
+    __tablename__ = "model_artifacts"
+
+    artifact_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=new_uuid
+    )
+    backend_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    model_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    source_url: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    revision: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    upstream_commit: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    weight_sha256: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    license: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    dtype: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    tokenizer_hash: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    processor_hash: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    processor_config: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    supported_inputs: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    benchmark_version: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    loaded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[_dt.datetime] = created_at_column()
+
+
+class DocumentRevision(Base):
+    """Immutable document-level snapshot used by export and audit workflows."""
+
+    __tablename__ = "document_revisions"
+    __table_args__ = (
+        UniqueConstraint("document_id", "revision_number", name="uq_document_revision_number"),
+    )
+
+    revision_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_uuid)
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("documents.document_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    author_user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    parent_revision_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid, nullable=True)
+    # Snapshot of ordered block ids and review versions.  Crops/predictions
+    # remain normalized in their own tables; this JSON is an audit pointer.
+    block_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[_dt.datetime] = created_at_column()
+
+    document: Mapped["Document"] = relationship(back_populates="revisions")
+
+
+class ReviewRevision(Base):
+    """Canonical immutable review revision for a document region."""
+
+    __tablename__ = "review_revisions"
+
+    review_revision_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=new_uuid
+    )
+    region_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("document_regions.region_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    prediction_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, ForeignKey("region_predictions.prediction_id", ondelete="SET NULL"), nullable=True
+    )
+    document_revision_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, ForeignKey("document_revisions.revision_id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    reviewed_text: Mapped[str] = mapped_column(Text, nullable=False)
+    excluded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    crop_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    crop_sha256: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    author_user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    created_at: Mapped[_dt.datetime] = created_at_column()
+
+    region: Mapped["DocumentRegion"] = relationship(back_populates="review_revisions")
+
+
+class TrainingExample(Base):
+    """Explicitly approved reviewed crop eligible for personalization."""
+
+    __tablename__ = "training_examples"
+    __table_args__ = (
+        UniqueConstraint("user_id", "review_revision_id", name="uq_training_example_review"),
+    )
+
+    example_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    region_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("document_regions.region_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    review_revision_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("review_revisions.review_revision_id", ondelete="CASCADE"), nullable=False
+    )
+    crop_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    split: Mapped[TrainingExampleSplit] = mapped_column(
+        SAEnum(TrainingExampleSplit, name="training_example_split", native_enum=False),
+        default=TrainingExampleSplit.UNASSIGNED,
+        nullable=False,
+    )
+    consent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    eligible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[_dt.datetime] = created_at_column()
+    updated_at: Mapped[_dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+    user: Mapped["User"] = relationship(back_populates="training_examples")
+    region: Mapped["DocumentRegion"] = relationship(back_populates="training_examples")
+
+
+class RecognitionJob(Base):
+    """Database-backed page recognition job with retry/stale recovery metadata."""
+
+    __tablename__ = "recognition_jobs"
+
+    job_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    document_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, ForeignKey("documents.document_id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    page_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, ForeignKey("document_pages.page_id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    image_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, ForeignKey("images.image_id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    mode: Mapped[str] = mapped_column(String(32), nullable=False, default="formula")
+    region_ids: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    state: Mapped[RecognitionJobState] = mapped_column(
+        SAEnum(RecognitionJobState, name="recognition_job_state", native_enum=False),
+        default=RecognitionJobState.QUEUED,
+        nullable=False,
+        index=True,
+    )
+    progress_current: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    progress_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
+    deadline_at: Mapped[Optional[_dt.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    result_ids: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    created_at: Mapped[_dt.datetime] = created_at_column()
+    started_at: Mapped[Optional[_dt.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[Optional[_dt.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[_dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+    user: Mapped["User"] = relationship()
 
 
 class TrainingPair(Base):

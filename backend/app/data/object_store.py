@@ -50,6 +50,8 @@ class ObjectKind(str, Enum):
     IMAGE = "images"
     CROP = "crops"
     ADAPTER = "adapters"
+    DOCUMENT = "documents"
+    PAGE = "pages"
 
 
 # A reference is a POSIX-style relative path of the form
@@ -138,6 +140,24 @@ class ObjectStore(ABC):
         """Store adapter weight bytes for a user; return the reference."""
         reference = self.build_reference(
             ObjectKind.ADAPTER, user_id, name, suffix=suffix
+        )
+        return self.put(reference, data)
+
+    def put_document_bytes(
+        self, user_id: str, data: bytes, *, name: str | None = None, suffix: str = ".pdf"
+    ) -> str:
+        """Store an original imported document (typically a PDF)."""
+        reference = self.build_reference(
+            ObjectKind.DOCUMENT, user_id, name, suffix=suffix
+        )
+        return self.put(reference, data)
+
+    def put_page_raster(
+        self, user_id: str, data: bytes, *, name: str | None = None, suffix: str = ".png"
+    ) -> str:
+        """Store a rasterized document page."""
+        reference = self.build_reference(
+            ObjectKind.PAGE, user_id, name, suffix=suffix
         )
         return self.put(reference, data)
 

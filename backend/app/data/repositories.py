@@ -27,19 +27,30 @@ calling service so multi-repository writes can share a transaction.
 
 from __future__ import annotations
 
+import datetime as _dt
 import uuid
 from typing import Optional, Sequence
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .enums import AdapterStatus, TrainingRunState
+from .enums import AdapterStatus, RecognitionJobState, TrainingRunState
 from .models import (
     Adapter,
     Document,
+    DocumentPage,
+    DocumentRegion,
+    DocumentRevision,
     EvaluationResult,
     Image,
+    ImageLineReview,
+    ModelArtifact,
     RecognizedWord,
+    RegionPrediction,
+    RegionReview,
+    RecognitionJob,
+    ReviewRevision,
+    TrainingExample,
     TrainingPair,
     TrainingRun,
     User,
@@ -207,6 +218,452 @@ class RecognizedWordRepository(_ScopedRepository):
         )
         return self._session.scalars(stmt).one_or_none()
 
+    def replace_all_for_image(
+        self,
+        user_id: UUIDLike | str,
+        image_id: UUIDLike | str,
+        words: Sequence[RecognizedWord],
+    ) -> Sequence[RecognizedWord]:
+        """Replace the active recognition rows for an owned image.
+
+        User line reviews are stored separately and are not deleted here.
+        """
+        existing = self.list_for_image(user_id, image_id)
+        for row in existing:
+            self._session.delete(row)
+        self._session.flush()
+        if not words:
+            return []
+        return self.add_all(words)
+
+
+class ImageLineReviewRepository(_ScopedRepository):
+    """Per-user access to persisted line reviews and exclusions."""
+
+    def list_for_image(
+        self, user_id: UUIDLike | str, image_id: UUIDLike | str
+    ) -> Sequence[ImageLineReview]:
+        stmt = (
+            select(ImageLineReview)
+            .join(Image, ImageLineReview.image_id == Image.image_id)
+            .where(
+                Image.user_id == _as_uuid(user_id),
+                ImageLineReview.image_id == _as_uuid(image_id),
+            )
+            .order_by(ImageLineReview.line_index)
+        )
+        return list(self._session.scalars(stmt).all())
+
+    def upsert(
+        self,
+        user_id: UUIDLike | str,
+        image_id: UUIDLike | str,
+        line_index: int,
+        reviewed_text: str,
+        excluded: bool,
+        region_x: int = 0,
+        region_y: int = 0,
+        region_width: int = 0,
+        region_height: int = 0,
+    ) -> ImageLineReview:
+        image = (
+            select(Image)
+            .where(
+                Image.user_id == _as_uuid(user_id),
+                Image.image_id == _as_uuid(image_id),
+            )
+        )
+        if self._session.scalars(image).one_or_none() is None:
+            raise LookupError("image not found")
+        existing = self._session.scalars(
+            select(ImageLineReview).where(
+                ImageLineReview.image_id == _as_uuid(image_id),
+                ImageLineReview.line_index == line_index,
+            )
+        ).one_or_none()
+        if existing is None:
+            existing = ImageLineReview(
+                image_id=_as_uuid(image_id),
+                line_index=line_index,
+            )
+            self._session.add(existing)
+        existing.reviewed_text = reviewed_text
+        existing.excluded = excluded
+        existing.region_x = region_x
+        existing.region_y = region_y
+        existing.region_width = region_width
+        existing.region_height = region_height
+        self._session.flush()
+        return existing
+
+
+class DocumentPageRepository(_ScopedRepository):
+    def add(self, page: DocumentPage) -> DocumentPage:
+        self._session.add(page)
+        self._session.flush()
+        return page
+
+    def list_for_document(
+        self, user_id: UUIDLike | str, document_id: UUIDLike | str
+    ) -> Sequence[DocumentPage]:
+        stmt = (
+            select(DocumentPage)
+            .join(Document, DocumentPage.document_id == Document.document_id)
+            .where(
+                Document.user_id == _as_uuid(user_id),
+                DocumentPage.document_id == _as_uuid(document_id),
+            )
+            .order_by(DocumentPage.page_index)
+        )
+        return list(self._session.scalars(stmt).all())
+
+    def get(
+        self, user_id: UUIDLike | str, page_id: UUIDLike | str
+    ) -> Optional[DocumentPage]:
+        stmt = (
+            select(DocumentPage)
+            .join(Document, DocumentPage.document_id == Document.document_id)
+            .where(
+                Document.user_id == _as_uuid(user_id),
+                DocumentPage.page_id == _as_uuid(page_id),
+            )
+        )
+        return self._session.scalars(stmt).one_or_none()
+
+
+class DocumentRegionRepository(_ScopedRepository):
+    def add(self, region: DocumentRegion) -> DocumentRegion:
+        self._session.add(region)
+        self._session.flush()
+        return region
+
+    def get(
+        self, user_id: UUIDLike | str, region_id: UUIDLike | str
+    ) -> Optional[DocumentRegion]:
+        stmt = (
+            select(DocumentRegion)
+            .join(DocumentPage, DocumentRegion.page_id == DocumentPage.page_id)
+            .join(Document, DocumentPage.document_id == Document.document_id)
+            .where(
+                Document.user_id == _as_uuid(user_id),
+                DocumentRegion.region_id == _as_uuid(region_id),
+            )
+        )
+        return self._session.scalars(stmt).one_or_none()
+
+    def list_for_page(
+        self, user_id: UUIDLike | str, page_id: UUIDLike | str
+    ) -> Sequence[DocumentRegion]:
+        stmt = (
+            select(DocumentRegion)
+            .join(DocumentPage, DocumentRegion.page_id == DocumentPage.page_id)
+            .join(Document, DocumentPage.document_id == Document.document_id)
+            .where(
+                Document.user_id == _as_uuid(user_id),
+                DocumentRegion.page_id == _as_uuid(page_id),
+            )
+            .order_by(DocumentRegion.order_index)
+        )
+        return list(self._session.scalars(stmt).all())
+
+    def update_order(self, user_id: UUIDLike | str, ordered_ids: Sequence[UUIDLike | str]) -> list[DocumentRegion]:
+        """Persist a complete, owner-scoped reading order for a page."""
+        regions = [self.get(user_id, region_id) for region_id in ordered_ids]
+        if any(region is None for region in regions):
+            raise LookupError("one or more regions were not found")
+        for index, region in enumerate(regions):
+            assert region is not None
+            region.order_index = index
+        self._session.flush()
+        return [region for region in regions if region is not None]
+
+    def delete(self, user_id: UUIDLike | str, region_id: UUIDLike | str) -> bool:
+        region = self.get(user_id, region_id)
+        if region is None:
+            return False
+        self._session.delete(region)
+        return True
+
+
+class RegionPredictionRepository(_ScopedRepository):
+    def add(self, prediction: RegionPrediction) -> RegionPrediction:
+        self._session.add(prediction)
+        self._session.flush()
+        return prediction
+
+    def get(
+        self, user_id: UUIDLike | str, prediction_id: UUIDLike | str
+    ) -> Optional[RegionPrediction]:
+        """Return a prediction only when its region belongs to the user."""
+        stmt = (
+            select(RegionPrediction)
+            .join(DocumentRegion, RegionPrediction.region_id == DocumentRegion.region_id)
+            .join(DocumentPage, DocumentRegion.page_id == DocumentPage.page_id)
+            .join(Document, DocumentPage.document_id == Document.document_id)
+            .where(
+                Document.user_id == _as_uuid(user_id),
+                RegionPrediction.prediction_id == _as_uuid(prediction_id),
+            )
+        )
+        return self._session.scalars(stmt).one_or_none()
+
+    def latest_for_region(
+        self, user_id: UUIDLike | str, region_id: UUIDLike | str
+    ) -> Optional[RegionPrediction]:
+        stmt = (
+            select(RegionPrediction)
+            .join(DocumentRegion, RegionPrediction.region_id == DocumentRegion.region_id)
+            .join(DocumentPage, DocumentRegion.page_id == DocumentPage.page_id)
+            .join(Document, DocumentPage.document_id == Document.document_id)
+            .where(
+                Document.user_id == _as_uuid(user_id),
+                RegionPrediction.region_id == _as_uuid(region_id),
+            )
+            .order_by(RegionPrediction.created_at.desc(), RegionPrediction.prediction_id.desc())
+        )
+        return self._session.scalars(stmt).first()
+
+
+class RegionReviewRepository(_ScopedRepository):
+    def add(self, review: RegionReview) -> RegionReview:
+        self._session.add(review)
+        self._session.flush()
+        return review
+
+    def latest_for_region(
+        self, user_id: UUIDLike | str, region_id: UUIDLike | str
+    ) -> Optional[RegionReview]:
+        stmt = (
+            select(RegionReview)
+            .join(DocumentRegion, RegionReview.region_id == DocumentRegion.region_id)
+            .join(DocumentPage, DocumentRegion.page_id == DocumentPage.page_id)
+            .join(Document, DocumentPage.document_id == Document.document_id)
+            .where(
+                Document.user_id == _as_uuid(user_id),
+                RegionReview.region_id == _as_uuid(region_id),
+            )
+            .order_by(RegionReview.created_at.desc(), RegionReview.review_id.desc())
+        )
+        return self._session.scalars(stmt).first()
+
+
+class DocumentRevisionRepository(_ScopedRepository):
+    """Owner-scoped access to immutable document snapshots."""
+
+    def next_number(self, user_id: UUIDLike | str, document_id: UUIDLike | str) -> int:
+        stmt = select(DocumentRevision.revision_number).where(
+            DocumentRevision.document_id == _as_uuid(document_id),
+            DocumentRevision.author_user_id == _as_uuid(user_id),
+        ).order_by(DocumentRevision.revision_number.desc())
+        current = self._session.scalars(stmt).first()
+        return int(current or 0) + 1
+
+    def add(self, revision: DocumentRevision) -> DocumentRevision:
+        self._session.add(revision)
+        self._session.flush()
+        return revision
+
+    def get(self, user_id: UUIDLike | str, revision_id: UUIDLike | str) -> Optional[DocumentRevision]:
+        stmt = (
+            select(DocumentRevision)
+            .join(Document, DocumentRevision.document_id == Document.document_id)
+            .where(
+                Document.user_id == _as_uuid(user_id),
+                DocumentRevision.revision_id == _as_uuid(revision_id),
+            )
+        )
+        return self._session.scalars(stmt).one_or_none()
+
+    def list_for_document(self, user_id: UUIDLike | str, document_id: UUIDLike | str) -> Sequence[DocumentRevision]:
+        stmt = (
+            select(DocumentRevision)
+            .join(Document, DocumentRevision.document_id == Document.document_id)
+            .where(
+                Document.user_id == _as_uuid(user_id),
+                DocumentRevision.document_id == _as_uuid(document_id),
+            )
+            .order_by(DocumentRevision.revision_number)
+        )
+        return list(self._session.scalars(stmt).all())
+
+
+class ReviewRevisionRepository(_ScopedRepository):
+    """Owner-scoped canonical review history."""
+
+    def add(self, revision: ReviewRevision) -> ReviewRevision:
+        self._session.add(revision)
+        self._session.flush()
+        return revision
+
+    def latest_for_region(self, user_id: UUIDLike | str, region_id: UUIDLike | str) -> Optional[ReviewRevision]:
+        stmt = (
+            select(ReviewRevision)
+            .join(DocumentRegion, ReviewRevision.region_id == DocumentRegion.region_id)
+            .join(DocumentPage, DocumentRegion.page_id == DocumentPage.page_id)
+            .join(Document, DocumentPage.document_id == Document.document_id)
+            .where(
+                Document.user_id == _as_uuid(user_id),
+                ReviewRevision.region_id == _as_uuid(region_id),
+            )
+            .order_by(ReviewRevision.created_at.desc(), ReviewRevision.review_revision_id.desc())
+        )
+        return self._session.scalars(stmt).first()
+
+    def get(self, user_id: UUIDLike | str, revision_id: UUIDLike | str) -> Optional[ReviewRevision]:
+        stmt = (
+            select(ReviewRevision)
+            .join(DocumentRegion, ReviewRevision.region_id == DocumentRegion.region_id)
+            .join(DocumentPage, DocumentRegion.page_id == DocumentPage.page_id)
+            .join(Document, DocumentPage.document_id == Document.document_id)
+            .where(
+                Document.user_id == _as_uuid(user_id),
+                ReviewRevision.review_revision_id == _as_uuid(revision_id),
+            )
+        )
+        return self._session.scalars(stmt).one_or_none()
+
+
+class TrainingExampleRepository(_ScopedRepository):
+    """Explicit-consent training examples derived from reviewed revisions."""
+
+    def add(self, example: TrainingExample) -> TrainingExample:
+        self._session.add(example)
+        self._session.flush()
+        return example
+
+    def get(self, user_id: UUIDLike | str, example_id: UUIDLike | str) -> Optional[TrainingExample]:
+        stmt = select(TrainingExample).where(
+            TrainingExample.user_id == _as_uuid(user_id),
+            TrainingExample.example_id == _as_uuid(example_id),
+        )
+        return self._session.scalars(stmt).one_or_none()
+
+    def get_for_review(self, user_id: UUIDLike | str, review_revision_id: UUIDLike | str) -> Optional[TrainingExample]:
+        stmt = select(TrainingExample).where(
+            TrainingExample.user_id == _as_uuid(user_id),
+            TrainingExample.review_revision_id == _as_uuid(review_revision_id),
+        )
+        return self._session.scalars(stmt).one_or_none()
+
+    def list_eligible(self, user_id: UUIDLike | str) -> Sequence[TrainingExample]:
+        stmt = select(TrainingExample).where(
+            TrainingExample.user_id == _as_uuid(user_id),
+            TrainingExample.consent.is_(True),
+            TrainingExample.eligible.is_(True),
+        ).order_by(TrainingExample.created_at)
+        return list(self._session.scalars(stmt).all())
+
+    def list_for_user(self, user_id: UUIDLike | str) -> Sequence[TrainingExample]:
+        stmt = (
+            select(TrainingExample)
+            .where(TrainingExample.user_id == _as_uuid(user_id))
+            .order_by(TrainingExample.created_at)
+        )
+        return list(self._session.scalars(stmt).all())
+
+    def mark_region_ineligible(
+        self, user_id: UUIDLike | str, region_id: UUIDLike | str
+    ) -> int:
+        """Withdraw training eligibility for an explicitly excluded region.
+
+        The immutable example rows remain for audit, but a later ``Not text`` /
+        exclusion decision must not leave an older consented crop eligible for
+        future personalization.
+        """
+        stmt = select(TrainingExample).where(
+            TrainingExample.user_id == _as_uuid(user_id),
+            TrainingExample.region_id == _as_uuid(region_id),
+            TrainingExample.eligible.is_(True),
+        )
+        examples = list(self._session.scalars(stmt).all())
+        for example in examples:
+            example.eligible = False
+        if examples:
+            self._session.flush()
+        return len(examples)
+
+
+class RecognitionJobRepository(_ScopedRepository):
+    """Owner-scoped persistence and lifecycle transitions for recognition jobs."""
+
+    def add(self, job: RecognitionJob) -> RecognitionJob:
+        self._session.add(job)
+        self._session.flush()
+        return job
+
+    def get(self, user_id: UUIDLike | str, job_id: UUIDLike | str) -> Optional[RecognitionJob]:
+        stmt = select(RecognitionJob).where(
+            RecognitionJob.user_id == _as_uuid(user_id),
+            RecognitionJob.job_id == _as_uuid(job_id),
+        )
+        return self._session.scalars(stmt).one_or_none()
+
+    def get_active_for_scope(
+        self,
+        user_id: UUIDLike | str,
+        *,
+        page_id: UUIDLike | str | None = None,
+        image_id: UUIDLike | str | None = None,
+        region_ids: Sequence[str] = (),
+        mode: str = "formula",
+    ) -> Optional[RecognitionJob]:
+        states = (RecognitionJobState.QUEUED, RecognitionJobState.RUNNING)
+        stmt = select(RecognitionJob).where(
+            RecognitionJob.user_id == _as_uuid(user_id),
+            RecognitionJob.mode == mode,
+            RecognitionJob.state.in_(states),
+        )
+        if page_id is not None:
+            stmt = stmt.where(RecognitionJob.page_id == _as_uuid(page_id))
+        if image_id is not None:
+            stmt = stmt.where(RecognitionJob.image_id == _as_uuid(image_id))
+        for job in self._session.scalars(stmt.order_by(RecognitionJob.created_at.desc())).all():
+            if tuple(job.region_ids or []) == tuple(region_ids):
+                return job
+        return None
+
+    def list_stale(self, now: _dt.datetime) -> Sequence[RecognitionJob]:
+        stmt = select(RecognitionJob).where(
+            RecognitionJob.state == RecognitionJobState.RUNNING,
+            RecognitionJob.deadline_at.is_not(None),
+            RecognitionJob.deadline_at < now,
+        )
+        return list(self._session.scalars(stmt).all())
+
+    def list_for_states(self, states: Sequence[RecognitionJobState]) -> Sequence[RecognitionJob]:
+        """Return jobs in the requested lifecycle states for restart recovery."""
+        if not states:
+            return []
+        stmt = (
+            select(RecognitionJob)
+            .where(RecognitionJob.state.in_(tuple(states)))
+            .order_by(RecognitionJob.created_at)
+        )
+        return list(self._session.scalars(stmt).all())
+
+    def list_for_user(self, user_id: UUIDLike | str) -> Sequence[RecognitionJob]:
+        stmt = select(RecognitionJob).where(
+            RecognitionJob.user_id == _as_uuid(user_id)
+        ).order_by(RecognitionJob.created_at.desc())
+        return list(self._session.scalars(stmt).all())
+
+
+class ModelArtifactRepository(_ScopedRepository):
+    """Global, immutable-ish registry of loadable model artifact identities."""
+
+    def add(self, artifact: ModelArtifact) -> ModelArtifact:
+        self._session.add(artifact)
+        self._session.flush()
+        return artifact
+
+    def get_by_backend(self, backend_id: str) -> Optional[ModelArtifact]:
+        stmt = select(ModelArtifact).where(ModelArtifact.backend_id == backend_id)
+        return self._session.scalars(stmt).one_or_none()
+
+    def list_all(self) -> Sequence[ModelArtifact]:
+        stmt = select(ModelArtifact).order_by(ModelArtifact.backend_id)
+        return list(self._session.scalars(stmt).all())
+
 
 class TrainingPairRepository(_ScopedRepository):
     """Per-user access to :class:`TrainingPair` rows (Req 10.2, 10.5).
@@ -245,6 +702,20 @@ class TrainingPairRepository(_ScopedRepository):
             .where(TrainingPair.user_id == _as_uuid(user_id))
             .order_by(TrainingPair.created_at)
         )
+        return list(self._session.scalars(stmt).all())
+
+    def list_for_image(
+        self, user_id: UUIDLike | str, image_id: UUIDLike | str
+    ) -> Sequence[TrainingPair]:
+        """Return correction pairs attached to one owned image.
+
+        Recognition retries replace transient word rows, so the service uses
+        these durable pairs to reapply confirmed corrections to matching crops.
+        """
+        stmt = select(TrainingPair).where(
+            TrainingPair.user_id == _as_uuid(user_id),
+            TrainingPair.image_id == _as_uuid(image_id),
+        ).order_by(TrainingPair.created_at)
         return list(self._session.scalars(stmt).all())
 
     def list_unused(self, user_id: UUIDLike | str) -> Sequence[TrainingPair]:
@@ -331,6 +802,17 @@ class TrainingRunRepository(_ScopedRepository):
         )
         return self._session.scalars(stmt).first()
 
+    def get_queued_for_user(self, user_id: UUIDLike | str) -> Optional[TrainingRun]:
+        stmt = (
+            select(TrainingRun)
+            .where(
+                TrainingRun.user_id == _as_uuid(user_id),
+                TrainingRun.state == TrainingRunState.QUEUED,
+            )
+            .order_by(TrainingRun.started_at, TrainingRun.run_id)
+        )
+        return self._session.scalars(stmt).first()
+
 
 class EvaluationResultRepository(_ScopedRepository):
     """Per-user access to :class:`EvaluationResult` rows (Req 7.3, 10.5)."""
@@ -389,6 +871,16 @@ class RepositoryFactory:
         self.documents = DocumentRepository(session)
         self.images = ImageRepository(session)
         self.recognized_words = RecognizedWordRepository(session)
+        self.line_reviews = ImageLineReviewRepository(session)
+        self.document_pages = DocumentPageRepository(session)
+        self.document_regions = DocumentRegionRepository(session)
+        self.region_predictions = RegionPredictionRepository(session)
+        self.region_reviews = RegionReviewRepository(session)
+        self.document_revisions = DocumentRevisionRepository(session)
+        self.review_revisions = ReviewRevisionRepository(session)
+        self.training_examples = TrainingExampleRepository(session)
+        self.recognition_jobs = RecognitionJobRepository(session)
+        self.model_artifacts = ModelArtifactRepository(session)
         self.training_pairs = TrainingPairRepository(session)
         self.adapters = AdapterRepository(session)
         self.training_runs = TrainingRunRepository(session)
@@ -403,6 +895,16 @@ __all__ = [
     "UserRepository",
     "ImageRepository",
     "RecognizedWordRepository",
+    "ImageLineReviewRepository",
+    "DocumentPageRepository",
+    "DocumentRegionRepository",
+    "RegionPredictionRepository",
+    "RegionReviewRepository",
+    "DocumentRevisionRepository",
+    "ReviewRevisionRepository",
+    "TrainingExampleRepository",
+    "RecognitionJobRepository",
+    "ModelArtifactRepository",
     "TrainingPairRepository",
     "AdapterRepository",
     "TrainingRunRepository",
