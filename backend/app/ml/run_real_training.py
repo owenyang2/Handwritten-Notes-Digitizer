@@ -44,6 +44,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     output_dir = args.output_dir or default_model_dir()
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"[run_real_training] loading real training samples from {args.manifest}", flush=True)
     t0 = time.time()

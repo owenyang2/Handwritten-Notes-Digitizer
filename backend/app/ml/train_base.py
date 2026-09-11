@@ -71,6 +71,19 @@ PROVENANCE_FILENAME: str = "base_model.meta.json"
 _CHAR_TO_INDEX: dict[str, int] = {ch: i + 1 for i, ch in enumerate(ALPHABET)}
 
 
+class UnsupportedLabelError(ValueError):
+    """Raised when a training label contains characters outside the alphabet."""
+
+    def __init__(self, text: str, unsupported: Sequence[str]) -> None:
+        self.text = text
+        self.unsupported = tuple(unsupported)
+        preview = ", ".join(repr(ch) for ch in self.unsupported[:12])
+        super().__init__(
+            "Training label contains characters outside the CRNN alphabet: "
+            f"{preview}. Labels are rejected rather than silently stripped."
+        )
+
+
 @dataclass(frozen=True)
 class SplitSpec:
     """A documented, fixed train/validation/test split definition.
@@ -156,11 +169,15 @@ class TrainingResult:
 def encode_text(text: str) -> list[int]:
     """Encode a transcription into CTC target indices.
 
-    Characters outside the pinned :data:`app.ml.htr_config.ALPHABET` are dropped
-    (the alphabet is the model's full label space). Index 0 is reserved for the
-    CTC blank and is never produced here.
+    Characters outside the pinned :data:`app.ml.htr_config.ALPHABET` raise
+    :class:`UnsupportedLabelError` so unsupported labels fail visibly instead
+    of being silently stripped. Index 0 is reserved for the CTC blank and is
+    never produced here. An empty label encodes to an empty index list.
     """
-    return [_CHAR_TO_INDEX[c] for c in text if c in _CHAR_TO_INDEX]
+    unsupported = sorted({ch for ch in text if ch not in _CHAR_TO_INDEX})
+    if unsupported:
+        raise UnsupportedLabelError(text, unsupported)
+    return [_CHAR_TO_INDEX[c] for c in text]
 
 
 # ---------------------------------------------------------------------------
@@ -501,7 +518,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 2
 
-    samples = load_training_samples(split=DEFAULT_IAM_SPLIT)  # pragma: no cover
+    # A missing IAM root must fail visibly in normal development/production;
+    # otherwise the loader's deterministic noise fixtures could be mistaken
+    # for a trained handwriting model. Synthetic samples remain available only
+    # in the explicit test environment for plumbing checks.
+    settings = get_settings()
+    samples = load_training_samples(
+        split=DEFAULT_IAM_SPLIT,
+        synthetic=(settings.environment.lower() == "test"),
+    )  # pragma: no cover
     result = train_base_model(  # pragma: no cover
         samples,
         output_dir=args.output_dir,
@@ -523,6 +548,7 @@ __all__ = [
     "LabeledSample",
     "TrainingProvenance",
     "TrainingResult",
+    "UnsupportedLabelError",
     "encode_text",
     "default_model_dir",
     "save_base_model_artifact",

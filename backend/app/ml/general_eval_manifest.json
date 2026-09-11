@@ -6,8 +6,8 @@
     "base_dataset_version": "3.0 (line-level)",
     "source_split": "test",
     "selection_method": "A fixed subset held aside from the IAM line-level test split. These samples are reserved exclusively for measuring general English recognition accuracy (the personalization guardrails, Req 6.2) and are never used for base-model training (task 6.3) nor for any per-user adapter training.",
-    "license_note": "The reference transcriptions stored in this manifest are original, general-English sentences authored for this evaluation harness; they are NOT verbatim IAM/LOB corpus transcriptions, in order to respect the dataset's licensing. The sample ids follow the IAM line-id naming convention (form-line, e.g. 'a01-000u-00') so that, when a licensed copy of the IAM dataset is present, the corresponding handwriting line images can be located and paired with these references by id.",
-    "image_root_setting": "The handwriting line images for each sample_id are resolved at load time relative to the dataset root configured for the base-model pipeline (task 6.2). When absent, the manifest still provides a deterministic, fixed reference set for guardrail evaluation."
+    "license_note": "The reference transcriptions stored in this manifest are original, general-English sentences authored for this evaluation harness; they are NOT verbatim IAM/LOB corpus transcriptions, in order to respect the dataset's licensing. The sample ids follow the IAM line-id naming convention, but must not be paired with arbitrary IAM images; promotion requires a separately verified image/label fixture manifest.",
+    "image_root_setting": "Verified image/label fixtures are resolved from app/ml/eval_fixtures. When absent, the manifest still provides a deterministic reference list, but adapter promotion is refused; synthetic fixtures require explicit test-mode opt-in."
   },
   "samples": [
     { "sample_id": "a01-000u-00", "source_split": "test", "text": "The quick brown fox jumps over the lazy dog." },

@@ -1,0 +1,12 @@
+# Compact image-to-LaTeX training config (Track B).
+# Heights 96/128/192 are proposed crop buckets; the CLI currently uses image_height.
+
+d_model: 256
+nhead: 4
+num_layers: 4
+image_height: 128
+max_width: 512
+max_tokens: 160
+microbatch: 2
+accumulate: 8
+coverage: false

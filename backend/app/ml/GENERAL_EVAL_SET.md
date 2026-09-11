@@ -35,6 +35,13 @@ recognition accuracy (catastrophic forgetting).
    stable order (sorted by `sample_id`) regardless of how the manifest is
    written, and the result is cached for the process lifetime.
 
+The checked-in file contains references only; it does not ship licensed
+handwriting pixels. Adapter promotion therefore uses
+`load_verified_eval_pairs()`, which returns no pairs until matching verified
+fixtures are installed. This deliberately makes the guardrail unavailable
+rather than pairing unrelated IAM images with these authored sentences. The
+synthetic fixtures used by tests require an explicit test-mode opt-in.
+
 ## Provenance
 
 | Field | Value |
