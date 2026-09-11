@@ -56,6 +56,7 @@ state and releases the thread-level lock so the next training can proceed.
 from __future__ import annotations
 
 import enum
+import math
 import random
 import threading
 import uuid
@@ -303,6 +304,12 @@ def maybe_enqueue_training(
 
     running = repos.training_runs.get_running_for_user(user_id)
     if running is not None:
+        return TrainingTriggerResult.ALREADY_RUNNING
+    # A poller may not have claimed a previously enqueued run yet.  Treat a
+    # queued run as in-flight too so repeated corrections or concurrent
+    # requests cannot create duplicate work.
+    queued = getattr(repos.training_runs, "get_queued_for_user", lambda _uid: None)(user_id)
+    if queued is not None:
         return TrainingTriggerResult.ALREADY_RUNNING
 
     new_run = TrainingRun(
@@ -598,13 +605,29 @@ def complete_training_run(
     # ------------------------------------------------------------------
     # general_eval may be a BeforeAfterReport (before=base, after=adapter on
     # general set) or a duck-typed object with the same attributes.
-    base_cer = getattr(general_eval, "before_cer", None) or getattr(general_eval, "base_cer", None)
-    base_wer = getattr(general_eval, "before_wer", None) or getattr(general_eval, "base_wer", None)
-    adapter_cer = getattr(general_eval, "after_cer", None) or getattr(general_eval, "adapter_cer", None)
-    adapter_wer = getattr(general_eval, "after_wer", None) or getattr(general_eval, "adapter_wer", None)
+    # Zero is a valid CER/WER; only ``None`` means the metric is missing.
+    base_cer = _first_defined(
+        getattr(general_eval, "before_cer", None),
+        getattr(general_eval, "base_cer", None),
+    )
+    base_wer = _first_defined(
+        getattr(general_eval, "before_wer", None),
+        getattr(general_eval, "base_wer", None),
+    )
+    adapter_cer = _first_defined(
+        getattr(general_eval, "after_cer", None),
+        getattr(general_eval, "adapter_cer", None),
+    )
+    adapter_wer = _first_defined(
+        getattr(general_eval, "after_wer", None),
+        getattr(general_eval, "adapter_wer", None),
+    )
 
-    # If any metric is unavailable treat as FAILED.
-    if any(v is None for v in (base_cer, base_wer, adapter_cer, adapter_wer)):
+    # If any metric is unavailable or non-finite, treat the run as FAILED.
+    # ``NaN`` is especially important here: Python comparisons with NaN are
+    # false, so accepting it would accidentally bypass both guardrails.
+    metrics = (base_cer, base_wer, adapter_cer, adapter_wer)
+    if any(not _metric_is_finite(value) for value in metrics):
         if run is not None:
             run.state = TrainingRunState.FAILED
             run.reject_reason = "General-set evaluation metrics unavailable."
@@ -620,6 +643,15 @@ def complete_training_run(
             adapter_id=adapter_id,
             run_final_state=TrainingRunState.FAILED,
         )
+
+    # Normalise numeric scalar implementations (e.g. NumPy floats) before
+    # applying arithmetic and persisting the report.
+    base_cer, base_wer, adapter_cer, adapter_wer = (
+        float(base_cer),
+        float(base_wer),
+        float(adapter_cer),
+        float(adapter_wer),
+    )
 
     guardrail = evaluate_guardrail(adapter_cer, base_cer, adapter_wer, base_wer)
 
@@ -717,6 +749,28 @@ def complete_training_run(
 # Internal helpers
 # --------------------------------------------------------------------------- #
 
+
+def _first_defined(*values: Any) -> Any:
+    """Return the first value that is not ``None``.
+
+    Zero is a valid metric (perfect CER/WER) and must not be treated as missing.
+    """
+    for value in values:
+        if value is not None:
+            return value
+    return None
+
+
+def _metric_is_finite(value: Any) -> bool:
+    """Return whether *value* is a finite numeric metric scalar."""
+    if value is None:
+        return False
+    try:
+        return math.isfinite(float(value))
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+
 def _persist_eval_result(
     repos: Any,
     run_id: uuid.UUID,
@@ -724,12 +778,43 @@ def _persist_eval_result(
     general_eval: Any,
 ) -> None:
     """Create and flush an EvaluationResult row from a general-eval report."""
-    before_cer = getattr(general_eval, "before_cer", None)
-    before_wer = getattr(general_eval, "before_wer", None)
-    after_cer = getattr(general_eval, "after_cer", None)
-    after_wer = getattr(general_eval, "after_wer", None)
-    delta_cer = getattr(general_eval, "delta_cer", None)
-    delta_wer = getattr(general_eval, "delta_wer", None)
+    # Accept both the canonical BeforeAfterReport names and the explicit
+    # base/adapter/general names used by older callers.  Preserve valid 0.0
+    # values while falling back only for attributes that are actually None.
+    before_cer = _first_defined(
+        getattr(general_eval, "before_cer", None),
+        getattr(general_eval, "base_cer", None),
+    )
+    before_wer = _first_defined(
+        getattr(general_eval, "before_wer", None),
+        getattr(general_eval, "base_wer", None),
+    )
+    after_cer = _first_defined(
+        getattr(general_eval, "after_cer", None),
+        getattr(general_eval, "adapter_cer", None),
+        getattr(general_eval, "general_cer", None),
+    )
+    after_wer = _first_defined(
+        getattr(general_eval, "after_wer", None),
+        getattr(general_eval, "adapter_wer", None),
+        getattr(general_eval, "general_wer", None),
+    )
+    delta_cer = _first_defined(
+        getattr(general_eval, "delta_cer", None),
+        (
+            float(before_cer) - float(after_cer)
+            if _metric_is_finite(before_cer) and _metric_is_finite(after_cer)
+            else None
+        ),
+    )
+    delta_wer = _first_defined(
+        getattr(general_eval, "delta_wer", None),
+        (
+            float(before_wer) - float(after_wer)
+            if _metric_is_finite(before_wer) and _metric_is_finite(after_wer)
+            else None
+        ),
+    )
     avail_str = getattr(general_eval, "availability", "unavailable")
 
     # Normalise availability to the enum.

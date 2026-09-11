@@ -32,7 +32,7 @@ from app.data.repositories import RepositoryFactory
 from app.services.auth_api import get_current_user, get_repositories
 from app.services.images_api import get_object_store
 from app.services.isolation import get_or_404
-from app.services.personalization_service import maybe_enqueue_training
+from app.services.personalization_service import TrainingTriggerResult, maybe_enqueue_training
 
 router = APIRouter(prefix="/personalization", tags=["personalization"])
 
@@ -82,6 +82,23 @@ class PersonalizationStatusResponse(BaseModel):
     unused_training_pairs: int
     training_trigger_threshold: int
     max_training_epochs: int
+
+
+class PersonalizationRunRequest(BaseModel):
+    """Request a run of the legacy prose-adapter personalization worker."""
+
+    mode: Literal["prose_adapter"] = "prose_adapter"
+
+
+class PersonalizationRunResponse(BaseModel):
+    """Durable result of requesting a personalization run."""
+
+    mode: Literal["prose_adapter"]
+    status: Literal["queued", "already_running", "below_threshold"]
+    run_id: uuid.UUID | None = None
+    unused_training_pairs: int
+    training_trigger_threshold: int
+    message: str
 
 
 class TrainingPairSummaryResponse(BaseModel):
@@ -161,6 +178,50 @@ _NOTIFICATION_MESSAGES = {
 # --------------------------------------------------------------------------- #
 # Endpoints
 # --------------------------------------------------------------------------- #
+
+
+@router.post(
+    "/runs",
+    response_model=PersonalizationRunResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Request a durable personalization run",
+    description=(
+        "Queues the reviewed prose-adapter worker when the configured unused-pair "
+        "threshold is met. Formula-model training is an offline dataset/CLI flow; "
+        "this endpoint does not silently train or promote a formula recognizer."
+    ),
+)
+def request_personalization_run(
+    body: PersonalizationRunRequest | None = None,
+    user: User = Depends(get_current_user),
+    repos: RepositoryFactory = Depends(get_repositories),
+) -> PersonalizationRunResponse:
+    mode = body.mode if body is not None else "prose_adapter"
+    settings = get_settings()
+    trigger = maybe_enqueue_training(user.user_id, repos)
+    repos.session.commit()
+    queued = repos.training_runs.get_queued_for_user(user.user_id)
+    running = repos.training_runs.get_running_for_user(user.user_id)
+    run = queued or running
+    status_map = {
+        TrainingTriggerResult.ENQUEUED: "queued",
+        TrainingTriggerResult.ALREADY_RUNNING: "already_running",
+        TrainingTriggerResult.BELOW_THRESHOLD: "below_threshold",
+    }
+    run_status = status_map[trigger]
+    messages = {
+        "queued": "Personalization training has been queued.",
+        "already_running": "Personalization training is already queued or running.",
+        "below_threshold": "More reviewed examples are needed before training can start.",
+    }
+    return PersonalizationRunResponse(
+        mode=mode,
+        status=run_status,  # type: ignore[arg-type]
+        run_id=run.run_id if run is not None else None,
+        unused_training_pairs=repos.training_pairs.count_unused(user.user_id),
+        training_trigger_threshold=settings.personalization_trigger_threshold,
+        message=messages[run_status],
+    )
 
 
 @router.get(
@@ -438,11 +499,14 @@ def delete_training_pair(
 __all__ = [
     "router",
     "PersonalizationStatusResponse",
+    "PersonalizationRunRequest",
+    "PersonalizationRunResponse",
     "EvaluationResponse",
     "TrainingPairSummaryResponse",
     "TrainingPairListResponse",
     "TrainingPairUpdateRequest",
     "get_personalization_status",
+    "request_personalization_run",
     "get_evaluation",
     "list_training_pairs",
     "get_training_pair_image",

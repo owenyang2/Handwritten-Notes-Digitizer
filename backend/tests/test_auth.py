@@ -374,6 +374,19 @@ def test_register_rejects_duplicate_username(client) -> None:
     assert resp.status_code == status.HTTP_409_CONFLICT
 
 
+def test_register_rejects_duplicate_email(client) -> None:
+    c, store, factory = client
+    with factory() as s:
+        _make_user(s, "dave", "pw12345")
+
+    resp = c.post(
+        "/auth/register",
+        json={"username": "dave-other", "email": "dave@example.com", "password": "other"},
+    )
+    assert resp.status_code == status.HTTP_409_CONFLICT
+    assert "email" in resp.json()["detail"].lower()
+
+
 def test_login_sets_session_cookie_that_authenticates(client) -> None:
     c, store, factory = client
     with factory() as s:

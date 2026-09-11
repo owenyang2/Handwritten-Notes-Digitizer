@@ -56,7 +56,7 @@ import io
 import logging
 import threading
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 import numpy as np
 import torch
@@ -155,8 +155,86 @@ class RecognitionResult:
 # requests" — Architectural Style, Frozen base + pluggable adapter)
 # ---------------------------------------------------------------------------
 
-_base_model_lock = threading.Lock()
+_base_model_lock = threading.RLock()
 _base_model_cache: CRNN | None = None
+_loaded_model_status: "LoadedModelStatus | None" = None
+
+
+class ModelUnavailableError(RuntimeError):
+    """Raised when a trained, probed base-model artifact cannot be used."""
+
+
+@dataclass(frozen=True)
+class LoadedModelStatus:
+    """Runtime identity of the model actually loaded for inference."""
+
+    loaded: bool
+    backend: str = "crnn-ctc"
+    artifact_path: str | None = None
+    reason: str | None = None
+    probe_ok: bool = False
+
+    @property
+    def health_label(self) -> str:
+        return "loaded" if self.loaded and self.probe_ok else "unavailable"
+
+
+def _probe_crnn(model: CRNN) -> bool:
+    """Run a tiny forward pass so a corrupt checkpoint cannot look healthy."""
+    model.eval()
+    height = model.config.image_height
+    dummy = torch.zeros(1, model.config.input_channels, height, max(32, height))
+    with torch.no_grad():
+        output = model(dummy)
+    return (
+        output.ndim == 3
+        and output.size(1) == 1
+        and output.size(-1) == model.config.num_classes
+        and torch.isfinite(output).all().item()
+    )
+
+
+def reset_base_model_runtime() -> None:
+    """Drop the process-wide model cache. Used by tests and after failed loads."""
+    global _base_model_cache, _loaded_model_status
+    with _base_model_lock:
+        _base_model_cache = None
+        _loaded_model_status = None
+
+
+def get_loaded_model_status(*, force_reload: bool = False) -> LoadedModelStatus:
+    """Return the cached load/probe result without raising."""
+    global _loaded_model_status, _base_model_cache
+
+    if _loaded_model_status is not None and not force_reload:
+        return _loaded_model_status
+
+    with _base_model_lock:
+        if _loaded_model_status is not None and not force_reload:
+            return _loaded_model_status
+        try:
+            get_base_model(force_reload=True)
+        except ModelUnavailableError as exc:
+            # ``get_base_model`` records the precise artifact path and failure
+            # stage before raising. Preserve that identity in health output;
+            # replacing it with a generic status would make a missing/corrupt
+            # model look indistinguishable from an unconfigured backend.
+            if _loaded_model_status is None:
+                _loaded_model_status = LoadedModelStatus(
+                    loaded=False,
+                    reason=str(exc),
+                    probe_ok=False,
+                )
+        return _loaded_model_status or LoadedModelStatus(
+            loaded=False,
+            reason="Base model status has not been determined.",
+            probe_ok=False,
+        )
+
+
+def is_base_model_ready() -> bool:
+    status = get_loaded_model_status()
+    return status.loaded and status.probe_ok
 
 
 def get_base_model(*, force_reload: bool = False) -> CRNN:
@@ -168,21 +246,11 @@ def get_base_model(*, force_reload: bool = False) -> CRNN:
     (and the personalization worker) composes adapters on top of the exact
     same weights rather than a freshly random-initialised model per call.
 
-    When no trained artifact exists yet (e.g. a clean checkout before the
-    documented training procedure has been run), falls back to a freshly
-    built, frozen model with the pinned default configuration so recognition
-    remains functional — just without any learned weights — rather than
-    failing outright. This fallback is itself cached, so all calls within the
-    process still share one consistent (if untrained) model.
-
-    Parameters
-    ----------
-    force_reload:
-        When ``True``, bypasses the cache and reloads from disk. Primarily
-        useful for tests/tools that (re)train a base model artifact within a
-        long-lived process.
+    Missing, corrupt, or incompatible artifacts raise
+    :class:`ModelUnavailableError`. Recognition never silently falls back to
+    random weights.
     """
-    global _base_model_cache
+    global _base_model_cache, _loaded_model_status
 
     if _base_model_cache is not None and not force_reload:
         return _base_model_cache
@@ -191,34 +259,66 @@ def get_base_model(*, force_reload: bool = False) -> CRNN:
         if _base_model_cache is not None and not force_reload:
             return _base_model_cache
 
-        # Imported lazily to avoid a circular import (train_base imports
-        # htr_model, not recognition).
         from app.ml.train_base import default_model_dir, load_base_model
 
         model_dir = default_model_dir()
         weights_path = model_dir / "base_model.pt"
+        path_str = str(weights_path)
 
-        if weights_path.exists():
-            try:
-                _base_model_cache = load_base_model(model_dir)
-                logger.info("Loaded shared base model artifact from %s", weights_path)
-                return _base_model_cache
-            except Exception:
-                logger.exception(
-                    "Failed to load base model artifact at %s; falling back to "
-                    "a freshly initialised model.",
-                    weights_path,
-                )
+        if not weights_path.exists():
+            _base_model_cache = None
+            _loaded_model_status = LoadedModelStatus(
+                loaded=False,
+                artifact_path=path_str,
+                reason=f"No trained base model artifact found at {path_str}.",
+                probe_ok=False,
+            )
+            raise ModelUnavailableError(_loaded_model_status.reason)
 
-        from app.ml.train_base import freeze_base_model
+        try:
+            model = load_base_model(model_dir)
+        except Exception as exc:
+            logger.exception("Failed to load base model artifact at %s.", weights_path)
+            _base_model_cache = None
+            _loaded_model_status = LoadedModelStatus(
+                loaded=False,
+                artifact_path=path_str,
+                reason=f"Base model artifact at {path_str} could not be loaded: {exc}",
+                probe_ok=False,
+            )
+            raise ModelUnavailableError(_loaded_model_status.reason) from exc
 
-        _base_model_cache = freeze_base_model(build_model(DEFAULT_HTR_CONFIG))
-        logger.warning(
-            "No trained base model artifact found at %s; using an "
-            "untrained (randomly initialised) frozen model. Run "
-            "`python -m app.ml.train_base` to produce a real artifact.",
-            weights_path,
+        try:
+            probe_ok = _probe_crnn(model)
+        except Exception as exc:
+            logger.exception("Base model probe failed for %s.", weights_path)
+            _base_model_cache = None
+            _loaded_model_status = LoadedModelStatus(
+                loaded=False,
+                artifact_path=path_str,
+                reason=f"Base model artifact at {path_str} failed its inference check: {exc}",
+                probe_ok=False,
+            )
+            raise ModelUnavailableError(_loaded_model_status.reason) from exc
+
+        if not probe_ok:
+            _base_model_cache = None
+            _loaded_model_status = LoadedModelStatus(
+                loaded=False,
+                artifact_path=path_str,
+                reason=f"Base model artifact at {path_str} failed its inference check.",
+                probe_ok=False,
+            )
+            raise ModelUnavailableError(_loaded_model_status.reason)
+
+        _base_model_cache = model
+        _loaded_model_status = LoadedModelStatus(
+            loaded=True,
+            artifact_path=path_str,
+            reason=None,
+            probe_ok=True,
         )
+        logger.info("Loaded shared base model artifact from %s", weights_path)
         return _base_model_cache
 
 
@@ -649,9 +749,8 @@ def recognize(
 
     if model is None:
         # No explicit model/config override: use the shared, process-wide
-        # frozen Base_Model so repeated calls are consistent (Req: base model
-        # is loaded once and shared across all requests). Callers that pass an
-        # explicit ``config`` are asking for a specific (e.g. tiny test)
+        # frozen Base_Model so repeated calls are consistent. Callers that pass
+        # an explicit ``config`` are asking for a specific (e.g. tiny test)
         # architecture, so honour that instead of the singleton.
         model = get_base_model() if config is None else build_model(config)
 
@@ -725,10 +824,15 @@ __all__ = [
     "RecognizedWord",
     "RecognizedLine",
     "RecognitionResult",
+    "ModelUnavailableError",
+    "LoadedModelStatus",
     "greedy_ctc_decode",
     "assemble_result",
     "apply_adapter",
     "get_base_model",
+    "get_loaded_model_status",
+    "reset_base_model_runtime",
+    "is_base_model_ready",
     "recognize",
     "recognize_bytes",
     "recognize_crop",

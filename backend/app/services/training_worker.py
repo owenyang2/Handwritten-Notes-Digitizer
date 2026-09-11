@@ -54,10 +54,10 @@ from app.data.models import TrainingPair, TrainingRun, TrainingRunPair
 from app.data.object_store import ObjectStore
 from app.data.repositories import RepositoryFactory
 from app.ml.adapter_trainer import AdapterResult, adapter_result_to_bytes, train_adapter
-from app.ml.general_eval_set import load_general_eval_set
+from app.ml.general_eval_set import load_verified_eval_pairs
 from app.ml.htr_config import DEFAULT_HTR_CONFIG
 from app.ml.engine import CRNNEngine
-from app.ml.recognition import apply_adapter, get_base_model, recognize_crop
+from app.ml.recognition import ModelUnavailableError, apply_adapter, get_base_model, recognize_crop
 from app.ml.train_base import LabeledSample
 from app.services.evaluation_service import BeforeAfterReport, compute_before_after
 from app.services.personalization_service import (
@@ -116,32 +116,6 @@ def _crop_bytes_to_labeled_sample(crop_bytes: bytes, text: str) -> Optional[Labe
     if config.input_channels > 1:
         tensor = tensor.repeat(config.input_channels, 1, 1)
     return LabeledSample(image=tensor, text=text)
-
-
-def _synthetic_general_eval_crop_bytes(sample_id: str, text: str) -> bytes:
-    """Deterministic placeholder crop for a general-eval-set reference text.
-
-    The general evaluation set (``general_eval_manifest.json``) ships only
-    reference transcriptions, not images (see ``GENERAL_EVAL_SET.md`` — real
-    IAM line images are not redistributed for licensing reasons). To exercise
-    the guardrail's actual recognise-and-compare pipeline end to end without a
-    licensed IAM copy, we generate a stable synthetic placeholder image per
-    sample using the same deterministic generator the base-model training
-    pipeline uses for synthetic IAM samples, keyed by the sample id so it is
-    reproducible across runs (Req 11.3).
-    """
-    import io
-
-    from PIL import Image as PILImage
-
-    from app.ml.iam_dataset import IamSampleRef, synthetic_image
-
-    ref = IamSampleRef(sample_id=sample_id, split="test", text=text, image="")
-    tensor = synthetic_image(ref, config=DEFAULT_HTR_CONFIG, base_seed=get_settings().random_seed)
-    array = (tensor.squeeze(0).clamp(0, 1).numpy() * 255).astype("uint8")
-    buf = io.BytesIO()
-    PILImage.fromarray(array, mode="L").save(buf, format="PNG")
-    return buf.getvalue()
 
 
 # --------------------------------------------------------------------------- #
@@ -215,7 +189,17 @@ def _run_adapter_training(
             user_id, run_id, None, None, repos, object_store,
         )
 
-    base_model = get_base_model()
+    try:
+        base_model = get_base_model()
+    except ModelUnavailableError:
+        logger.warning(
+            "Training run %s for user %s cannot start: base model is unavailable.",
+            run_id,
+            user_id,
+        )
+        return complete_training_run(
+            user_id, run_id, None, None, repos, object_store,
+        )
 
     try:
         adapter_result: AdapterResult | None = train_adapter(
@@ -255,12 +239,27 @@ def _run_adapter_training(
     )
 
     # --- Req 6.2/6.3/6.4: before/after on the fixed general English eval set
-    #     (feeds the accept/reject guardrail).
-    general_set = load_general_eval_set()
-    general_pairs = [
-        (_synthetic_general_eval_crop_bytes(sample.sample_id, sample.text), sample.text)
-        for sample in general_set.samples
-    ]
+    #     (feeds the accept/reject guardrail). Promotion is refused when no
+    #     verified image-label pairs are available.
+    settings = get_settings()
+    # Synthetic fixtures are a plumbing-test escape hatch only. Even if an
+    # environment variable is accidentally left enabled, never use them to
+    # promote a personalization adapter outside the explicit test runtime.
+    general_pairs = load_verified_eval_pairs(
+        allow_synthetic=(
+            settings.allow_synthetic_eval and settings.environment.lower() == "test"
+        ),
+    )
+    if not general_pairs:
+        logger.warning(
+            "Training run %s for user %s has no verified general-eval images; "
+            "refusing adapter promotion.",
+            run_id,
+            user_id,
+        )
+        return complete_training_run(
+            user_id, run_id, adapter_result, None, repos, object_store,
+        )
     general_report: BeforeAfterReport = compute_before_after(
         general_pairs, base_recogniser, adapter_recogniser
     )
