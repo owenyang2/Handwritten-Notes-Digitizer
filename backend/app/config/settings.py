@@ -78,6 +78,56 @@ class Settings(BaseSettings):
         default="./var/objectstore",
         description="Filesystem root for image bytes, region crops, and adapter weights.",
     )
+    object_store_backend: Literal["filesystem", "s3"] = Field(
+        default="filesystem",
+        description=(
+            "Object-store implementation. Local/demo stays on the filesystem; "
+            "set to 's3' only for an S3-compatible production profile."
+        ),
+    )
+    redis_url: str | None = Field(
+        default=None,
+        description="Optional Redis URL for shared rate-limit buckets. Unset keeps in-memory limiting.",
+    )
+    s3_endpoint_url: str | None = Field(
+        default=None,
+        description="Optional S3-compatible API endpoint (e.g. http://minio:9000).",
+    )
+    s3_region: str | None = Field(
+        default=None,
+        description="Optional S3 region name. MinIO accepts any placeholder region.",
+    )
+    s3_bucket: str | None = Field(
+        default=None,
+        description="Bucket used when object_store_backend=s3.",
+    )
+    s3_access_key: str | None = Field(
+        default=None,
+        description="Access key for the S3-compatible endpoint.",
+    )
+    s3_secret_key: str | None = Field(
+        default=None,
+        description="Secret key for the S3-compatible endpoint.",
+    )
+    s3_prefix: str | None = Field(
+        default=None,
+        description="Optional key prefix inside the bucket (no leading slash required).",
+    )
+
+    # --- Observability --------------------------------------------------------
+    otel_exporter_otlp_endpoint: str | None = Field(
+        default=None,
+        description="Optional OTLP collector endpoint. Unset disables OpenTelemetry export.",
+    )
+    enable_metrics: bool = Field(
+        default=False,
+        description="Expose /metrics and JSON request logs even when environment is not production.",
+    )
+    max_account_bytes: int = Field(
+        default=5 * 1024 * 1024 * 1024,
+        description="Per-account object-storage quota used by upload completion.",
+    )
+    consent_policy_version: str = Field(default="personal-training-v1")
 
     # --- Recognition / upload limits -----------------------------------------
     max_upload_bytes: int = Field(

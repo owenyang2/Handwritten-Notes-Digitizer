@@ -193,7 +193,8 @@ notebooks/             Thin Colab/Kaggle launchers
 scripts/
   doctor.py            Runtime and wiring diagnostic script
 
-docker-compose.yml     Backend/frontend container orchestration
+docker-compose.yml     Backend/frontend container orchestration (SQLite local/demo)
+docker-compose.prod.yml  Optional Postgres/Redis/MinIO profile (see docs/PRODUCTION_PROFILE.md)
 Makefile               Common local, test, Docker, and diagnostic commands
 ```
 
@@ -217,6 +218,7 @@ Most settings have safe defaults. Common knobs:
 ## More Documentation
 
 - [AI model and Docker wiring](docs/AI_MODEL_AND_DOCKER.md)
+- [Production Compose profile](docs/PRODUCTION_PROFILE.md)
 - [Math-notes implementation plan](docs/MATH_NOTES_IMPLEMENTATION_PLAN.md)
 - [Personalized notes platform implementation plan](docs/PERSONALIZED_NOTES_PLATFORM_IMPLEMENTATION_PLAN.md)
 - [Math-notes setup and operations guide](docs/MATH_NOTES_SETUP_GUIDE.md)

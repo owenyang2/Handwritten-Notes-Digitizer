@@ -1,0 +1,15 @@
+{
+  "confirmation_required": "A destructive account action was not confirmed.",
+  "consent_required": "This action requires an explicit training consent choice.",
+  "ink_integrity_failure": "The ink bundle hash did not match canonical bytes.",
+  "labels_unverified": "Real handwriting images cannot use unverified labels.",
+  "model_unavailable": "No verified recognition artifact is loaded.",
+  "quota_exceeded": "The account has exceeded a storage or compute quota.",
+  "revision_conflict": "The document version does not match the client base.",
+  "sync_cursor_stale": "The client cursor is older than the compacted floor.",
+  "upload_conflict": "The upload session cannot accept that mutation.",
+  "upload_expired": "The resumable upload session expired.",
+  "upload_hash_mismatch": "A declared digest did not match received bytes.",
+  "upload_incomplete": "The upload parts are missing or not contiguous.",
+  "upload_too_large": "The upload exceeds the configured size limit."
+}

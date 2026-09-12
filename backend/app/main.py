@@ -6,7 +6,8 @@ correction, calibration, personalization, evaluation, export) are registered in
 later tasks.
 
 Middleware registered here (outermost first):
-* RateLimitMiddleware — token-bucket rate limiting on auth/upload/recognize.
+* MetricsMiddleware — Prometheus counters and JSON logs (production or HND_ENABLE_METRICS).
+* RateLimitMiddleware — token-bucket rate limiting on auth/upload/recognize/sync.
 """
 
 from __future__ import annotations
@@ -17,6 +18,12 @@ from fastapi import FastAPI
 
 from app.config import configure_determinism, get_settings
 from app.middleware.rate_limiter import RateLimitMiddleware
+from app.observability import (
+    MetricsMiddleware,
+    configure_observability,
+    metrics_enabled,
+    metrics_endpoint,
+)
 from app.services.auth_api import router as auth_router
 from app.services.documents_api import router as documents_router
 from app.services.pdf_import import router as pdf_import_router
@@ -35,8 +42,14 @@ from app.services.personalization_api import router as personalization_router
 from app.services.sync_api import router as sync_router
 from app.services.uploads_api import router as uploads_router
 from app.services.account_api import router as account_router
+from app.services.assets_api import router as assets_router
+from app.services.consent_api import (
+    account_recovery_router,
+    consent_router,
+)
 from app.ml.recognition import get_loaded_model_status
 from app.services.capability_registry import get_component_availability, get_capability_availability
+from app.services.observability import RequestIdMiddleware
 
 
 @asynccontextmanager
@@ -168,6 +181,9 @@ def create_app() -> FastAPI:
     # Resumable uploads and account session/export/deletion surfaces.
     app.include_router(uploads_router)
     app.include_router(account_router)
+    app.include_router(assets_router)
+    app.include_router(consent_router)
+    app.include_router(account_recovery_router)
 
     # Cross-user isolation: map framework-agnostic CrossUserAccessError to a 404
     # (not 403) so another user's resource existence is never disclosed
@@ -178,6 +194,18 @@ def create_app() -> FastAPI:
     # Outermost middleware runs last-registered first in Starlette's chain,
     # so rate limiting is applied before any route handler or dependency.
     app.add_middleware(RateLimitMiddleware)
+    app.add_middleware(RequestIdMiddleware)
+
+    if metrics_enabled(settings):
+        configure_observability(settings)
+        app.add_middleware(MetricsMiddleware)
+        app.add_api_route(
+            "/metrics",
+            metrics_endpoint,
+            methods=["GET"],
+            include_in_schema=False,
+            tags=["health"],
+        )
 
     return app
 

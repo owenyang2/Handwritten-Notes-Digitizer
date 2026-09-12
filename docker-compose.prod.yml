@@ -1,0 +1,206 @@
+# docker-compose.prod.yml — optional production-shaped profile
+#
+# This file is NOT the default. One-command local/demo remains:
+#   docker compose up
+# which uses docker-compose.yml (SQLite + filesystem object store).
+#
+# Production-shaped stack (Postgres, Redis, MinIO, backend, frontend):
+#   docker compose -f docker-compose.prod.yml up --build
+#
+# Volumes:
+#   postgres_data  — PostgreSQL 16 cluster (HND_DATABASE_URL)
+#   redis_data     — Redis 7 RDB/AOF directory (HND_REDIS_URL)
+#   minio_data     — MinIO object bytes (HND_OBJECT_STORE_BACKEND=s3)
+#
+# Healthchecks:
+#   postgres  pg_isready
+#   redis     redis-cli ping
+#   minio     mc ready local
+#   backend   GET /health
+#   frontend  wget /
+#
+# Secrets in this file are local-dev placeholders. Replace them before any
+# real deployment. TLS, backups, and trained model artifacts are still required
+# (see docs/PRODUCTION_PROFILE.md).
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: "${HND_POSTGRES_USER:-hnd}"
+      POSTGRES_PASSWORD: "${HND_POSTGRES_PASSWORD:-hnd}"
+      POSTGRES_DB: "${HND_POSTGRES_DB:-hnd}"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${HND_POSTGRES_USER:-hnd} -d ${HND_POSTGRES_DB:-hnd}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  minio:
+    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:-minioadmin}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-minioadmin}"
+    volumes:
+      - minio_data:/data
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  minio-init:
+    image: minio/mc:RELEASE.2024-12-18T16-44-28Z
+    depends_on:
+      - minio
+    environment:
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:-minioadmin}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-minioadmin}"
+      MINIO_BUCKET: "${HND_S3_BUCKET:-hnd-objects}"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        i=0
+        until mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"; do
+          i=$$((i+1))
+          if [ $$i -gt 30 ]; then exit 1; fi
+          sleep 1
+        done
+        mc mb --ignore-existing "local/$$MINIO_BUCKET"
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend.prod
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      HND_ENVIRONMENT: "${HND_ENVIRONMENT:-production}"
+      HND_ENABLE_METRICS: "${HND_ENABLE_METRICS:-true}"
+      HND_RANDOM_SEED: "${HND_RANDOM_SEED:-1337}"
+      HND_DETERMINISTIC: "${HND_DETERMINISTIC:-true}"
+
+      HND_DATABASE_URL: "${HND_DATABASE_URL:-postgresql+psycopg://hnd:hnd@postgres:5432/hnd}"
+      HND_REDIS_URL: "${HND_REDIS_URL:-redis://redis:6379/0}"
+
+      HND_OBJECT_STORE_BACKEND: "${HND_OBJECT_STORE_BACKEND:-s3}"
+      HND_OBJECT_STORE_PATH: "${HND_OBJECT_STORE_PATH:-/app/var/objectstore}"
+      HND_S3_ENDPOINT_URL: "${HND_S3_ENDPOINT_URL:-http://minio:9000}"
+      HND_S3_REGION: "${HND_S3_REGION:-us-east-1}"
+      HND_S3_BUCKET: "${HND_S3_BUCKET:-hnd-objects}"
+      HND_S3_ACCESS_KEY: "${HND_S3_ACCESS_KEY:-minioadmin}"
+      HND_S3_SECRET_KEY: "${HND_S3_SECRET_KEY:-minioadmin}"
+      HND_S3_PREFIX: "${HND_S3_PREFIX:-}"
+      HND_OTEL_EXPORTER_OTLP_ENDPOINT: "${HND_OTEL_EXPORTER_OTLP_ENDPOINT:-}"
+
+      HND_MAX_UPLOAD_BYTES: "${HND_MAX_UPLOAD_BYTES:-10485760}"
+      HND_RECOGNITION_TIMEOUT_SECONDS: "${HND_RECOGNITION_TIMEOUT_SECONDS:-10.0}"
+      HND_PDF_RASTER_DPI: "${HND_PDF_RASTER_DPI:-200}"
+      HND_PDF_MAX_PAGES: "${HND_PDF_MAX_PAGES:-50}"
+      HND_PDF_MAX_PIXELS: "${HND_PDF_MAX_PIXELS:-40000000}"
+      HND_FORMULA_ENGINE: "${HND_FORMULA_ENGINE:-auto}"
+
+      HND_PERSONALIZATION_TRIGGER_THRESHOLD: "${HND_PERSONALIZATION_TRIGGER_THRESHOLD:-20}"
+      HND_HELD_OUT_FRACTION: "${HND_HELD_OUT_FRACTION:-0.2}"
+      HND_HELD_OUT_MIN_PAIRS: "${HND_HELD_OUT_MIN_PAIRS:-5}"
+      HND_MAX_TRAINING_EPOCHS: "${HND_MAX_TRAINING_EPOCHS:-50}"
+      HND_ALLOW_SYNTHETIC_EVAL: "${HND_ALLOW_SYNTHETIC_EVAL:-false}"
+
+      HND_STORAGE_AVAILABLE: "${HND_STORAGE_AVAILABLE:-true}"
+      HND_HTR_ENGINE_AVAILABLE: "${HND_HTR_ENGINE_AVAILABLE:-true}"
+      HND_TRAINING_WORKER_AVAILABLE: "${HND_TRAINING_WORKER_AVAILABLE:-true}"
+    volumes:
+      # Trained model artifacts remain a host bind-mount; S3 stores user objects.
+      - ./backend/var/objectstore/models:/app/var/objectstore/models:ro
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        VITE_API_BASE_URL: "${VITE_API_BASE_URL:-}"
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+  # worker:
+  #   Optional isolated recognition/training worker. Not wired yet — the API
+  #   process still runs in-process job threads. When a worker entrypoint exists,
+  #   give it the same HND_DATABASE_URL, HND_REDIS_URL, and HND_OBJECT_STORE_*
+  #   values as backend and consider setting HND_TRAINING_WORKER_AVAILABLE=false
+  #   on the API replica so training is not duplicated.
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.backend.prod
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #     minio-init:
+  #       condition: service_completed_successfully
+  #   environment:
+  #     HND_DATABASE_URL: postgresql+psycopg://hnd:hnd@postgres:5432/hnd
+  #     HND_REDIS_URL: redis://redis:6379/0
+  #     HND_OBJECT_STORE_BACKEND: s3
+  #     HND_S3_ENDPOINT_URL: http://minio:9000
+  #     HND_S3_BUCKET: hnd-objects
+  #     HND_S3_ACCESS_KEY: minioadmin
+  #     HND_S3_SECRET_KEY: minioadmin

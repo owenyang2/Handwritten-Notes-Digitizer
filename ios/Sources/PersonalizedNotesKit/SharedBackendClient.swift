@@ -55,6 +55,18 @@ public actor SharedBackendClient: SyncService {
         try await send(path: "auth/me", method: "GET", body: Optional<EmptyBody>.none)
     }
 
+    public func listAccountSessions() async throws -> [AccountSessionInfo] {
+        try await send(path: "account/sessions", method: "GET", body: Optional<EmptyBody>.none)
+    }
+
+    public func revokeAccountSession(_ sessionID: UUID) async throws {
+        let request = try makeRequest(
+            url: makeURL(path: "account/sessions/\(sessionID.uuidString)"),
+            method: "DELETE"
+        )
+        try await sendVoid(request)
+    }
+
     public func listDocuments(_ query: DocumentListQuery = DocumentListQuery()) async throws -> [DocumentRecord] {
         let requestURL = try makeURL(
             path: "documents",
@@ -164,6 +176,27 @@ public actor SharedBackendClient: SyncService {
             body: bodyData
         )
         return try await send(request)
+    }
+
+    private func sendVoid(_ request: URLRequest) async throws {
+        do {
+            try Task.checkCancellation()
+            let (data, response) = try await urlSession.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw APIError.invalidResponse
+            }
+            guard (200..<300).contains(httpResponse.statusCode) else {
+                throw serverError(statusCode: httpResponse.statusCode, data: data)
+            }
+        } catch is CancellationError {
+            throw APIError.cancelled
+        } catch let error as URLError where error.code == .cancelled {
+            throw APIError.cancelled
+        } catch let error as APIError {
+            throw error
+        } catch {
+            throw APIError.transport(error.localizedDescription)
+        }
     }
 
     private func send<Response: Decodable>(_ request: URLRequest) async throws -> Response {

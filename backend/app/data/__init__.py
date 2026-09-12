@@ -73,6 +73,11 @@ from .models import (
     SyncCursorState,
     UploadPart,
     UploadSession,
+    Asset,
+    InkBundle,
+    ConsentEvent,
+    UserVocabularyEntry,
+    PasswordResetToken,
 )
 
 __all__ = [
@@ -123,6 +128,11 @@ __all__ = [
     "SyncCursorState",
     "UploadSession",
     "UploadPart",
+    "Asset",
+    "InkBundle",
+    "ConsentEvent",
+    "UserVocabularyEntry",
+    "PasswordResetToken",
     # repositories (per-user-scoped data-access layer)
     "UserRepository",
     "DocumentRepository",

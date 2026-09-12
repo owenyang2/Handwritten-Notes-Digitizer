@@ -1256,3 +1256,31 @@ export async function getResumableUpload(
     { method: "GET" },
   );
 }
+
+export interface ConsentResponse {
+  event_id: string;
+  policy_version: string;
+  scope: string;
+  action: string;
+  created_at: string;
+  personal_training_allowed: boolean;
+}
+
+export async function getConsent(): Promise<ConsentResponse | null> {
+  try {
+    return await fetchJson<ConsentResponse>("/personalization/consent");
+  } catch (err) {
+    if (err instanceof ApiError && (err.status === 404 || err.status === 403)) {
+      return null;
+    }
+    throw err;
+  }
+}
+
+export async function recordConsent(action: "grant" | "withdraw"): Promise<ConsentResponse> {
+  return fetchJson<ConsentResponse>("/personalization/consent", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action, scope: "personal_model" }),
+  });
+}

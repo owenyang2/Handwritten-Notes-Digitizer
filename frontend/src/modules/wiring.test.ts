@@ -79,6 +79,8 @@ vi.mock("../api/client.js", () => ({
   uploadResumablePart: vi.fn(),
   completeResumableUpload: vi.fn(),
   getResumableUpload: vi.fn(),
+  getConsent: vi.fn(),
+  recordConsent: vi.fn(),
   ApiError: class ApiError extends Error {
     status: number;
     constructor(status: number, message: string) {

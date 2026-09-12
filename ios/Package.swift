@@ -14,6 +14,14 @@ let package = Package(
             name: "PersonalizedNotesKit",
             targets: ["PersonalizedNotesKit"]
         ),
+        .library(
+            name: "ShareInbox",
+            targets: ["ShareInbox"]
+        ),
+        .executable(
+            name: "PersonalizedNotesApp",
+            targets: ["PersonalizedNotesApp"]
+        ),
     ],
     targets: [
         .target(
@@ -22,6 +30,32 @@ let package = Package(
             linkerSettings: [
                 .linkedLibrary("sqlite3"),
             ]
+        ),
+        .target(
+            name: "ShareInbox",
+            path: "Sources/ShareExtension",
+            exclude: [
+                "Info.plist",
+                "ShareExtension.entitlements",
+            ]
+        ),
+        .executableTarget(
+            name: "PersonalizedNotesApp",
+            dependencies: [
+                "PersonalizedNotesKit",
+                "ShareInbox",
+            ],
+            path: "Sources/PersonalizedNotesApp",
+            exclude: [
+                "PersonalizedNotes.entitlements",
+            ]
+        ),
+        .testTarget(
+            name: "PersonalizedNotesKitTests",
+            dependencies: [
+                "PersonalizedNotesKit",
+            ],
+            path: "Tests/PersonalizedNotesKitTests"
         ),
     ]
 )

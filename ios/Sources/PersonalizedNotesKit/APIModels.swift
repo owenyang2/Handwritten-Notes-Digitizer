@@ -40,6 +40,43 @@ public struct MeResponse: Codable, Equatable, Sendable {
     public let email: String
 }
 
+/// A session row from `GET /account/sessions`. This is not an auth token.
+public struct AccountSessionInfo: Codable, Equatable, Sendable, Identifiable {
+    public let sessionID: UUID
+    public let createdAt: Date
+    public let expiresAt: Date
+    public let lastSeenAt: Date?
+    public let revokedAt: Date?
+    public let deviceName: String?
+    public let clientID: String?
+    public let userAgent: String?
+    public let isCurrent: Bool
+
+    public init(
+        sessionID: UUID,
+        createdAt: Date,
+        expiresAt: Date,
+        lastSeenAt: Date? = nil,
+        revokedAt: Date? = nil,
+        deviceName: String? = nil,
+        clientID: String? = nil,
+        userAgent: String? = nil,
+        isCurrent: Bool
+    ) {
+        self.sessionID = sessionID
+        self.createdAt = createdAt
+        self.expiresAt = expiresAt
+        self.lastSeenAt = lastSeenAt
+        self.revokedAt = revokedAt
+        self.deviceName = deviceName
+        self.clientID = clientID
+        self.userAgent = userAgent
+        self.isCurrent = isCurrent
+    }
+
+    public var id: UUID { sessionID }
+}
+
 public struct PageSummary: Codable, Equatable, Hashable, Sendable, Identifiable {
     public let pageID: UUID
     public let pageIndex: Int

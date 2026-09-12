@@ -6,6 +6,7 @@ import html
 import io
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -305,6 +306,21 @@ def render_html(blocks: list[DocumentBlock]) -> str:
     return "\n".join(parts)
 
 
+_EXPORT_FONT = Path(__file__).resolve().parents[1] / "assets" / "fonts" / "ExportSans.ttf"
+
+
+def _unicode_font_path() -> Path | None:
+    candidates = [
+        _EXPORT_FONT,
+        Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+        Path("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"),
+    ]
+    for path in candidates:
+        if path.is_file() and path.stat().st_size > 0:
+            return path
+    return None
+
+
 def _render_pdf_bytes(blocks: list[DocumentBlock], store: ObjectStore | None = None) -> bytes:
     """Render the same ordered reviewed blocks into a real PDF.
 
@@ -321,7 +337,14 @@ def _render_pdf_bytes(blocks: list[DocumentBlock], store: ObjectStore | None = N
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=16)
     pdf.add_page()
-    pdf.set_font("helvetica", size=11)
+    font_path = _unicode_font_path()
+    if font_path is not None:
+        pdf.add_font("ExportSans", fname=str(font_path))
+        pdf.set_font("ExportSans", size=11)
+        unicode_font = True
+    else:
+        pdf.set_font("helvetica", size=11)
+        unicode_font = False
     for block in blocks:
         if block.kind == "math":
             text = f"$$ {block.text.strip()} $$"
@@ -331,10 +354,11 @@ def _render_pdf_bytes(blocks: list[DocumentBlock], store: ObjectStore | None = N
             text = f"[Figure: {block.source_id or 'figure'}]"
         else:
             text = block.text.strip()
-        # The bundled core font is deliberately used for deterministic,
-        # dependency-free output.  Keep all reviewed ASCII LaTeX intact and
-        # visibly replace characters it cannot encode.
-        safe = text.encode("latin-1", errors="replace").decode("latin-1")
+        if unicode_font:
+            safe = text
+        else:
+            # Visible hex fallback is honest when no Unicode font is installed.
+            safe = "".join(ch if ch.isascii() else f"\\u{ord(ch):04x}" for ch in text)
         if block.kind == "figure" and store is not None and block.asset_ref:
             try:
                 pdf.image(io.BytesIO(store.get(block.asset_ref)), w=80)

@@ -17,6 +17,7 @@ import { MathNotesWorkspace } from "./modules/mathNotes.js";
 import { BatchImportUI } from "./modules/batchImportUI.js";
 import { SyncCoordinator } from "./modules/syncOrchestrator.js";
 import { SyncUI } from "./modules/syncUI.js";
+import { ConsentUI } from "./modules/consentUI.js";
 import { registerServiceWorker } from "./serviceWorker.js";
 import "./styles.css";
 import {
@@ -188,7 +189,7 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
   utilityPanels.className = "utility-tab-panels";
   sideColumn.appendChild(utilityPanels);
 
-  type UtilityTabId = "calibration" | "training" | "export" | "history" | "import" | "sync";
+  type UtilityTabId = "calibration" | "training" | "export" | "history" | "import" | "sync" | "privacy";
   const utilityTabs = new Map<UtilityTabId, { button: HTMLButtonElement; panel: HTMLElement }>();
   let activeUtilityTab: UtilityTabId = "calibration";
 
@@ -243,6 +244,7 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
   const historyPanel = addUtilityTab("history", "History");
   const importPanel = addUtilityTab("import", "Batch import");
   const syncPanel = addUtilityTab("sync", "Sync");
+  const privacyPanel = addUtilityTab("privacy", "Privacy");
 
   // --- Personalization guide + status (visible when capability is available) ---
   const personalizationSection = document.createElement("section");
@@ -586,6 +588,13 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
   syncSection.setAttribute("data-testid", "sync-section");
   syncSection.setAttribute("aria-label", "Cross-device sync");
   syncPanel.appendChild(syncSection);
+
+  const privacySection = document.createElement("section");
+  privacySection.className = "app-section app-section--privacy panel";
+  privacySection.setAttribute("data-testid", "privacy-section");
+  privacySection.setAttribute("aria-label", "Personal training consent");
+  privacyPanel.appendChild(privacySection);
+  void new ConsentUI(privacySection).render();
 
   void (async () => {
     let currentUser: Awaited<ReturnType<typeof getCurrentUser>> = null;

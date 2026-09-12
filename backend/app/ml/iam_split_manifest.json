@@ -1,6 +1,7 @@
 {
   "name": "iam-line-split",
   "dataset_version": "IAM-Handwriting-DB-v3.0-lines",
+  "labels_verified": false,
   "split": {
     "name": "iam-aachen-writer-disjoint",
     "train_fraction": 0.8,

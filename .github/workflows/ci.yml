@@ -36,3 +36,15 @@ jobs:
       - run: PYTHONPATH=.. python -m pytest -q
       - run: python -m alembic upgrade head
       - run: python -m alembic check
+      - run: PYTHONPATH=.. python ../scripts/generate_ink_v1_golden.py
+      - run: PYTHONPATH=.. python ../scripts/export_openapi.py
+      - run: git diff --exit-code -- contracts/ink_v1/simple_stroke.sha256 contracts/error_codes.json
+
+  ios:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: ios
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift test --filter PersonalizedNotesKitTests

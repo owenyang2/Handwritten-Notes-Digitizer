@@ -1254,3 +1254,22 @@ button:focus-visible {
     grid-template-columns: 1fr;
   }
 }
+
+.consent-copy,
+.consent-actions {
+  margin: 0.75rem 0;
+}
+
+.consent-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button,
+  input,
+  textarea {
+    transition: none;
+  }
+}

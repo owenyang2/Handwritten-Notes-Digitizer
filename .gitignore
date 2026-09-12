@@ -41,6 +41,11 @@ backend/var/objectstore/models/
 frontend/dist/
 frontend/node_modules/
 
-# ── Docker / OS ───────────────────────────────────────────────────────────────
+# ── Swift / iOS ───────────────────────────────────────────────────────────────
+ios/.build/
+
+# ── iOS / SwiftPM -------------------------------------------------------------
+ios/.build/
+ios/.swiftpm/
 .DS_Store
 Thumbs.db

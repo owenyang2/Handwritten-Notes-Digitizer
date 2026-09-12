@@ -1,6 +1,7 @@
 {
   "name": "general-english-eval",
   "version": "1.0.0",
+  "labels_verified": false,
   "provenance": {
     "base_dataset": "IAM Handwriting Database",
     "base_dataset_version": "3.0 (line-level)",

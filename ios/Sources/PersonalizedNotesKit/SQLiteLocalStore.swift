@@ -194,8 +194,13 @@ private final class SQLiteDatabase {
 
     func execute(_ sql: String, bindings: [SQLiteBinding] = []) throws {
         try withStatement(sql, bindings: bindings) { statement in
-            let result = sqlite3_step(statement)
-            guard result == SQLITE_DONE else { throw databaseError() }
+            while true {
+                let result = sqlite3_step(statement)
+                if result == SQLITE_DONE { return }
+                // PRAGMA statements such as `journal_mode = WAL` return a row.
+                if result == SQLITE_ROW { continue }
+                throw databaseError()
+            }
         }
     }
 
@@ -334,7 +339,7 @@ public actor SQLiteLocalStore: LocalNotesStore {
         try database.execute("PRAGMA foreign_keys = ON")
         try database.execute("PRAGMA journal_mode = WAL")
         try database.execute("PRAGMA synchronous = FULL")
-        try migrate()
+        try Self.migrate(database)
         #if os(iOS)
         try? FileManager.default.setAttributes(
             [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
@@ -615,7 +620,7 @@ public actor SQLiteLocalStore: LocalNotesStore {
         )
     }
 
-    private func migrate() throws {
+    private static func migrate(_ database: SQLiteDatabase) throws {
         try database.transaction {
             try database.execute("""
                 CREATE TABLE IF NOT EXISTS local_documents (

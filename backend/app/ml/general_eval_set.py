@@ -84,6 +84,7 @@ class GeneralEvalSet:
     provenance: Mapping[str, Any]
     samples: Tuple[EvalSample, ...]
     digest: str
+    labels_verified: bool = False
 
     def __len__(self) -> int:
         return len(self.samples)
@@ -207,6 +208,7 @@ def load_general_eval_set(manifest_path: str | None = None) -> GeneralEvalSet:
 
     samples = _parse_samples(data.get("samples"))
     digest = _compute_digest(version, samples)
+    labels_verified = bool(data.get("labels_verified", False))
 
     return GeneralEvalSet(
         name=name,
@@ -214,6 +216,7 @@ def load_general_eval_set(manifest_path: str | None = None) -> GeneralEvalSet:
         provenance=dict(provenance),
         samples=samples,
         digest=digest,
+        labels_verified=labels_verified,
     )
 
 
@@ -236,7 +239,14 @@ def load_verified_eval_pairs(
     Synthetic noise images are used only when ``allow_synthetic`` is explicitly
     true (test mode). An empty result means promotion must be refused.
     """
+    from app.ml.iam_dataset import LabelsUnverifiedError
+
     eval_set = load_general_eval_set()
+    if iam_root is not None and not eval_set.labels_verified:
+        raise LabelsUnverifiedError(
+            "real IAM images cannot be paired with the authored general-eval "
+            "references; supply a labels_verified fixture manifest instead"
+        )
     fixture_root = Path(fixtures_dir) if fixtures_dir else EVAL_FIXTURES_DIR
     pairs: list[tuple[bytes, str]] = []
     for sample in eval_set.samples:

@@ -112,6 +112,18 @@ class User(Base):
     deletion_jobs: Mapped[list["DeletionJob"]] = relationship(
         back_populates="user"
     )
+    assets: Mapped[list["Asset"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    ink_bundles: Mapped[list["InkBundle"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    consent_events: Mapped[list["ConsentEvent"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    vocabulary_entries: Mapped[list["UserVocabularyEntry"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class UserSession(Base):
@@ -1275,3 +1287,141 @@ class EvaluationResult(Base):
 
     run: Mapped["TrainingRun"] = relationship(back_populates="evaluation_result")
     user: Mapped["User"] = relationship(back_populates="evaluation_results")
+
+
+class Asset(Base):
+    """Owner-scoped binary object metadata (ink, rasters, originals, exports)."""
+
+    __tablename__ = "assets"
+    __table_args__ = (
+        UniqueConstraint("user_id", "content_hash", "media_type", name="uq_asset_user_hash_type"),
+        Index("ix_assets_user_created", "user_id", "created_at"),
+    )
+
+    asset_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=new_uuid
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    media_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    byte_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    object_ref: Mapped[str] = mapped_column(String(1024), nullable=False)
+    encryption_key_ref: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    retention_class: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="account"
+    )
+    scan_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="pending"
+    )
+    source_kind: Mapped[str] = mapped_column(String(32), nullable=False, default="upload")
+    source_asset_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, ForeignKey("assets.asset_id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[_dt.datetime] = created_at_column()
+
+    user: Mapped["User"] = relationship(back_populates="assets")
+
+
+class InkBundle(Base):
+    """Validated ``ink_v1`` stroke bundle attached to one owner-scoped page."""
+
+    __tablename__ = "ink_bundles"
+    __table_args__ = (
+        UniqueConstraint("page_id", "content_hash", name="uq_ink_bundle_page_hash"),
+        Index("ix_ink_bundles_page_created", "page_id", "created_at"),
+    )
+
+    bundle_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=new_uuid
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    page_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("document_pages.page_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    asset_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("assets.asset_id", ondelete="CASCADE"), nullable=False
+    )
+    schema_name: Mapped[str] = mapped_column(String(32), nullable=False, default="ink_v1")
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    stroke_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    point_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    coordinate_space: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    capture: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    native_asset_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, ForeignKey("assets.asset_id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[_dt.datetime] = created_at_column()
+
+    user: Mapped["User"] = relationship(back_populates="ink_bundles")
+    page: Mapped["DocumentPage"] = relationship()
+    asset: Mapped["Asset"] = relationship(foreign_keys=[asset_id])
+
+
+class ConsentEvent(Base):
+    """Immutable record of a training-consent choice and its policy version."""
+
+    __tablename__ = "consent_events"
+    __table_args__ = (
+        Index("ix_consent_events_user_created", "user_id", "created_at"),
+    )
+
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=new_uuid
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    policy_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    scope: Mapped[str] = mapped_column(String(64), nullable=False)
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    document_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, ForeignKey("documents.document_id", ondelete="SET NULL"), nullable=True
+    )
+    sample_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[_dt.datetime] = created_at_column()
+
+    user: Mapped["User"] = relationship(back_populates="consent_events")
+
+
+class UserVocabularyEntry(Base):
+    """Level-0 personal dictionary used to rescore recognition candidates."""
+
+    __tablename__ = "user_vocabulary_entries"
+    __table_args__ = (
+        UniqueConstraint("user_id", "token", name="uq_user_vocabulary_token"),
+    )
+
+    entry_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=new_uuid
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    token: Mapped[str] = mapped_column(String(128), nullable=False)
+    preferred_form: Mapped[str] = mapped_column(String(256), nullable=False)
+    created_at: Mapped[_dt.datetime] = created_at_column()
+
+    user: Mapped["User"] = relationship(back_populates="vocabulary_entries")
+
+
+class PasswordResetToken(Base):
+    """Hashed, single-use password recovery token. The raw token is never stored."""
+
+    __tablename__ = "password_reset_tokens"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    expires_at: Mapped[_dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    used_at: Mapped[Optional[_dt.datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[_dt.datetime] = created_at_column()

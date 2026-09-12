@@ -98,6 +98,16 @@ class IamSampleRef:
     image: str
 
 
+class LabelsUnverifiedError(ValueError):
+    """Raised when real handwriting images would be paired with unverified labels.
+
+    The checked-in IAM split uses authored sentences beside IAM-style ids. Those
+    sentences are not the original IAM transcriptions. Loading real IAM images
+    against this manifest would train incorrect mappings, so the loader refuses
+    unless the manifest explicitly records ``labels_verified: true``.
+    """
+
+
 @dataclass(frozen=True)
 class IamSplitManifest:
     """The fully parsed, immutable IAM split definition.
@@ -111,6 +121,7 @@ class IamSplitManifest:
     split: SplitSpec
     provenance: Mapping[str, Any]
     samples: tuple[IamSampleRef, ...]
+    labels_verified: bool = False
 
     def __len__(self) -> int:
         return len(self.samples)
@@ -226,6 +237,7 @@ def _load_manifest_cached(path_str: str) -> IamSplitManifest:
 
     samples = _parse_samples(data.get("samples"))
     name = str(data.get("name", "iam-line-split"))
+    labels_verified = bool(data.get("labels_verified", False))
 
     return IamSplitManifest(
         name=name,
@@ -233,6 +245,7 @@ def _load_manifest_cached(path_str: str) -> IamSplitManifest:
         split=split,
         provenance=dict(provenance),
         samples=samples,
+        labels_verified=labels_verified,
     )
 
 
@@ -402,15 +415,31 @@ def load_training_samples(
 
     # Resolve the image-resolution strategy.
     if synthetic is None:
-        use_synthetic = root is None
+        if root is None:
+            use_synthetic = True
+        elif not manifest.labels_verified:
+            raise LabelsUnverifiedError(
+                "real handwriting images cannot be paired with the checked-in "
+                "authored IAM labels; set labels_verified on a cryptographically "
+                "pinned, legally obtained manifest before training on real images"
+            )
+        else:
+            use_synthetic = False
     else:
         use_synthetic = synthetic
 
-    if not use_synthetic and root is None:
-        raise FileNotFoundError(
-            "real IAM images requested (synthetic=False) but no dataset root is "
-            f"configured; pass dataset_root=... or set ${DATASET_ROOT_ENV}."
-        )
+        if not use_synthetic:
+            if root is None:
+                raise FileNotFoundError(
+                    "real IAM images requested (synthetic=False) but no dataset root is "
+                    f"configured; pass dataset_root=... or set ${DATASET_ROOT_ENV}."
+                )
+            if not manifest.labels_verified:
+                raise LabelsUnverifiedError(
+                    "real handwriting images cannot be paired with the checked-in "
+                    "authored IAM labels; set labels_verified on a cryptographically "
+                    "pinned, legally obtained manifest before training on real images"
+                )
 
     samples: list[LabeledSample] = []
     for ref in refs:
@@ -431,6 +460,7 @@ __all__ = [
     "DATASET_ROOT_ENV",
     "IamSampleRef",
     "IamSplitManifest",
+    "LabelsUnverifiedError",
     "load_split_manifest",
     "load_training_samples",
     "synthetic_image",

@@ -38,6 +38,8 @@ from .base import utcnow
 from .enums import AdapterStatus, RecognitionJobState, TrainingRunState
 from .models import (
     Adapter,
+    Asset,
+    ConsentEvent,
     DeletionJob,
     Document,
     DocumentConflict,
@@ -49,8 +51,10 @@ from .models import (
     EvaluationResult,
     Image,
     ImageLineReview,
+    InkBundle,
     ModelArtifact,
     ModelAssignment,
+    PasswordResetToken,
     RecognizedWord,
     RegionPrediction,
     RegionReview,
@@ -63,6 +67,7 @@ from .models import (
     TrainingPair,
     TrainingRun,
     User,
+    UserVocabularyEntry,
     UploadPart,
     UploadSession,
 )
@@ -1577,6 +1582,148 @@ class DeletionJobRepository(_ScopedRepository):
         return self._session.scalars(stmt).first()
 
 
+class AssetRepository(_ScopedRepository):
+    def add(self, asset: Asset) -> Asset:
+        self._session.add(asset)
+        self._session.flush()
+        return asset
+
+    def get(self, user_id: UUIDLike | str, asset_id: UUIDLike | str) -> Optional[Asset]:
+        stmt = select(Asset).where(
+            Asset.asset_id == _as_uuid(asset_id),
+            Asset.user_id == _as_uuid(user_id),
+        )
+        return self._session.scalars(stmt).one_or_none()
+
+    def get_by_hash(
+        self, user_id: UUIDLike | str, content_hash: str, media_type: str
+    ) -> Optional[Asset]:
+        stmt = select(Asset).where(
+            Asset.user_id == _as_uuid(user_id),
+            Asset.content_hash == content_hash,
+            Asset.media_type == media_type,
+        )
+        return self._session.scalars(stmt).one_or_none()
+
+    def total_bytes(self, user_id: UUIDLike | str) -> int:
+        stmt = select(func.coalesce(func.sum(Asset.byte_size), 0)).where(
+            Asset.user_id == _as_uuid(user_id)
+        )
+        return int(self._session.scalar(stmt) or 0)
+
+
+class InkBundleRepository(_ScopedRepository):
+    def add(self, bundle: InkBundle) -> InkBundle:
+        self._session.add(bundle)
+        self._session.flush()
+        return bundle
+
+    def get(
+        self, user_id: UUIDLike | str, bundle_id: UUIDLike | str
+    ) -> Optional[InkBundle]:
+        stmt = select(InkBundle).where(
+            InkBundle.bundle_id == _as_uuid(bundle_id),
+            InkBundle.user_id == _as_uuid(user_id),
+        )
+        return self._session.scalars(stmt).one_or_none()
+
+    def get_by_hash(
+        self, user_id: UUIDLike | str, page_id: UUIDLike | str, content_hash: str
+    ) -> Optional[InkBundle]:
+        stmt = select(InkBundle).where(
+            InkBundle.user_id == _as_uuid(user_id),
+            InkBundle.page_id == _as_uuid(page_id),
+            InkBundle.content_hash == content_hash,
+        )
+        return self._session.scalars(stmt).one_or_none()
+
+    def latest_for_page(
+        self, user_id: UUIDLike | str, page_id: UUIDLike | str
+    ) -> Optional[InkBundle]:
+        stmt = (
+            select(InkBundle)
+            .where(
+                InkBundle.user_id == _as_uuid(user_id),
+                InkBundle.page_id == _as_uuid(page_id),
+            )
+            .order_by(InkBundle.created_at.desc())
+            .limit(1)
+        )
+        return self._session.scalars(stmt).first()
+
+
+class ConsentEventRepository(_ScopedRepository):
+    def add(self, event: ConsentEvent) -> ConsentEvent:
+        self._session.add(event)
+        self._session.flush()
+        return event
+
+    def latest(
+        self, user_id: UUIDLike | str, *, scope: str | None = None
+    ) -> Optional[ConsentEvent]:
+        stmt = select(ConsentEvent).where(ConsentEvent.user_id == _as_uuid(user_id))
+        if scope:
+            stmt = stmt.where(ConsentEvent.scope == scope)
+        stmt = stmt.order_by(ConsentEvent.created_at.desc()).limit(1)
+        return self._session.scalars(stmt).first()
+
+    def list_for_user(
+        self, user_id: UUIDLike | str, *, limit: int = 50
+    ) -> Sequence[ConsentEvent]:
+        stmt = (
+            select(ConsentEvent)
+            .where(ConsentEvent.user_id == _as_uuid(user_id))
+            .order_by(ConsentEvent.created_at.desc())
+            .limit(limit)
+        )
+        return list(self._session.scalars(stmt).all())
+
+
+class VocabularyRepository(_ScopedRepository):
+    def add(self, entry: UserVocabularyEntry) -> UserVocabularyEntry:
+        self._session.add(entry)
+        self._session.flush()
+        return entry
+
+    def list_for_user(self, user_id: UUIDLike | str) -> Sequence[UserVocabularyEntry]:
+        stmt = (
+            select(UserVocabularyEntry)
+            .where(UserVocabularyEntry.user_id == _as_uuid(user_id))
+            .order_by(UserVocabularyEntry.token)
+        )
+        return list(self._session.scalars(stmt).all())
+
+    def upsert(
+        self, user_id: UUIDLike | str, token: str, preferred_form: str
+    ) -> UserVocabularyEntry:
+        stmt = select(UserVocabularyEntry).where(
+            UserVocabularyEntry.user_id == _as_uuid(user_id),
+            UserVocabularyEntry.token == token,
+        )
+        existing = self._session.scalars(stmt).one_or_none()
+        if existing is None:
+            return self.add(
+                UserVocabularyEntry(
+                    user_id=_as_uuid(user_id),
+                    token=token,
+                    preferred_form=preferred_form,
+                )
+            )
+        existing.preferred_form = preferred_form
+        self._session.flush()
+        return existing
+
+
+class PasswordResetRepository(_ScopedRepository):
+    def add(self, token: PasswordResetToken) -> PasswordResetToken:
+        self._session.add(token)
+        self._session.flush()
+        return token
+
+    def get(self, token_hash: str) -> Optional[PasswordResetToken]:
+        return self._session.get(PasswordResetToken, token_hash)
+
+
 class RepositoryFactory:
     """Convenience aggregator exposing every scoped repository on one session.
 
@@ -1605,6 +1752,11 @@ class RepositoryFactory:
         self.recognition_runs = RecognitionRunRepository(session)
         self.uploads = UploadRepository(session)
         self.deletion_jobs = DeletionJobRepository(session)
+        self.assets = AssetRepository(session)
+        self.ink_bundles = InkBundleRepository(session)
+        self.consent_events = ConsentEventRepository(session)
+        self.vocabulary = VocabularyRepository(session)
+        self.password_resets = PasswordResetRepository(session)
         self.model_artifacts = ModelArtifactRepository(session)
         self.model_assignments = ModelAssignmentRepository(session)
         self.training_pairs = TrainingPairRepository(session)
@@ -1635,6 +1787,11 @@ __all__ = [
     "RecognitionRunRepository",
     "UploadRepository",
     "DeletionJobRepository",
+    "AssetRepository",
+    "InkBundleRepository",
+    "ConsentEventRepository",
+    "VocabularyRepository",
+    "PasswordResetRepository",
     "ModelArtifactRepository",
     "ModelAssignmentRepository",
     "TrainingPairRepository",

@@ -68,8 +68,40 @@ public enum APIJSON {
 
     public static func decoder() -> JSONDecoder {
         let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        // Foundation's convertFromSnakeCase turns `page_id` into `pageId`, which
+        // does not match public `pageID` properties. Preserve a trailing `id` /
+        // `ids` component as `ID` / `IDs` so kit models round-trip.
+        decoder.keyDecodingStrategy = .custom { path in
+            AnyJSONCodingKey(stringValue: decodeSnakeCasePreservingID(path.last?.stringValue ?? ""))
+        }
         decoder.dateDecodingStrategy = .iso8601
         return decoder
     }
+}
+
+private struct AnyJSONCodingKey: CodingKey {
+    var stringValue: String
+    var intValue: Int?
+
+    init(stringValue: String) {
+        self.stringValue = stringValue
+        self.intValue = nil
+    }
+
+    init?(intValue: Int) {
+        self.stringValue = String(intValue)
+        self.intValue = intValue
+    }
+}
+
+private func decodeSnakeCasePreservingID(_ key: String) -> String {
+    guard key.contains("_") else { return key }
+    let parts = key.split(separator: "_", omittingEmptySubsequences: true).map { $0.lowercased() }
+    guard let first = parts.first else { return key }
+    let rest = parts.dropFirst().map { part -> String in
+        if part == "id" { return "ID" }
+        if part == "ids" { return "IDs" }
+        return part.prefix(1).uppercased() + part.dropFirst()
+    }.joined()
+    return first + rest
 }

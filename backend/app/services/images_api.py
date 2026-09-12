@@ -18,9 +18,9 @@ described in the design's API Surface (Requirements 1.1, 1.6, 10.4):
 Object-store dependency injection
 ----------------------------------
 ``get_object_store`` is a FastAPI dependency that returns the process-wide
-:class:`~app.data.object_store.FilesystemObjectStore`. Tests override it via
-``app.dependency_overrides`` to inject an in-memory or tmp-backed store without
-touching the filesystem.
+:class:`~app.data.object_store.ObjectStore` (filesystem by default, S3 when
+configured). Tests override it via ``app.dependency_overrides`` to inject an
+in-memory or tmp-backed store without touching the filesystem.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ from sqlalchemy.orm import Session
 
 from app.data.enums import ImageFormat, ImageStatus
 from app.data.models import Image
-from app.data.object_store import FilesystemObjectStore, ObjectStore
+from app.data.object_store import ObjectStore, build_object_store
 from app.data.repositories import RepositoryFactory
 from app.services.auth_api import get_current_user, get_db_session, get_repositories
 from app.services.image_validator import RejectionReason, validate_image
@@ -54,7 +54,7 @@ router = APIRouter(tags=["images"])
 @lru_cache(maxsize=1)
 def _default_object_store() -> ObjectStore:
     """Process-wide default object store (overridable in tests)."""
-    return FilesystemObjectStore()
+    return build_object_store()
 
 
 def get_object_store() -> ObjectStore:

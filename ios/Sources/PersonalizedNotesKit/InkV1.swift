@@ -231,16 +231,6 @@ public struct InkBundle: Codable, Equatable, Hashable, Sendable {
         }
     }
 
-    private struct CanonicalPayload: Codable {
-        let schema: String
-        let schemaVersion: Int
-        let pageID: UUID
-        let coordinateSpace: InkCoordinateSpace
-        let strokes: [InkStroke]
-        let capture: InkCaptureCapabilities
-        let nativeDrawing: NativeDrawing?
-    }
-
     private static func computeHash(
         schema: String,
         schemaVersion: Int,
@@ -250,16 +240,65 @@ public struct InkBundle: Codable, Equatable, Hashable, Sendable {
         capture: InkCaptureCapabilities,
         nativeDrawing: NativeDrawing?
     ) -> String {
-        let payload = CanonicalPayload(
-            schema: schema,
-            schemaVersion: schemaVersion,
-            pageID: pageID,
-            coordinateSpace: coordinateSpace,
-            strokes: strokes,
-            capture: capture,
-            nativeDrawing: nativeDrawing
-        )
-        let data = (try? APIJSON.encoder().encode(payload)) ?? Data()
+        var payload: [String: Any] = [
+            "schema": schema,
+            "schema_version": schemaVersion,
+            "page_id": pageID.uuidString.lowercased(),
+            "coordinate_space": [
+                "width": coordinateSpace.width,
+                "height": coordinateSpace.height,
+                "unit": coordinateSpace.unit,
+                "origin": coordinateSpace.origin,
+            ],
+            "strokes": strokes.map { stroke -> [String: Any] in
+                [
+                    "stroke_id": stroke.strokeID.uuidString.lowercased(),
+                    "points": stroke.points.map { point -> [String: Any] in
+                        var item: [String: Any] = [
+                            "x": point.x,
+                            "y": point.y,
+                            "time_offset": point.timeOffset,
+                        ]
+                        if let pressure = point.pressure { item["pressure"] = pressure }
+                        if let azimuth = point.azimuth { item["azimuth"] = azimuth }
+                        if let altitude = point.altitude { item["altitude"] = altitude }
+                        return item
+                    },
+                    "tool": stroke.tool.rawValue,
+                    "color": [
+                        "red": stroke.color.red,
+                        "green": stroke.color.green,
+                        "blue": stroke.color.blue,
+                        "alpha": stroke.color.alpha,
+                    ],
+                    "width": stroke.width,
+                    "transform": [
+                        "a": stroke.transform.a,
+                        "b": stroke.transform.b,
+                        "c": stroke.transform.c,
+                        "d": stroke.transform.d,
+                        "tx": stroke.transform.tx,
+                        "ty": stroke.transform.ty,
+                    ],
+                ]
+            },
+            "capture": [
+                "pressure": capture.pressure,
+                "azimuth": capture.azimuth,
+                "altitude": capture.altitude,
+                "timing": capture.timing,
+                "source": capture.source,
+            ],
+        ]
+        if let nativeDrawing {
+            payload["native_drawing"] = [
+                "platform": nativeDrawing.platform,
+                "media_type": nativeDrawing.mediaType,
+                "platform_version": nativeDrawing.platformVersion as Any,
+                "data": nativeDrawing.data.base64EncodedString(),
+            ]
+        }
+        let data = (try? CanonicalJSON.data(from: payload)) ?? Data()
         return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 }
@@ -290,7 +329,11 @@ public enum InkV1Codec {
 
     public static func write(_ bundle: InkBundle, to url: URL) throws {
         let data = try encode(bundle)
+        #if os(iOS)
         try data.write(to: url, options: [.atomic, .completeFileProtectionUnlessOpen])
+        #else
+        try data.write(to: url, options: [.atomic])
+        #endif
     }
 }
 
