@@ -17,6 +17,7 @@ from app.data.repositories import RepositoryFactory
 from app.services.auth_api import get_current_user, get_repositories
 from app.services.images_api import get_object_store
 from app.services.image_validator import normalize_image_for_model, validate_image
+from app.services.upload_limits import UploadTooLarge, read_upload_file_bounded
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -282,20 +283,21 @@ class ImportDocumentResponse(BaseModel):
     status_code=status.HTTP_201_CREATED,
     summary="Import a PDF or image into ordered page rasters",
 )
-def import_document(
+async def import_document(
     file: UploadFile = File(...),
     title: str = Form(default="Imported notes"),
     user: User = Depends(get_current_user),
     repos: RepositoryFactory = Depends(get_repositories),
     store: ObjectStore = Depends(get_object_store),
 ) -> ImportDocumentResponse:
-    pdf_bytes = file.file.read()
     max_bytes = get_settings().max_upload_bytes
-    if len(pdf_bytes) > max_bytes:
+    try:
+        pdf_bytes = await read_upload_file_bounded(file, max_bytes)
+    except UploadTooLarge as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"File exceeds the {max_bytes} byte upload limit.",
-        )
+        ) from exc
     try:
         if b"%PDF" in pdf_bytes[:1024]:
             document = import_pdf(

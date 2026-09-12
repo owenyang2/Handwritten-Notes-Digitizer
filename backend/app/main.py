@@ -18,6 +18,7 @@ from fastapi import FastAPI
 
 from app.config import configure_determinism, get_settings
 from app.middleware.rate_limiter import RateLimitMiddleware
+from app.middleware.request_limits import RequestSizeLimitMiddleware
 from app.observability import (
     MetricsMiddleware,
     configure_observability,
@@ -194,6 +195,7 @@ def create_app() -> FastAPI:
     # Outermost middleware runs last-registered first in Starlette's chain,
     # so rate limiting is applied before any route handler or dependency.
     app.add_middleware(RateLimitMiddleware)
+    app.add_middleware(RequestSizeLimitMiddleware)
     app.add_middleware(RequestIdMiddleware)
 
     if metrics_enabled(settings):

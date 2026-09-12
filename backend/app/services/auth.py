@@ -44,6 +44,7 @@ import uuid
 from typing import Optional
 import datetime as _dt
 
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 from app.data.models import User, UserSession
 from app.data.base import utcnow
@@ -150,7 +151,6 @@ class SessionStore:
         token = secrets.token_urlsafe(_TOKEN_BYTES)
         expires_at = utcnow() + _dt.timedelta(seconds=self._ttl)
         session_record = UserSession(
-            token=token,
             token_hash=hashlib.sha256(token.encode("utf-8")).hexdigest(),
             session_id=uuid.uuid4(),
             user_id=user_id,
@@ -166,7 +166,10 @@ class SessionStore:
         if not token:
             return None
 
-        record = self._db_session.get(UserSession, token)
+        token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+        record = self._db_session.scalar(
+            select(UserSession).where(UserSession.token_hash == token_hash)
+        )
         if record is None:
             return None
 
@@ -183,6 +186,8 @@ class SessionStore:
             self._db_session.commit()
             return None
 
+        record.last_seen_at = utcnow()
+        self._db_session.commit()
         return record.user_id
 
     def revoke(self, token: Optional[str]) -> bool:
@@ -190,7 +195,10 @@ class SessionStore:
         if not token:
             return False
 
-        record = self._db_session.get(UserSession, token)
+        token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+        record = self._db_session.scalar(
+            select(UserSession).where(UserSession.token_hash == token_hash)
+        )
         if record is None:
             return False
 
@@ -214,7 +222,6 @@ class SessionStore:
         
         # A bulk delete is safe here because session records have no state that
         # needs to remain in the identity map after maintenance.
-        from sqlalchemy import delete
         stmt = delete(UserSession).where(UserSession.expires_at < now)
         result = self._db_session.execute(stmt)
         self._db_session.commit()
@@ -222,7 +229,6 @@ class SessionStore:
 
     def clear(self) -> None:
         """Drop all tokens (used to isolate tests)."""
-        from sqlalchemy import delete
         stmt = delete(UserSession)
         self._db_session.execute(stmt)
         self._db_session.commit()

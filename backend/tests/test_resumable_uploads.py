@@ -120,6 +120,18 @@ def test_resumable_upload_create_part_complete_and_idempotency(upload_client) ->
     assert body["part_size"] == 256 * 1024
     assert body["received_size"] == 0
 
+    declared_oversize = client.put(
+        f"/uploads/{upload_id}/parts/1",
+        content=b"x",
+        headers={
+            **_auth(token),
+            "X-Part-SHA256": _sha256(b"x"),
+            "Content-Length": str(256 * 1024 + 1),
+        },
+    )
+    assert declared_oversize.status_code == 413
+    assert declared_oversize.json()["detail"]["code"] == "upload_too_large"
+
     replay = client.post(
         "/uploads",
         json={

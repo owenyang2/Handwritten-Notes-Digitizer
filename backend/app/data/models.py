@@ -127,19 +127,20 @@ class User(Base):
 
 
 class UserSession(Base):
-    """A persistent authentication session for a user."""
+    """A persistent authentication session for a user.
+
+    The bearer credential is never stored.  ``token_hash`` is a one-way
+    lookup key and ``session_id`` is the public/revocation identity used by
+    account-management APIs.
+    """
 
     __tablename__ = "user_sessions"
 
-    token: Mapped[str] = mapped_column(String(255), primary_key=True)
-    # ``token`` remains the lookup key for the current cookie/bearer contract.
-    # ``token_hash`` is populated for future opaque-token migration without
-    # changing the public token format in this revision.
-    token_hash: Mapped[Optional[str]] = mapped_column(
-        String(64), unique=True, nullable=True, index=True
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=new_uuid, unique=True, index=True
     )
-    session_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        Uuid, unique=True, default=new_uuid, nullable=True, index=True
+    token_hash: Mapped[str] = mapped_column(
+        String(64), unique=True, nullable=False, index=True
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False, index=True

@@ -25,6 +25,7 @@ from app.data.object_store import ObjectStore
 from app.data.repositories import RepositoryFactory
 from app.services.auth_api import get_current_user, get_repositories
 from app.services.images_api import get_object_store
+from app.services.upload_limits import UploadTooLarge, read_request_stream_bounded
 
 router = APIRouter(prefix="/uploads", tags=["uploads"])
 
@@ -242,7 +243,29 @@ async def put_upload_part(
             "X-Part-SHA256 header must be a 64-character hex digest",
         )
 
-    data = await request.body()
+    declared_length = request.headers.get("content-length")
+    if declared_length is not None:
+        try:
+            declared_size = int(declared_length)
+        except ValueError:
+            # An invalid Content-Length is not trusted; the streaming reader
+            # below remains the authoritative limit check.
+            pass
+        else:
+            if declared_size > session.part_size:
+                raise _error(
+                    status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    "upload_too_large",
+                    "Part exceeds the session part_size",
+                )
+    try:
+        data = await read_request_stream_bounded(request.stream(), session.part_size)
+    except UploadTooLarge as exc:
+        raise _error(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            "upload_too_large",
+            "Part exceeds the session part_size",
+        ) from exc
     if not data:
         raise _error(
             status.HTTP_400_BAD_REQUEST,

@@ -8,6 +8,7 @@ library state.
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from datetime import datetime
 from typing import Any, Optional
@@ -79,9 +80,7 @@ def _current_token(
 
 
 def _session_public_id(row: UserSession) -> uuid.UUID:
-    if row.session_id is not None:
-        return row.session_id
-    return uuid.uuid5(uuid.NAMESPACE_URL, f"session:{row.token}")
+    return row.session_id
 
 
 @router.get(
@@ -113,7 +112,8 @@ def list_account_sessions(
             device_name=row.device_name,
             client_id=row.client_id,
             user_agent=row.user_agent,
-            is_current=bool(token) and row.token == token,
+            is_current=bool(token)
+            and row.token_hash == hashlib.sha256(token.encode("utf-8")).hexdigest(),
         )
         for row in rows
     ]

@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import os
+import hashlib
 import subprocess
 import sys
 from pathlib import Path
 
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.orm import Session
 
 from app.data.base import Base
-from app.data import migrations
+from app.data import migrations, User
 from app.data.migrations import upgrade_database
 import app.data.models  # Register every ORM table in Base.metadata.
 
@@ -75,6 +77,51 @@ def test_reordered_session_revision_upgrades_an_old_repair_database(tmp_path: Pa
 
     inspector = inspect(create_engine(database_url))
     assert "user_sessions" in inspector.get_table_names()
+
+
+def test_raw_session_tokens_are_hashed_during_upgrade(tmp_path: Path) -> None:
+    database = tmp_path / "raw-session.db"
+    database_url = f"sqlite:///{database}"
+    token = "legacy-token-that-must-not-survive"
+
+    _run_alembic(database, "upgrade", "d9e4b5c6a7f8")
+    engine = create_engine(database_url)
+    with Session(engine) as session:
+        user = User(
+            username="legacy-session-user",
+            email="legacy-session@example.com",
+            password_hash="test-only",
+        )
+        session.add(user)
+        session.commit()
+        session.execute(
+            text(
+                "INSERT INTO user_sessions "
+                "(token, token_hash, session_id, user_id, expires_at, created_at, "
+                "last_seen_at, revoked_at, device_name, client_id, user_agent) "
+                "VALUES (:token, NULL, NULL, :user_id, :expires_at, :created_at, "
+                "NULL, NULL, NULL, NULL, NULL)"
+            ),
+            {
+                "token": token,
+                "user_id": str(user.user_id),
+                "expires_at": "2099-01-01 00:00:00.000000",
+                "created_at": "2026-01-01 00:00:00.000000",
+            },
+        )
+        session.commit()
+    engine.dispose()
+
+    _run_alembic(database, "upgrade", "head")
+
+    with create_engine(database_url).connect() as connection:
+        columns = {column["name"] for column in inspect(connection).get_columns("user_sessions")}
+        assert "token" not in columns
+        row = connection.execute(
+            text("SELECT token_hash, session_id FROM user_sessions")
+        ).mappings().one()
+        assert row["token_hash"] == hashlib.sha256(token.encode()).hexdigest()
+        assert row["session_id"]
 
 
 def test_application_migration_runner_accepts_percent_encoded_database_urls(monkeypatch) -> None:
