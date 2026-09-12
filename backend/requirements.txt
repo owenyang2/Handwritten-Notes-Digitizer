@@ -22,11 +22,17 @@ pydantic==2.10.4
 pydantic-settings==2.7.0
 
 # Machine learning runtime (HTR_Engine, training)
-# Keep these CPU wheels aligned.  The standard torchvision wheel can lack the
-# compiled operators expected by the CPU-only torch package in Docker.
-torch==2.5.1+cpu
-torchaudio==2.5.1+cpu
-torchvision==0.20.1+cpu
+# Keep these wheels aligned. PyTorch publishes the explicit ``+cpu`` builds for
+# Linux x86_64 on the CPU index, but Linux ARM64 (including Docker Desktop on
+# Apple Silicon) uses the CPU wheel without that local-version suffix.
+# The markers keep x86_64 containers on the intended CPU build while allowing
+# the same pinned requirements file to install on ARM64 and macOS.
+torch==2.5.1+cpu; platform_system == "Linux" and platform_machine == "x86_64"
+torchaudio==2.5.1+cpu; platform_system == "Linux" and platform_machine == "x86_64"
+torchvision==0.20.1+cpu; platform_system == "Linux" and platform_machine == "x86_64"
+torch==2.5.1; platform_system != "Linux" or platform_machine != "x86_64"
+torchaudio==2.5.1; platform_system != "Linux" or platform_machine != "x86_64"
+torchvision==0.20.1; platform_system != "Linux" or platform_machine != "x86_64"
 transformers==4.47.1
 numpy==1.26.4
 pyctcdecode==0.5.0

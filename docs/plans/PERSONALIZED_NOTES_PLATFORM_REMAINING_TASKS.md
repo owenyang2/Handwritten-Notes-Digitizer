@@ -12,9 +12,10 @@ user-research result.
 
 ## Current verified baseline
 
-- [x] Branch was fetched and matches `origin/platform-sync-uploads` (`0` ahead,
-  `0` behind).
-- [x] Branch contains `origin/main` and is 12 commits ahead.
+- [x] At the start of the audit, the fetched branch matched
+  `origin/platform-sync-uploads`; the audit changes are now committed locally
+  on top of that remote tip.
+- [x] Branch contains `origin/main` and every prior remote feature branch.
 - [x] Backend suite: 872 tests passed, with 16 warnings (including the
   consciously pinned Starlette/AnyIO compatibility warning and ONNX export
   warnings).
@@ -29,7 +30,10 @@ user-research result.
 - [x] The last successful production npm dependency audit reported zero known
   vulnerabilities; the September 12 refresh was blocked by npm registry DNS
   in this sandbox and therefore remains a pending external verification.
-- [ ] Full Docker smoke test. Docker Desktop was not running during the audit.
+- [x] Full local Docker smoke test on Apple Silicon: both images built, both
+  containers became healthy, nginx served the frontend, and `/api/health`
+  reached the backend. Recognition remained honestly unavailable without a
+  model artifact.
 - [ ] Useful recognition smoke test. No prose, UniMERNet, or compact-math model
   artifact is installed in the audited checkout.
 
@@ -51,11 +55,14 @@ accessibility, or physical-device evidence.
 - ONNX export parity passed for widths 64, 96, 160, and 192 at batch sizes 1
   and 2. The optional MinIO and PostgreSQL tests were added but skipped because
   no disposable services were configured.
+- `make docker-smoke` passed on an ARM64 Docker Desktop host after adding
+  architecture-aware PyTorch wheel pins. The frontend and backend containers
+  were healthy and both direct and nginx-proxied health checks passed.
 - `npm audit --omit=dev --audit-level=high` could not refresh its prior result in
   this sandbox because the npm registry DNS endpoint was unavailable; no npm
   dependency files changed during this pass.
-- Docker smoke, real model recognition, real PostgreSQL/Redis/MinIO staging,
-  interviews, consented corpus collection, licensing review, signed iPad
+- Real model recognition, real PostgreSQL/Redis/MinIO staging, interviews,
+  consented corpus collection, licensing review, signed iPad
   testing, and production approval remain unverified.
 
 ## P0: Repair the branch's validation pipeline
@@ -406,7 +413,7 @@ Do not mark the plan complete until all applicable items below have evidence:
 
 - [ ] GitHub Actions is green from a clean checkout, including real contract drift
   detection.
-- [ ] Full local Docker smoke succeeds.
+- [x] Full local Docker smoke succeeds on the audited Apple Silicon host.
 - [ ] Full PostgreSQL/Redis/MinIO staging smoke succeeds.
 - [ ] Real image/PDF and ink workflows complete through consistent exports.
 - [ ] Recognition artifacts and benchmark reports are verified and pinned.
