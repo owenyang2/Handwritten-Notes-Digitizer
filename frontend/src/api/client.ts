@@ -103,6 +103,24 @@ async function fetchJson<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
+  const { data } = await fetchJsonWithMeta<T>(path, init);
+  return data;
+}
+
+interface FetchJsonMeta<T> {
+  data: T;
+  headers: Headers;
+}
+
+/**
+ * Fetch JSON while preserving response headers used by paginated endpoints.
+ * Most callers only need the decoded value and should use fetchJson(); library
+ * screens use this variant to honor the server's exact pagination contract.
+ */
+async function fetchJsonWithMeta<T>(
+  path: string,
+  init?: RequestInit,
+): Promise<FetchJsonMeta<T>> {
   const url = `${getBaseUrl()}${path}`;
   const response = await fetch(url, {
     credentials: "include", // send session cookie
@@ -125,7 +143,10 @@ async function fetchJson<T>(
     throw new ApiError(response.status, message);
   }
 
-  return response.json() as Promise<T>;
+  return {
+    data: (await response.json()) as T,
+    headers: response.headers,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -355,7 +376,11 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
  * Upload a PNG/JPEG image.  Returns the new image_id.
  * Authentication is enforced by the backend (Req 1.5, 10.4).
  */
-export async function uploadImage(file: File, documentId?: string): Promise<UploadImageResponse> {
+export async function uploadImage(
+  file: File,
+  documentId?: string,
+  signal?: AbortSignal,
+): Promise<UploadImageResponse> {
   const formData = new FormData();
   formData.append("file", file);
   if (documentId) {
@@ -364,6 +389,7 @@ export async function uploadImage(file: File, documentId?: string): Promise<Uplo
   return fetchJson<UploadImageResponse>("/images", {
     method: "POST",
     body: formData,
+    signal,
     // Do NOT set Content-Type — browser sets multipart boundary automatically.
   });
 }
@@ -376,11 +402,13 @@ export async function uploadImage(file: File, documentId?: string): Promise<Uplo
 export async function recognizeImage(
   imageId: string,
   onProgress?: (current: number, total: number) => void,
+  signal?: AbortSignal,
 ): Promise<RecognitionResultDto> {
   const url = `${getBaseUrl()}/images/${imageId}/recognize?stream=true`;
   const response = await fetch(url, {
     method: "POST",
     credentials: "include",
+    signal,
   });
 
   if (!response.ok) {
@@ -585,13 +613,18 @@ export interface ImportDocumentResponse {
   pages: DocumentPageSummary[];
 }
 
-export async function importDocument(file: File, title: string): Promise<ImportDocumentResponse> {
+export async function importDocument(
+  file: File,
+  title: string,
+  signal?: AbortSignal,
+): Promise<ImportDocumentResponse> {
   const fd = new FormData();
   fd.append("file", file);
   fd.append("title", title);
   return fetchJson<ImportDocumentResponse>("/documents/import", {
     method: "POST",
     body: fd,
+    signal,
   });
 }
 
@@ -914,15 +947,29 @@ export interface UpdateDocumentRequest {
   expected_sync_version?: number;
 }
 
-export async function createDocument(title: string): Promise<DocumentResponse> {
+export async function createDocument(
+  title: string,
+  signal?: AbortSignal,
+): Promise<DocumentResponse> {
   return fetchJson<DocumentResponse>("/documents", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ title }),
+    signal,
   });
 }
 
-export async function getDocuments(options: DocumentListOptions = {}): Promise<DocumentResponse[]> {
+export interface DocumentListPage {
+  items: DocumentResponse[];
+  offset: number;
+  limit: number;
+  total: number;
+  hasMore: boolean;
+}
+
+export async function getDocumentsPage(
+  options: DocumentListOptions = {},
+): Promise<DocumentListPage> {
   const params = new URLSearchParams();
   if (options.query?.trim()) params.set("query", options.query.trim());
   if (options.includeArchived) params.set("include_archived", "true");
@@ -931,9 +978,28 @@ export async function getDocuments(options: DocumentListOptions = {}): Promise<D
   if (options.limit !== undefined) params.set("limit", String(options.limit));
   if (options.offset !== undefined) params.set("offset", String(options.offset));
   const suffix = params.toString() ? `?${params.toString()}` : "";
-  return fetchJson<DocumentResponse[]>(`/documents${suffix}`, {
+  const response = await fetchJsonWithMeta<DocumentResponse[]>(`/documents${suffix}`, {
     method: "GET",
   });
+  const offset = options.offset ?? Number(response.headers.get("X-Document-Offset") ?? 0);
+  const limit = options.limit ?? Number(response.headers.get("X-Document-Limit") ?? response.data.length);
+  const totalHeader = Number(response.headers.get("X-Document-Total"));
+  const hasMoreHeader = response.headers.get("X-Document-Has-More");
+  return {
+    items: response.data,
+    offset: Number.isFinite(offset) ? Math.max(0, offset) : 0,
+    limit: Number.isFinite(limit) && limit > 0 ? limit : response.data.length,
+    total: Number.isFinite(totalHeader) && totalHeader >= 0
+      ? totalHeader
+      : (options.offset ?? 0) + response.data.length,
+    hasMore: hasMoreHeader === null
+      ? response.data.length >= (options.limit ?? response.data.length + 1)
+      : hasMoreHeader.toLowerCase() === "true",
+  };
+}
+
+export async function getDocuments(options: DocumentListOptions = {}): Promise<DocumentResponse[]> {
+  return (await getDocumentsPage(options)).items;
 }
 
 export async function getDocument(documentId: string): Promise<DocumentResponse> {
@@ -1025,6 +1091,8 @@ export interface SyncChange {
   operation_type: string;
   payload: Record<string, unknown>;
   created_at: string;
+  contract_version?: string;
+  is_tombstone?: boolean;
 }
 
 export interface SyncPullResponse {
@@ -1077,5 +1145,114 @@ export async function resolveSyncConflict(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ decision, details }),
     },
+  );
+}
+
+export interface SyncClientInfo {
+  client_id: string;
+  platform: string | null;
+  device_name: string | null;
+  cursor: number;
+  last_seen_at: string;
+  revoked_at: string | null;
+  created_at: string;
+}
+
+export async function registerSyncClient(body: {
+  client_id: string;
+  platform?: string;
+  device_name?: string;
+}): Promise<SyncClientInfo> {
+  return fetchJson<SyncClientInfo>("/sync/clients", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function acknowledgeSyncCursor(
+  clientId: string,
+  cursor: number,
+): Promise<SyncClientInfo> {
+  return fetchJson<SyncClientInfo>(
+    `/sync/clients/${encodeURIComponent(clientId)}/ack`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cursor }),
+    },
+  );
+}
+
+export async function listSyncClients(): Promise<SyncClientInfo[]> {
+  return fetchJson<SyncClientInfo[]>("/sync/clients", { method: "GET" });
+}
+
+export interface ResumableUploadSession {
+  upload_id: string;
+  filename: string;
+  content_type: string | null;
+  expected_size: number;
+  expected_sha256: string;
+  received_size: number;
+  part_size: number;
+  status: string;
+  document_id: string | null;
+  assembled_ref: string | null;
+  parts: Array<{ part_number: number; size_bytes: number; sha256: string }>;
+  expires_at: string;
+  error_code: string | null;
+  error_message: string | null;
+}
+
+export async function createResumableUpload(body: {
+  filename: string;
+  expected_size: number;
+  expected_sha256: string;
+  content_type?: string;
+  part_size?: number;
+  idempotency_key?: string;
+  document_id?: string;
+}): Promise<ResumableUploadSession> {
+  return fetchJson<ResumableUploadSession>("/uploads", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function uploadResumablePart(
+  uploadId: string,
+  partNumber: number,
+  data: Blob,
+  sha256: string,
+  signal?: AbortSignal,
+): Promise<ResumableUploadSession> {
+  return fetchJson<ResumableUploadSession>(
+    `/uploads/${encodeURIComponent(uploadId)}/parts/${partNumber}`,
+    {
+      method: "PUT",
+      headers: { "X-Part-SHA256": sha256 },
+      body: data,
+      signal,
+    },
+  );
+}
+
+export async function completeResumableUpload(
+  uploadId: string,
+): Promise<ResumableUploadSession> {
+  return fetchJson<ResumableUploadSession>(
+    `/uploads/${encodeURIComponent(uploadId)}/complete`,
+    { method: "POST" },
+  );
+}
+
+export async function getResumableUpload(
+  uploadId: string,
+): Promise<ResumableUploadSession> {
+  return fetchJson<ResumableUploadSession>(
+    `/uploads/${encodeURIComponent(uploadId)}`,
+    { method: "GET" },
   );
 }

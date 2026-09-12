@@ -47,6 +47,7 @@ vi.mock("../api/client.js", () => ({
   createDocument: vi.fn(),
   getDocument: vi.fn(),
   getDocuments: vi.fn(),
+  getDocumentsPage: vi.fn(),
   getProcessedImageUrl: vi.fn((imageId: string) => `/api/images/${imageId}/processed`),
   submitCorrection: vi.fn(),
   saveImageReviews: vi.fn(),
@@ -65,6 +66,19 @@ vi.mock("../api/client.js", () => ({
   exportDocument: vi.fn(),
   startCalibrationSession: vi.fn(),
   submitCalibrationSample: vi.fn(),
+  getCurrentUser: vi.fn().mockResolvedValue(null),
+  logout: vi.fn().mockResolvedValue(undefined),
+  pushSyncOperations: vi.fn(),
+  pullSyncOperations: vi.fn(),
+  listSyncConflicts: vi.fn(),
+  resolveSyncConflict: vi.fn(),
+  registerSyncClient: vi.fn(),
+  acknowledgeSyncCursor: vi.fn(),
+  listSyncClients: vi.fn(),
+  createResumableUpload: vi.fn(),
+  uploadResumablePart: vi.fn(),
+  completeResumableUpload: vi.fn(),
+  getResumableUpload: vi.fn(),
   ApiError: class ApiError extends Error {
     status: number;
     constructor(status: number, message: string) {

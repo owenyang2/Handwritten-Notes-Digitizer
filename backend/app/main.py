@@ -33,6 +33,8 @@ from app.services.isolation import register_isolation_handlers
 from app.services.recognition_service import router as recognition_router
 from app.services.personalization_api import router as personalization_router
 from app.services.sync_api import router as sync_router
+from app.services.uploads_api import router as uploads_router
+from app.services.account_api import router as account_router
 from app.ml.recognition import get_loaded_model_status
 from app.services.capability_registry import get_component_availability, get_capability_availability
 
@@ -162,6 +164,10 @@ def create_app() -> FastAPI:
 
     # Cross-device document operation log and conflict protocol.
     app.include_router(sync_router)
+
+    # Resumable uploads and account session/export/deletion surfaces.
+    app.include_router(uploads_router)
+    app.include_router(account_router)
 
     # Cross-user isolation: map framework-agnostic CrossUserAccessError to a 404
     # (not 403) so another user's resource existence is never disclosed

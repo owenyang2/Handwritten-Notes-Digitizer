@@ -23,7 +23,7 @@ import json
 from datetime import datetime
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field, field_validator
 
 from app.data.base import utcnow
@@ -124,6 +124,8 @@ class SyncChangeResponse(BaseModel):
     operation_type: str
     payload: dict[str, Any]
     created_at: datetime
+    is_tombstone: bool = False
+    contract_version: str = "v1"
 
 
 class SyncPullResponse(BaseModel):
@@ -137,6 +139,55 @@ class ResolveConflictRequest(BaseModel):
 
     decision: Literal["keep_server", "retry_as_new"]
     details: dict[str, Any] = Field(default_factory=dict)
+
+
+class SyncClientRegisterRequest(BaseModel):
+    client_id: str = Field(min_length=1, max_length=128)
+    platform: str | None = Field(default=None, max_length=32)
+    device_name: str | None = Field(default=None, max_length=128)
+
+    _trim_client_id = field_validator("client_id")(_trimmed_text)
+
+    @field_validator("platform", "device_name")
+    @classmethod
+    def trim_optional(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
+
+
+class SyncClientAckRequest(BaseModel):
+    cursor: int = Field(ge=0)
+
+
+class SyncClientResponse(BaseModel):
+    client_id: str
+    platform: str | None = None
+    device_name: str | None = None
+    cursor: int
+    last_seen_at: datetime
+    revoked_at: datetime | None = None
+    created_at: datetime
+
+
+class SyncCompactRequest(BaseModel):
+    through_cursor: int = Field(ge=0)
+
+
+class SyncCompactResponse(BaseModel):
+    compacted_count: int
+    snapshot_count: int
+    cursor_floor: int
+
+
+class SyncSnapshotResponse(BaseModel):
+    snapshot_id: uuid.UUID
+    document_id: uuid.UUID
+    server_sequence: int
+    document_sync_version: int
+    state: dict[str, Any]
+    created_at: datetime
 
 
 def _accepted(
@@ -175,19 +226,47 @@ def _conflict(conflict: DocumentConflict) -> SyncConflictResponse:
 
 
 def _change(operation: DocumentOperation) -> SyncChangeResponse:
-    return SyncChangeResponse(
-        server_sequence=operation.server_sequence,
-        operation_id=operation.operation_id,
-        document_id=operation.document_id,
-        client_id=operation.client_id,
-        client_operation_id=operation.client_operation_id,
-        base_sync_version=operation.base_sync_version,
-        sync_version=operation.document_sync_version,
-        entity_type=operation.entity_type,
-        entity_id=operation.entity_id,
-        operation_type=operation.operation_type,
-        payload=operation.payload,
-        created_at=operation.created_at,
+    payload = {
+        "server_sequence": operation.server_sequence,
+        "operation_id": operation.operation_id,
+        "document_id": operation.document_id,
+        "client_id": operation.client_id,
+        "client_operation_id": operation.client_operation_id,
+        "base_sync_version": operation.base_sync_version,
+        "sync_version": operation.document_sync_version,
+        "entity_type": operation.entity_type,
+        "entity_id": operation.entity_id,
+        "operation_type": operation.operation_type,
+        "payload": operation.payload,
+        "created_at": operation.created_at,
+    }
+    if hasattr(operation, "is_tombstone"):
+        payload["is_tombstone"] = bool(operation.is_tombstone)
+    if hasattr(operation, "contract_version"):
+        payload["contract_version"] = operation.contract_version or "v1"
+    return SyncChangeResponse(**payload)
+
+
+def _client(row) -> SyncClientResponse:
+    return SyncClientResponse(
+        client_id=row.client_id,
+        platform=row.platform,
+        device_name=row.device_name,
+        cursor=row.cursor,
+        last_seen_at=row.last_seen_at,
+        revoked_at=row.revoked_at,
+        created_at=row.created_at,
+    )
+
+
+def _snapshot(row) -> SyncSnapshotResponse:
+    return SyncSnapshotResponse(
+        snapshot_id=row.snapshot_id,
+        document_id=row.document_id,
+        server_sequence=row.server_sequence,
+        document_sync_version=row.document_sync_version,
+        state=row.state,
+        created_at=row.created_at,
     )
 
 
@@ -372,6 +451,18 @@ def pull_sync_operations(
     repos: RepositoryFactory = Depends(get_repositories),
 ) -> SyncPullResponse:
     """Return owner-scoped changes and a resumable global cursor."""
+    cursor_floor = repos.sync.cursor_floor(user.user_id)
+    if cursor < cursor_floor:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "sync_cursor_stale",
+                "message": "Cursor is older than the compacted floor; resync from snapshots",
+                "cursor_floor": cursor_floor,
+                "suggest": "snapshots",
+            },
+        )
+
     rows = list(
         repos.sync.list_operations(
             user.user_id,
@@ -429,15 +520,134 @@ def resolve_sync_conflict(
     return _conflict(conflict)
 
 
+@router.post(
+    "/clients",
+    response_model=SyncClientResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Register or refresh a sync client acknowledgement cursor",
+)
+def register_sync_client(
+    body: SyncClientRegisterRequest,
+    user: User = Depends(get_current_user),
+    repos: RepositoryFactory = Depends(get_repositories),
+) -> SyncClientResponse:
+    client = repos.sync_clients.register(
+        user.user_id,
+        body.client_id,
+        platform=body.platform,
+        device_name=body.device_name,
+    )
+    repos.session.commit()
+    return _client(client)
+
+
+@router.post(
+    "/clients/{client_id}/ack",
+    response_model=SyncClientResponse,
+    summary="Acknowledge that a client has durably applied through a cursor",
+)
+def acknowledge_sync_client(
+    client_id: str,
+    body: SyncClientAckRequest,
+    user: User = Depends(get_current_user),
+    repos: RepositoryFactory = Depends(get_repositories),
+) -> SyncClientResponse:
+    try:
+        client = repos.sync_clients.acknowledge(
+            user.user_id, client_id, body.cursor
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if client is None:
+        raise HTTPException(status_code=404, detail="Sync client not found")
+    repos.session.commit()
+    return _client(client)
+
+
+@router.get(
+    "/clients",
+    response_model=list[SyncClientResponse],
+    summary="List sync clients for this account",
+)
+def list_sync_clients(
+    user: User = Depends(get_current_user),
+    repos: RepositoryFactory = Depends(get_repositories),
+) -> list[SyncClientResponse]:
+    return [_client(row) for row in repos.sync_clients.list_for_user(user.user_id)]
+
+
+@router.delete(
+    "/clients/{client_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    summary="Revoke a sync client so it no longer gates compaction",
+)
+def revoke_sync_client(
+    client_id: str,
+    user: User = Depends(get_current_user),
+    repos: RepositoryFactory = Depends(get_repositories),
+) -> Response:
+    if not repos.sync_clients.revoke(user.user_id, client_id):
+        raise HTTPException(status_code=404, detail="Sync client not found")
+    repos.session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/compact",
+    response_model=SyncCompactResponse,
+    summary="Compact acknowledged sync operations into snapshots",
+)
+def compact_sync_operations(
+    body: SyncCompactRequest,
+    user: User = Depends(get_current_user),
+    repos: RepositoryFactory = Depends(get_repositories),
+) -> SyncCompactResponse:
+    try:
+        compacted_count, snapshot_count, cursor_floor = repos.sync.compact_operations(
+            user.user_id, through_cursor=body.through_cursor
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    repos.session.commit()
+    return SyncCompactResponse(
+        compacted_count=compacted_count,
+        snapshot_count=snapshot_count,
+        cursor_floor=cursor_floor,
+    )
+
+
+@router.get(
+    "/snapshots",
+    response_model=list[SyncSnapshotResponse],
+    summary="List compacted document snapshots for resync",
+)
+def list_sync_snapshots(
+    cursor: int | None = Query(default=None, ge=0),
+    user: User = Depends(get_current_user),
+    repos: RepositoryFactory = Depends(get_repositories),
+) -> list[SyncSnapshotResponse]:
+    rows = repos.sync.list_snapshots(
+        user.user_id, at_or_before_cursor=cursor
+    )
+    return [_snapshot(row) for row in rows]
+
+
 __all__ = [
     "MAX_SYNC_BATCH",
     "ResolveConflictRequest",
     "SyncAcceptedOperation",
     "SyncChangeResponse",
+    "SyncClientAckRequest",
+    "SyncClientRegisterRequest",
+    "SyncClientResponse",
+    "SyncCompactRequest",
+    "SyncCompactResponse",
     "SyncConflictResponse",
     "SyncOperationRequest",
     "SyncPullResponse",
     "SyncPushRequest",
     "SyncPushResponse",
+    "SyncSnapshotResponse",
     "router",
 ]

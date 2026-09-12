@@ -151,8 +151,11 @@ class SessionStore:
         expires_at = utcnow() + _dt.timedelta(seconds=self._ttl)
         session_record = UserSession(
             token=token,
+            token_hash=hashlib.sha256(token.encode("utf-8")).hexdigest(),
+            session_id=uuid.uuid4(),
             user_id=user_id,
             expires_at=expires_at,
+            last_seen_at=utcnow(),
         )
         self._db_session.add(session_record)
         self._db_session.commit()
@@ -167,6 +170,9 @@ class SessionStore:
         if record is None:
             return None
 
+        if getattr(record, "revoked_at", None) is not None:
+            return None
+
         expires_at = record.expires_at
         if expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=_dt.timezone.utc)
@@ -176,7 +182,7 @@ class SessionStore:
             self._db_session.delete(record)
             self._db_session.commit()
             return None
-            
+
         return record.user_id
 
     def revoke(self, token: Optional[str]) -> bool:
@@ -187,6 +193,13 @@ class SessionStore:
         record = self._db_session.get(UserSession, token)
         if record is None:
             return False
+
+        if hasattr(record, "revoked_at"):
+            if record.revoked_at is not None:
+                return False
+            record.revoked_at = utcnow()
+            self._db_session.commit()
+            return True
 
         self._db_session.delete(record)
         self._db_session.commit()

@@ -94,6 +94,24 @@ class User(Base):
     document_conflicts: Mapped[list["DocumentConflict"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    sync_clients: Mapped[list["SyncClient"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    sync_cursor_state: Mapped[Optional["SyncCursorState"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan", uselist=False
+    )
+    sync_snapshots: Mapped[list["DocumentSyncSnapshot"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    recognition_runs: Mapped[list["RecognitionRun"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    upload_sessions: Mapped[list["UploadSession"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    deletion_jobs: Mapped[list["DeletionJob"]] = relationship(
+        back_populates="user"
+    )
 
 
 class UserSession(Base):
@@ -102,11 +120,29 @@ class UserSession(Base):
     __tablename__ = "user_sessions"
 
     token: Mapped[str] = mapped_column(String(255), primary_key=True)
+    # ``token`` remains the lookup key for the current cookie/bearer contract.
+    # ``token_hash`` is populated for future opaque-token migration without
+    # changing the public token format in this revision.
+    token_hash: Mapped[Optional[str]] = mapped_column(
+        String(64), unique=True, nullable=True, index=True
+    )
+    session_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, unique=True, default=new_uuid, nullable=True, index=True
+    )
     user_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False, index=True
     )
     expires_at: Mapped[_dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[_dt.datetime] = created_at_column()
+    last_seen_at: Mapped[Optional[_dt.datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    revoked_at: Mapped[Optional[_dt.datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    device_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    client_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    user_agent: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
 
     user: Mapped["User"] = relationship(back_populates="sessions")
 
@@ -161,6 +197,11 @@ class Document(Base):
     )
     conflicts: Mapped[list["DocumentConflict"]] = relationship(
         back_populates="document", cascade="all, delete-orphan", order_by="DocumentConflict.created_at"
+    )
+    sync_snapshots: Mapped[list["DocumentSyncSnapshot"]] = relationship(
+        back_populates="document",
+        cascade="all, delete-orphan",
+        order_by="DocumentSyncSnapshot.server_sequence",
     )
 
 
@@ -284,6 +325,16 @@ class DocumentPage(Base):
     )
     transforms: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[_dt.datetime] = created_at_column()
+    updated_at: Mapped[_dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+    order_key: Mapped[str] = mapped_column(
+        String(128), nullable=False, default="00000000000000000000"
+    )
+    paper_template: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    ink_asset_ref: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    preview_asset_ref: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    page_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
     document: Mapped["Document"] = relationship(back_populates="pages")
     regions: Mapped[list["DocumentRegion"]] = relationship(
@@ -361,6 +412,19 @@ class RegionPrediction(Base):
     alternatives: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
     provenance: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     settings: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    # Immutable source provenance captured at inference time. The parent region
+    # may later be moved/split/merged, so export and audit must not reconstruct
+    # the old source crop from mutable current coordinates.
+    source_asset_ref: Mapped[Optional[str]] = mapped_column(
+        String(1024), nullable=True
+    )
+    source_crop_sha256: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True
+    )
+    source_bbox: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    source_page_revision: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True
+    )
     created_at: Mapped[_dt.datetime] = created_at_column()
 
     region: Mapped["DocumentRegion"] = relationship(back_populates="predictions")
@@ -496,6 +560,15 @@ class DocumentOperation(Base):
     entity_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     operation_type: Mapped[str] = mapped_column(String(64), nullable=False)
     payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    contract_version: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="v1"
+    )
+    is_tombstone: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+    compacted_at: Mapped[Optional[_dt.datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[_dt.datetime] = created_at_column()
 
     user: Mapped["User"] = relationship(back_populates="document_operations")
@@ -552,6 +625,12 @@ class DocumentConflict(Base):
         String(16), nullable=False, default="pending"
     )
     resolution: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    contract_version: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="v1"
+    )
+    is_tombstone: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
     created_at: Mapped[_dt.datetime] = created_at_column()
     resolved_at: Mapped[Optional[_dt.datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
@@ -559,6 +638,103 @@ class DocumentConflict(Base):
 
     user: Mapped["User"] = relationship(back_populates="document_conflicts")
     document: Mapped["Document"] = relationship(back_populates="conflicts")
+
+
+class SyncClient(Base):
+    """One registered client cursor owned by one account.
+
+    A cursor is an acknowledgement, not a receipt merely because a pull was
+    requested. This distinction prevents compaction from discarding a
+    tombstone before an offline device has durably applied it.
+    """
+
+    __tablename__ = "sync_clients"
+    __table_args__ = (
+        UniqueConstraint("user_id", "client_id", name="uq_sync_client_user_client"),
+        Index("ix_sync_clients_user_last_seen", "user_id", "last_seen_at"),
+    )
+
+    client_record_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=new_uuid
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("users.user_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    client_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    platform: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    device_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    cursor: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_seen_at: Mapped[_dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+    revoked_at: Mapped[Optional[_dt.datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[_dt.datetime] = created_at_column()
+
+    user: Mapped["User"] = relationship(back_populates="sync_clients")
+
+
+class SyncCursorState(Base):
+    """Per-account cursor watermark produced by operation compaction."""
+
+    __tablename__ = "sync_cursor_states"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("users.user_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    cursor_floor: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[_dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+    user: Mapped["User"] = relationship(back_populates="sync_cursor_state")
+
+
+class DocumentSyncSnapshot(Base):
+    """Compacted canonical state from which a stale client can resync."""
+
+    __tablename__ = "document_sync_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "document_id",
+            "server_sequence",
+            name="uq_document_sync_snapshot_sequence",
+        ),
+        Index(
+            "ix_document_sync_snapshots_user_sequence",
+            "user_id",
+            "server_sequence",
+        ),
+    )
+
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=new_uuid
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("users.user_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("documents.document_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    server_sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    document_sync_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    state: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[_dt.datetime] = created_at_column()
+
+    user: Mapped["User"] = relationship(back_populates="sync_snapshots")
+    document: Mapped["Document"] = relationship(back_populates="sync_snapshots")
 
 
 class ReviewRevision(Base):
@@ -667,6 +843,204 @@ class RecognitionJob(Base):
     )
 
     user: Mapped["User"] = relationship()
+
+
+class RecognitionRun(Base):
+    """Immutable request envelope for a selected page/region conversion.
+
+    ``RecognitionJob`` remains the worker lifecycle row used by the existing
+    executor. This record is the stable API/audit contract: it captures the
+    exact source selection and input hashes before any worker can observe a
+    later crop edit.
+    """
+
+    __tablename__ = "recognition_runs"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "idempotency_key",
+            name="uq_recognition_run_user_idempotency",
+        ),
+        Index(
+            "ix_recognition_runs_document_created",
+            "document_id",
+            "created_at",
+        ),
+    )
+
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=new_uuid
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("users.user_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("documents.document_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    page_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("document_pages.page_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    job_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid,
+        ForeignKey("recognition_jobs.job_id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    contract_version: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="v1"
+    )
+    scope: Mapped[str] = mapped_column(String(16), nullable=False)
+    mode: Mapped[str] = mapped_column(String(32), nullable=False)
+    idempotency_key: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, nullable=True
+    )
+    source_snapshot: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    state: Mapped[str] = mapped_column(String(16), nullable=False, default="queued")
+    result_ids: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[_dt.datetime] = created_at_column()
+    updated_at: Mapped[_dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+    finished_at: Mapped[Optional[_dt.datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    user: Mapped["User"] = relationship(back_populates="recognition_runs")
+    document: Mapped["Document"] = relationship()
+    page: Mapped["DocumentPage"] = relationship()
+
+
+class UploadSession(Base):
+    """Owner-scoped resumable upload manifest.
+
+    Parts are content-addressed by their recorded digest and stored separately
+    until ``complete`` verifies contiguous ordering, total size, and the final
+    SHA-256. The original upload is never inferred from a filename or MIME hint.
+    """
+
+    __tablename__ = "upload_sessions"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "idempotency_key",
+            name="uq_upload_session_user_idempotency",
+        ),
+        Index(
+            "ix_upload_sessions_user_status",
+            "user_id",
+            "status",
+        ),
+    )
+
+    upload_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=new_uuid
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("users.user_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    idempotency_key: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, nullable=True
+    )
+    filename: Mapped[str] = mapped_column(String(255), nullable=False, default="upload")
+    content_type: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    expected_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    expected_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    received_size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    part_size: Mapped[int] = mapped_column(Integer, nullable=False, default=5 * 1024 * 1024)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="open")
+    document_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid,
+        ForeignKey("documents.document_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    assembled_ref: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    parts_manifest: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    error_code: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    expires_at: Mapped[_dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    created_at: Mapped[_dt.datetime] = created_at_column()
+    updated_at: Mapped[_dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+    completed_at: Mapped[Optional[_dt.datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    user: Mapped["User"] = relationship(back_populates="upload_sessions")
+    parts: Mapped[list["UploadPart"]] = relationship(
+        back_populates="upload",
+        cascade="all, delete-orphan",
+        order_by="UploadPart.part_number",
+    )
+
+
+class UploadPart(Base):
+    """One immutable, owner-derived part of a resumable upload."""
+
+    __tablename__ = "upload_parts"
+    __table_args__ = (
+        UniqueConstraint("upload_id", "part_number", name="uq_upload_part_number"),
+    )
+
+    part_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=new_uuid
+    )
+    upload_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("upload_sessions.upload_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    part_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    storage_path: Mapped[str] = mapped_column(String(1024), nullable=False)
+    created_at: Mapped[_dt.datetime] = created_at_column()
+
+    upload: Mapped["UploadSession"] = relationship(back_populates="parts")
+
+
+class DeletionJob(Base):
+    """Durable evidence for an account deletion workflow."""
+
+    __tablename__ = "deletion_jobs"
+
+    job_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=new_uuid
+    )
+    # SET NULL preserves the deletion receipt after the user row is removed.
+    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid,
+        ForeignKey("users.user_id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    target_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    deleted_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    target_refs: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[_dt.datetime] = created_at_column()
+    completed_at: Mapped[Optional[_dt.datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    user: Mapped[Optional["User"]] = relationship(back_populates="deletion_jobs")
 
 
 class TrainingPair(Base):

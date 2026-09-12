@@ -31,16 +31,18 @@ import datetime as _dt
 import uuid
 from typing import Optional, Sequence
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from .base import utcnow
 from .enums import AdapterStatus, RecognitionJobState, TrainingRunState
 from .models import (
     Adapter,
+    DeletionJob,
     Document,
     DocumentConflict,
     DocumentOperation,
+    DocumentSyncSnapshot,
     DocumentPage,
     DocumentRegion,
     DocumentRevision,
@@ -53,11 +55,16 @@ from .models import (
     RegionPrediction,
     RegionReview,
     RecognitionJob,
+    RecognitionRun,
     ReviewRevision,
+    SyncClient,
+    SyncCursorState,
     TrainingExample,
     TrainingPair,
     TrainingRun,
     User,
+    UploadPart,
+    UploadSession,
 )
 
 UUIDLike = uuid.UUID
@@ -142,6 +149,26 @@ class DocumentRepository(_ScopedRepository):
             Document.document_id == _as_uuid(document_id),
             Document.user_id == _as_uuid(user_id),
             Document.deleted_at.is_(None),
+        )
+        return self._session.scalars(stmt).one_or_none()
+
+    def get_for_update(
+        self, user_id: UUIDLike | str, document_id: UUIDLike | str
+    ) -> Optional[Document]:
+        """Return an owner-scoped live document while taking a row lock.
+
+        PostgreSQL uses the lock to serialize sync-version increments. SQLite
+        ignores ``FOR UPDATE`` but still benefits from the same single
+        transaction semantics in the local/demo profile.
+        """
+        stmt = (
+            select(Document)
+            .where(
+                Document.document_id == _as_uuid(document_id),
+                Document.user_id == _as_uuid(user_id),
+                Document.deleted_at.is_(None),
+            )
+            .with_for_update()
         )
         return self._session.scalars(stmt).one_or_none()
 
@@ -310,7 +337,7 @@ class DocumentRepository(_ScopedRepository):
 
 
 class DocumentSyncRepository(_ScopedRepository):
-    """Owner-scoped access to accepted sync operations and conflicts."""
+    """Owner-scoped access to accepted sync operations and sync watermarks."""
 
     def get_operation(
         self,
@@ -366,17 +393,196 @@ class DocumentSyncRepository(_ScopedRepository):
         cursor: int = 0,
         limit: int = 50,
     ) -> Sequence[DocumentOperation]:
-        """Return at most ``limit + 1`` changes after a global server cursor."""
+        """Return retained changes after a global server cursor.
+
+        Compacted operations remain in the database for audit/idempotency but
+        are intentionally omitted from replay. A client whose cursor predates
+        the repository's watermark must resync from canonical document state.
+        """
         stmt = (
             select(DocumentOperation)
             .where(
                 DocumentOperation.user_id == _as_uuid(user_id),
                 DocumentOperation.server_sequence > max(0, cursor),
+                DocumentOperation.compacted_at.is_(None),
             )
             .order_by(DocumentOperation.server_sequence)
             .limit(max(1, min(limit, 101)))
         )
         return list(self._session.scalars(stmt).all())
+
+    def current_cursor(self) -> int:
+        """Return the greatest server sequence in the shared operation log."""
+        return int(
+            self._session.scalar(select(func.max(DocumentOperation.server_sequence)))
+            or 0
+        )
+
+    def cursor_floor(self, user_id: UUIDLike | str) -> int:
+        """Return the oldest cursor that can be replayed incrementally."""
+        state = self._session.get(SyncCursorState, _as_uuid(user_id))
+        return int(state.cursor_floor) if state is not None else 0
+
+    def get_cursor_state(
+        self, user_id: UUIDLike | str
+    ) -> Optional[SyncCursorState]:
+        return self._session.get(SyncCursorState, _as_uuid(user_id))
+
+    def ensure_cursor_state(self, user_id: UUIDLike | str) -> SyncCursorState:
+        state = self.get_cursor_state(user_id)
+        if state is None:
+            state = SyncCursorState(user_id=_as_uuid(user_id), cursor_floor=0)
+            self._session.add(state)
+            self._session.flush()
+        return state
+
+    def list_snapshots(
+        self,
+        user_id: UUIDLike | str,
+        *,
+        at_or_before_cursor: int | None = None,
+    ) -> Sequence[DocumentSyncSnapshot]:
+        stmt = select(DocumentSyncSnapshot).where(
+            DocumentSyncSnapshot.user_id == _as_uuid(user_id)
+        )
+        if at_or_before_cursor is not None:
+            stmt = stmt.where(
+                DocumentSyncSnapshot.server_sequence <= max(0, at_or_before_cursor)
+            )
+        return list(
+            self._session.scalars(
+                stmt.order_by(
+                    DocumentSyncSnapshot.server_sequence,
+                    DocumentSyncSnapshot.document_id,
+                )
+            ).all()
+        )
+
+    def compact_operations(
+        self,
+        user_id: UUIDLike | str,
+        *,
+        through_cursor: int,
+        tombstone_retention_before: _dt.datetime | None = None,
+    ) -> tuple[int, int, int]:
+        """Create canonical snapshots and mark replay rows compacted.
+
+        Returns ``(compacted_count, snapshot_count, cursor_floor)``. Compaction
+        is refused beyond the slowest active client acknowledgement. Tombstones
+        are retained by default; when a retention cutoff is supplied, only
+        tombstones older than that cutoff may be compacted.
+        """
+        uid = _as_uuid(user_id)
+        through_cursor = int(through_cursor)
+        if through_cursor < 0:
+            raise ValueError("through_cursor must be non-negative")
+        current = self.current_cursor()
+        if through_cursor > current:
+            raise ValueError("through_cursor is ahead of the server cursor")
+
+        active_min = self._session.scalar(
+            select(func.min(SyncClient.cursor)).where(
+                SyncClient.user_id == uid,
+                SyncClient.revoked_at.is_(None),
+            )
+        )
+        if active_min is not None and through_cursor > int(active_min):
+            raise ValueError(
+                "Cannot compact past the slowest active client cursor"
+            )
+
+        state = self.ensure_cursor_state(uid)
+        if through_cursor <= state.cursor_floor:
+            return 0, 0, int(state.cursor_floor)
+
+        document_ids = list(
+            self._session.scalars(
+                select(DocumentOperation.document_id)
+                .where(
+                    DocumentOperation.user_id == uid,
+                    DocumentOperation.server_sequence <= through_cursor,
+                )
+                .distinct()
+            ).all()
+        )
+        snapshot_count = 0
+        now = utcnow()
+        for document_id in document_ids:
+            document = self._session.scalar(
+                select(Document).where(
+                    Document.document_id == document_id,
+                    Document.user_id == uid,
+                )
+            )
+            if document is None:
+                continue
+            existing_snapshot = self._session.scalar(
+                select(DocumentSyncSnapshot).where(
+                    DocumentSyncSnapshot.document_id == document.document_id,
+                    DocumentSyncSnapshot.server_sequence == through_cursor,
+                )
+            )
+            if existing_snapshot is None:
+                self._session.add(
+                    DocumentSyncSnapshot(
+                        user_id=uid,
+                        document_id=document.document_id,
+                        server_sequence=through_cursor,
+                        document_sync_version=document.sync_version,
+                        state={
+                            "document_id": str(document.document_id),
+                            "title": document.title,
+                            "source_kind": document.source_kind,
+                            "active_revision_id": (
+                                str(document.active_revision_id)
+                                if document.active_revision_id is not None
+                                else None
+                            ),
+                            "archived_at": (
+                                document.archived_at.isoformat()
+                                if document.archived_at is not None
+                                else None
+                            ),
+                            "trashed_at": (
+                                document.trashed_at.isoformat()
+                                if document.trashed_at is not None
+                                else None
+                            ),
+                            "deleted_at": (
+                                document.deleted_at.isoformat()
+                                if document.deleted_at is not None
+                                else None
+                            ),
+                            "sync_version": document.sync_version,
+                        },
+                        created_at=now,
+                    )
+                )
+                snapshot_count += 1
+
+        compactable = [
+            DocumentOperation.compacted_at.is_(None),
+            DocumentOperation.user_id == uid,
+            DocumentOperation.server_sequence <= through_cursor,
+        ]
+        if tombstone_retention_before is None:
+            compactable.append(DocumentOperation.is_tombstone.is_(False))
+        else:
+            compactable.append(
+                or_(
+                    DocumentOperation.is_tombstone.is_(False),
+                    DocumentOperation.created_at <= tombstone_retention_before,
+                )
+            )
+        result = self._session.execute(
+            update(DocumentOperation)
+            .where(and_(*compactable))
+            .values(compacted_at=now)
+        )
+        state.cursor_floor = through_cursor
+        state.updated_at = now
+        self._session.flush()
+        return int(result.rowcount or 0), snapshot_count, through_cursor
 
     def list_conflicts(
         self,
@@ -408,6 +614,73 @@ class DocumentSyncRepository(_ScopedRepository):
             conflict.resolved_at = utcnow()
             self._session.flush()
         return conflict
+
+
+class SyncClientRepository(_ScopedRepository):
+    """Owner-scoped durable acknowledgement cursors for sync clients."""
+
+    def get(self, user_id: UUIDLike | str, client_id: str) -> Optional[SyncClient]:
+        stmt = select(SyncClient).where(
+            SyncClient.user_id == _as_uuid(user_id),
+            SyncClient.client_id == client_id,
+        )
+        return self._session.scalars(stmt).one_or_none()
+
+    def register(
+        self,
+        user_id: UUIDLike | str,
+        client_id: str,
+        *,
+        platform: str | None = None,
+        device_name: str | None = None,
+    ) -> SyncClient:
+        client = self.get(user_id, client_id)
+        if client is None:
+            client = SyncClient(
+                user_id=_as_uuid(user_id),
+                client_id=client_id,
+                platform=platform,
+                device_name=device_name,
+            )
+            self._session.add(client)
+        else:
+            if platform is not None:
+                client.platform = platform
+            if device_name is not None:
+                client.device_name = device_name
+            client.revoked_at = None
+            client.last_seen_at = utcnow()
+        self._session.flush()
+        return client
+
+    def acknowledge(
+        self, user_id: UUIDLike | str, client_id: str, cursor: int
+    ) -> Optional[SyncClient]:
+        client = self.get(user_id, client_id)
+        if client is None or client.revoked_at is not None:
+            return None
+        if cursor < client.cursor:
+            raise ValueError("client cursor cannot move backwards")
+        client.cursor = cursor
+        client.last_seen_at = utcnow()
+        self._session.flush()
+        return client
+
+    def list_for_user(self, user_id: UUIDLike | str) -> Sequence[SyncClient]:
+        stmt = (
+            select(SyncClient)
+            .where(SyncClient.user_id == _as_uuid(user_id))
+            .order_by(SyncClient.created_at, SyncClient.client_id)
+        )
+        return list(self._session.scalars(stmt).all())
+
+    def revoke(self, user_id: UUIDLike | str, client_id: str) -> bool:
+        client = self.get(user_id, client_id)
+        if client is None:
+            return False
+        client.revoked_at = client.revoked_at or utcnow()
+        self._session.flush()
+        return True
 
 
 class ImageRepository(_ScopedRepository):
@@ -1202,6 +1475,108 @@ class EvaluationResultRepository(_ScopedRepository):
         return self._session.scalars(stmt).first()
 
 
+class RecognitionRunRepository(_ScopedRepository):
+    """Owner-scoped immutable recognition-run envelopes."""
+
+    def get(
+        self, user_id: UUIDLike | str, run_id: UUIDLike | str
+    ) -> Optional[RecognitionRun]:
+        stmt = select(RecognitionRun).where(
+            RecognitionRun.run_id == _as_uuid(run_id),
+            RecognitionRun.user_id == _as_uuid(user_id),
+        )
+        return self._session.scalars(stmt).one_or_none()
+
+    def get_by_idempotency(
+        self, user_id: UUIDLike | str, idempotency_key: UUIDLike | str
+    ) -> Optional[RecognitionRun]:
+        stmt = select(RecognitionRun).where(
+            RecognitionRun.user_id == _as_uuid(user_id),
+            RecognitionRun.idempotency_key == _as_uuid(idempotency_key),
+        )
+        return self._session.scalars(stmt).one_or_none()
+
+    def add(self, run: RecognitionRun) -> RecognitionRun:
+        self._session.add(run)
+        self._session.flush()
+        return run
+
+
+class UploadRepository(_ScopedRepository):
+    """Owner-scoped resumable upload sessions and parts."""
+
+    def get(
+        self, user_id: UUIDLike | str, upload_id: UUIDLike | str
+    ) -> Optional[UploadSession]:
+        stmt = select(UploadSession).where(
+            UploadSession.upload_id == _as_uuid(upload_id),
+            UploadSession.user_id == _as_uuid(user_id),
+        )
+        return self._session.scalars(stmt).one_or_none()
+
+    def get_by_idempotency(
+        self, user_id: UUIDLike | str, idempotency_key: UUIDLike | str
+    ) -> Optional[UploadSession]:
+        stmt = select(UploadSession).where(
+            UploadSession.user_id == _as_uuid(user_id),
+            UploadSession.idempotency_key == _as_uuid(idempotency_key),
+        )
+        return self._session.scalars(stmt).one_or_none()
+
+    def add(self, session: UploadSession) -> UploadSession:
+        self._session.add(session)
+        self._session.flush()
+        return session
+
+    def get_part(
+        self, upload_id: UUIDLike | str, part_number: int
+    ) -> Optional[UploadPart]:
+        stmt = select(UploadPart).where(
+            UploadPart.upload_id == _as_uuid(upload_id),
+            UploadPart.part_number == part_number,
+        )
+        return self._session.scalars(stmt).one_or_none()
+
+    def add_part(self, part: UploadPart) -> UploadPart:
+        self._session.add(part)
+        self._session.flush()
+        return part
+
+    def list_parts(self, upload_id: UUIDLike | str) -> Sequence[UploadPart]:
+        stmt = (
+            select(UploadPart)
+            .where(UploadPart.upload_id == _as_uuid(upload_id))
+            .order_by(UploadPart.part_number)
+        )
+        return list(self._session.scalars(stmt).all())
+
+
+class DeletionJobRepository(_ScopedRepository):
+    """Owner-scoped account deletion evidence rows."""
+
+    def get(
+        self, user_id: UUIDLike | str, job_id: UUIDLike | str
+    ) -> Optional[DeletionJob]:
+        stmt = select(DeletionJob).where(
+            DeletionJob.job_id == _as_uuid(job_id),
+            DeletionJob.user_id == _as_uuid(user_id),
+        )
+        return self._session.scalars(stmt).one_or_none()
+
+    def add(self, job: DeletionJob) -> DeletionJob:
+        self._session.add(job)
+        self._session.flush()
+        return job
+
+    def latest_for_user(self, user_id: UUIDLike | str) -> Optional[DeletionJob]:
+        stmt = (
+            select(DeletionJob)
+            .where(DeletionJob.user_id == _as_uuid(user_id))
+            .order_by(DeletionJob.created_at.desc())
+        )
+        return self._session.scalars(stmt).first()
+
+
 class RepositoryFactory:
     """Convenience aggregator exposing every scoped repository on one session.
 
@@ -1215,6 +1590,7 @@ class RepositoryFactory:
         self.users = UserRepository(session)
         self.documents = DocumentRepository(session)
         self.sync = DocumentSyncRepository(session)
+        self.sync_clients = SyncClientRepository(session)
         self.images = ImageRepository(session)
         self.recognized_words = RecognizedWordRepository(session)
         self.line_reviews = ImageLineReviewRepository(session)
@@ -1226,6 +1602,9 @@ class RepositoryFactory:
         self.review_revisions = ReviewRevisionRepository(session)
         self.training_examples = TrainingExampleRepository(session)
         self.recognition_jobs = RecognitionJobRepository(session)
+        self.recognition_runs = RecognitionRunRepository(session)
+        self.uploads = UploadRepository(session)
+        self.deletion_jobs = DeletionJobRepository(session)
         self.model_artifacts = ModelArtifactRepository(session)
         self.model_assignments = ModelAssignmentRepository(session)
         self.training_pairs = TrainingPairRepository(session)
@@ -1242,6 +1621,7 @@ __all__ = [
     "UserRepository",
     "ImageRepository",
     "DocumentSyncRepository",
+    "SyncClientRepository",
     "RecognizedWordRepository",
     "ImageLineReviewRepository",
     "DocumentPageRepository",
@@ -1252,11 +1632,15 @@ __all__ = [
     "ReviewRevisionRepository",
     "TrainingExampleRepository",
     "RecognitionJobRepository",
+    "RecognitionRunRepository",
+    "UploadRepository",
+    "DeletionJobRepository",
     "ModelArtifactRepository",
     "ModelAssignmentRepository",
     "TrainingPairRepository",
     "AdapterRepository",
     "TrainingRunRepository",
     "EvaluationResultRepository",
+    "DocumentRepository",
     "RepositoryFactory",
 ]

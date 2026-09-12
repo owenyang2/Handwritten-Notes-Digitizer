@@ -52,6 +52,7 @@ class ObjectKind(str, Enum):
     ADAPTER = "adapters"
     DOCUMENT = "documents"
     PAGE = "pages"
+    UPLOAD = "uploads"
 
 
 # A reference is a POSIX-style relative path of the form
@@ -158,6 +159,15 @@ class ObjectStore(ABC):
         """Store a rasterized document page."""
         reference = self.build_reference(
             ObjectKind.PAGE, user_id, name, suffix=suffix
+        )
+        return self.put(reference, data)
+
+    def put_upload_part(
+        self, user_id: str, data: bytes, *, name: str | None = None, suffix: str = ".part"
+    ) -> str:
+        """Store one resumable-upload part for a user; return the reference."""
+        reference = self.build_reference(
+            ObjectKind.UPLOAD, user_id, name, suffix=suffix
         )
         return self.put(reference, data)
 

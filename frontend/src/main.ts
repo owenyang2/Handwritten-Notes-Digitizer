@@ -14,6 +14,9 @@ import { BeforeAfterView } from "./modules/beforeAfterView.js";
 import { AuthGate } from "./modules/authGate.js";
 import { GalleryUI } from "./modules/galleryUI.js";
 import { MathNotesWorkspace } from "./modules/mathNotes.js";
+import { BatchImportUI } from "./modules/batchImportUI.js";
+import { SyncCoordinator } from "./modules/syncOrchestrator.js";
+import { SyncUI } from "./modules/syncUI.js";
 import { registerServiceWorker } from "./serviceWorker.js";
 import "./styles.css";
 import {
@@ -185,7 +188,7 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
   utilityPanels.className = "utility-tab-panels";
   sideColumn.appendChild(utilityPanels);
 
-  type UtilityTabId = "calibration" | "training" | "export" | "history";
+  type UtilityTabId = "calibration" | "training" | "export" | "history" | "import" | "sync";
   const utilityTabs = new Map<UtilityTabId, { button: HTMLButtonElement; panel: HTMLElement }>();
   let activeUtilityTab: UtilityTabId = "calibration";
 
@@ -238,6 +241,8 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
   const trainingPanel = addUtilityTab("training", "Training");
   const exportPanel = addUtilityTab("export", "Export");
   const historyPanel = addUtilityTab("history", "History");
+  const importPanel = addUtilityTab("import", "Batch import");
+  const syncPanel = addUtilityTab("sync", "Sync");
 
   // --- Personalization guide + status (visible when capability is available) ---
   const personalizationSection = document.createElement("section");
@@ -507,6 +512,110 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
 
   uploadUI.render();
   void gallery.render();
+
+  const batchImportSection = document.createElement("section");
+  batchImportSection.className = "app-section app-section--batch-import panel";
+  batchImportSection.setAttribute("data-testid", "batch-import-section");
+  batchImportSection.setAttribute("aria-label", "Batch import");
+  importPanel.appendChild(batchImportSection);
+
+  const batchImport = new BatchImportUI({
+    mount: batchImportSection,
+    processor: async ({ file, signal, update }) => {
+      if (!isAvailable("upload")) {
+        throw new Error("Upload capability is currently unavailable.");
+      }
+      await update({ phase: "uploading", progress: 0.15 });
+      if (file.name.toLowerCase().endsWith(".pdf") || file.type === "application/pdf") {
+        const title = file.name.replace(/\.pdf$/i, "") || "Imported PDF";
+        const imported = await importDocument(file, title, signal);
+        await update({
+          phase: "imported",
+          progress: 0.9,
+          documentId: imported.document_id,
+          pageCount: imported.pages?.length ?? 0,
+        });
+        void gallery.render();
+        return {
+          kind: "pdf" as const,
+          documentId: imported.document_id,
+          pageCount: imported.pages?.length ?? 0,
+        };
+      }
+      const document = await createDocument(
+        file.name.replace(/\.[^.]+$/, "") || "Imported image",
+        signal,
+      );
+      const uploaded = await uploadImage(file, document.document_id, signal);
+      await update({
+        phase: "recognizing",
+        progress: 0.55,
+        documentId: document.document_id,
+        imageId: uploaded.image_id,
+      });
+      if (isAvailable("recognition")) {
+        try {
+          await recognizeImage(uploaded.image_id, undefined, signal);
+        } catch (err) {
+          if (!(err instanceof ApiError && err.status === 503)) throw err;
+        }
+      }
+      await update({
+        phase: "complete",
+        progress: 1,
+        documentId: document.document_id,
+        imageId: uploaded.image_id,
+        pageCount: 1,
+      });
+      void gallery.render();
+      return {
+        kind: "image" as const,
+        documentId: document.document_id,
+        imageId: uploaded.image_id,
+        pageCount: 1,
+      };
+    },
+    onCompleted: () => {
+      void gallery.render();
+    },
+  });
+  void batchImport.render();
+
+  const syncSection = document.createElement("section");
+  syncSection.className = "app-section app-section--sync panel";
+  syncSection.setAttribute("data-testid", "sync-section");
+  syncSection.setAttribute("aria-label", "Cross-device sync");
+  syncPanel.appendChild(syncSection);
+
+  void (async () => {
+    let currentUser: Awaited<ReturnType<typeof getCurrentUser>> = null;
+    try {
+      currentUser = await Promise.resolve(getCurrentUser());
+    } catch {
+      currentUser = null;
+    }
+    if (!currentUser) return;
+    const coordinator = new SyncCoordinator({
+      userId: currentUser.user_id,
+      onDocumentsChanged: () => {
+        void gallery.render();
+      },
+    });
+    const syncUI = new SyncUI({
+      mount: syncSection,
+      coordinator,
+      onDocumentsChanged: () => {
+        void gallery.render();
+      },
+    });
+    syncUI.render();
+    try {
+      await coordinator.load();
+      coordinator.startAutoSync();
+    } catch {
+      // Local sync durability may be unavailable in private browsing.
+    }
+  })();
 
   // ------------------------------------------------------------------
   // 5. Wire the calibration flow (optional, Req 9)
