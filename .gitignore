@@ -43,6 +43,8 @@ frontend/node_modules/
 
 # ── Swift / iOS ───────────────────────────────────────────────────────────────
 ios/.build/
+ios/PersonalizedNotes.xcodeproj/
+ios/Sources/PersonalizedNotesApp/Info.plist
 
 # ── iOS / SwiftPM -------------------------------------------------------------
 ios/.build/
