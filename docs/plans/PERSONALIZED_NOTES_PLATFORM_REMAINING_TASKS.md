@@ -287,6 +287,10 @@ The checked-in profile is production-shaped, not production-complete.
 The Swift package currently proves only macOS-safe kit behavior. It does not prove
 the signed iPad app, PencilKit, Keychain, App Group, or real networking.
 
+The detailed native product audit, usability requirements, dependency order, and
+milestone exit gates are maintained in
+[`IPAD_NOTE_APP_USABILITY_IMPLEMENTATION_PLAN.md`](IPAD_NOTE_APP_USABILITY_IMPLEMENTATION_PLAN.md).
+
 - [ ] Generate and build the Xcode project with the real Apple team and final
   bundle/App Group identifiers.
 - [ ] Replace the placeholder App Group and verify host app/share-extension access.
