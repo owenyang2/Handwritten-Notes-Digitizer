@@ -22,8 +22,8 @@ Manual crop selection and LaTeX review work without a formula model.
 | Markdown, HTML, LaTeX, LaTeX bundle, and controlled PDF export | Implemented | Nothing for local use |
 | Owner-scoped durable recognition jobs, bounded retries, startup recovery | Implemented | A persistent database/object-store deployment |
 | Native compact image-to-LaTeX model and training CLI | Implemented | Real formula images/labels and training time, or a checkpoint |
-| UniMERNet-small adapter | Implemented | Downloaded snapshot, license review, and artifact verification |
-| Legacy prose CRNN and personalization worker | Implemented | Licensed IAM data, a trained base model, and verified eval images |
+| UniMERNet-small adapter | Code path implemented; not installed here | Download the approved snapshot, complete license review, and verify its artifact digest |
+| Legacy prose CRNN and personalization worker | Code path implemented; not trained here | Supply licensed IAM data, a matched manifest, a trained base model, and verified eval images |
 | Formula metrics and benchmark runner | Implemented | A verified prediction file and held-out image/label split |
 | Automatic page layout | Implemented as a conservative, reviewable heuristic | Human review remains required; a learned layout/VLM model is not bundled |
 | Production operations | Compose/local deployment is implemented | HTTPS, secrets, backups, managed database/object storage, and deployment policy |

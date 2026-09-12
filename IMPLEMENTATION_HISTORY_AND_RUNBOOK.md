@@ -9,7 +9,10 @@ This document logs the major debugging, fixes, and operational decisions made du
 - Added/supporting workflow for real IAM training:
   - Real manifest generation from IAM metadata.
   - Real training driver with epoch logging/checkpointing.
-- Completed full real IAM run (12 epochs) and deployed resulting base model artifact to object store path used by app runtime.
+- Historical note: an earlier working session reported a 12-epoch real IAM run
+  and deployment. That artifact is not present in this checkout and has not
+  been independently reverified; treat recognition as unavailable until a
+  legally usable manifest, artifact digest, and evaluation report are supplied.
 
 ### Recognition pipeline correctness
 - Root cause discovered: training and inference granularity mismatch.
@@ -196,3 +199,12 @@ python3 -m pytest tests/test_personalization_api.py -q
   into local tests.
 - Made `make docker-smoke` wait for Compose health checks and made
   `make doctor` return a failing exit status when a required check fails.
+
+## Current checkout truth (2026-09-12)
+
+The checked-in code contains model loaders, training/evaluation tooling, and
+fail-closed capability checks, but it intentionally does not contain licensed
+handwriting pixels or model weights. `scripts/doctor.py` is the authoritative
+local check for the current artifact directories; on this checkout it reports
+the legacy prose, UniMERNet-small, and compact-math artifacts as absent. A
+historical runbook entry is not deployment evidence.
