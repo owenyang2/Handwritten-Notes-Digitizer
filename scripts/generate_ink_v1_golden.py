@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 
 from app.ml.ink_v1 import finalize
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "contracts" / "ink_v1"
+DEFAULT_OUT = ROOT / "contracts"
 
 
 def sample_bundle() -> dict:
@@ -45,17 +46,36 @@ def sample_bundle() -> dict:
     }
 
 
-def main() -> None:
-    OUT.mkdir(parents=True, exist_ok=True)
+def generate(output_dir: Path) -> str:
+    """Write the deterministic fixture below ``output_dir``.
+
+    ``output_dir`` is the contract root rather than the ``ink_v1`` directory so
+    callers can generate into a temporary tree while checking for drift.  The
+    default CLI location remains ``contracts/`` at the repository root.
+    """
+    out = output_dir / "ink_v1"
+    out.mkdir(parents=True, exist_ok=True)
     finalized = finalize(sample_bundle())
-    (OUT / "simple_stroke.json").write_text(
+    (out / "simple_stroke.json").write_text(
         json.dumps(finalized, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    (OUT / "simple_stroke.sha256").write_text(
+    (out / "simple_stroke.sha256").write_text(
         finalized["content_hash"] + "\n", encoding="utf-8"
     )
-    print(finalized["content_hash"])
+    return finalized["content_hash"]
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=DEFAULT_OUT,
+        help="contract root to write (default: repository contracts/)",
+    )
+    args = parser.parse_args(argv)
+    print(generate(args.output_dir))
 
 
 if __name__ == "__main__":

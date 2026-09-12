@@ -101,6 +101,7 @@ class SyncConflictResponse(BaseModel):
     payload: dict[str, Any]
     status: str
     resolution: dict[str, Any] | None = None
+    is_tombstone: bool = False
     created_at: datetime
     resolved_at: datetime | None = None
 
@@ -220,6 +221,7 @@ def _conflict(conflict: DocumentConflict) -> SyncConflictResponse:
         payload=conflict.payload,
         status=conflict.status,
         resolution=conflict.resolution,
+        is_tombstone=bool(getattr(conflict, "is_tombstone", False)),
         created_at=conflict.created_at,
         resolved_at=conflict.resolved_at,
     )
@@ -332,6 +334,17 @@ def _apply_known_document_operation(
         document.trashed_at = None
 
 
+def _is_tombstone(incoming: SyncOperationRequest) -> bool:
+    """Identify operations that must survive ordinary log compaction."""
+    return incoming.operation_type in {
+        "document.trash",
+        "document.delete",
+        "page.delete",
+        "region.delete",
+        "ink.delete",
+    }
+
+
 @router.post(
     "/push",
     response_model=SyncPushResponse,
@@ -405,6 +418,7 @@ def push_sync_operations(
                     entity_id=incoming.entity_id,
                     operation_type=incoming.operation_type,
                     payload=incoming.payload,
+                    is_tombstone=_is_tombstone(incoming),
                 )
             )
             conflicts.append(_conflict(conflict))
@@ -426,6 +440,7 @@ def push_sync_operations(
                 entity_id=incoming.entity_id,
                 operation_type=incoming.operation_type,
                 payload=incoming.payload,
+                is_tombstone=_is_tombstone(incoming),
             )
         )
         accepted.append(_accepted(operation, idempotent=False))

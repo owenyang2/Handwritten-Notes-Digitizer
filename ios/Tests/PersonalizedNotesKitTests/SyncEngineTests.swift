@@ -2,6 +2,36 @@ import XCTest
 @testable import PersonalizedNotesKit
 
 final class SyncEngineTests: XCTestCase {
+    func testSyncDTOsAcceptServersWithoutTombstoneMetadata() throws {
+        let response: SyncPullResponse = try APIJSON.decoder().decode(
+            SyncPullResponse.self,
+            from: Data(
+                """
+                {
+                  "items": [{
+                    "server_sequence": 1,
+                    "operation_id": "11111111-1111-4111-8111-111111111111",
+                    "document_id": "22222222-2222-4222-8222-222222222222",
+                    "client_id": "legacy-client",
+                    "client_operation_id": "33333333-3333-4333-8333-333333333333",
+                    "base_sync_version": 0,
+                    "sync_version": 1,
+                    "entity_type": "document",
+                    "entity_id": null,
+                    "operation_type": "document.rename",
+                    "payload": {},
+                    "created_at": "2026-01-01T00:00:00Z"
+                  }],
+                  "next_cursor": 1,
+                  "has_more": false
+                }
+                """.utf8
+            )
+        )
+
+        XCTAssertNil(response.items.first?.isTombstone)
+    }
+
     func testSyncNowPushesPendingOperationAndPullsEmptyFeed() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("sync-engine-\(UUID().uuidString)", isDirectory: true)

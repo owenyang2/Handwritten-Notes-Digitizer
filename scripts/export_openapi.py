@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -13,8 +14,8 @@ from app.main import create_app  # noqa: E402
 from app.services.error_codes import ERROR_CODES  # noqa: E402
 
 
-def main() -> None:
-    out_dir = ROOT / "contracts"
+def generate(output_dir: Path) -> None:
+    out_dir = output_dir
     out_dir.mkdir(parents=True, exist_ok=True)
     app = create_app()
     schema = app.openapi()
@@ -28,6 +29,18 @@ def main() -> None:
         encoding="utf-8",
     )
     print(f"wrote {out_dir / 'openapi-v1.json'}")
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=ROOT / "contracts",
+        help="contract root to write (default: repository contracts/)",
+    )
+    args = parser.parse_args(argv)
+    generate(args.output_dir)
 
 
 if __name__ == "__main__":

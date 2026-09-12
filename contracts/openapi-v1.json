@@ -3369,6 +3369,11 @@
             "title": "Entity Type",
             "type": "string"
           },
+          "is_tombstone": {
+            "default": false,
+            "title": "Is Tombstone",
+            "type": "boolean"
+          },
           "operation_type": {
             "title": "Operation Type",
             "type": "string"

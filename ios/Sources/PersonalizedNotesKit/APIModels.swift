@@ -290,6 +290,8 @@ public struct SyncConflict: Codable, Equatable, Hashable, Sendable, Identifiable
     public let payload: JSONDocument
     public let status: String
     public let resolution: JSONDocument?
+    /// Optional for compatibility with servers that predate tombstone metadata.
+    public let isTombstone: Bool?
     public let createdAt: Date
     public let resolvedAt: Date?
 
@@ -315,6 +317,8 @@ public struct SyncChange: Codable, Equatable, Hashable, Sendable, Identifiable {
     public let operationType: String
     public let payload: JSONDocument
     public let createdAt: Date
+    /// Optional for compatibility with servers that predate tombstone metadata.
+    public let isTombstone: Bool?
 
     public var id: UUID { operationID }
 }

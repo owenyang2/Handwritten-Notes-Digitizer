@@ -29,6 +29,8 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -36,9 +38,28 @@ jobs:
       - run: PYTHONPATH=.. python -m pytest -q
       - run: python -m alembic upgrade head
       - run: python -m alembic check
-      - run: PYTHONPATH=.. python ../scripts/generate_ink_v1_golden.py
-      - run: PYTHONPATH=.. python ../scripts/export_openapi.py
-      - run: git diff --exit-code -- contracts/ink_v1/simple_stroke.sha256 contracts/error_codes.json
+      - run: PYTHONPATH=. python ../scripts/generate_ink_v1_golden.py
+      - run: PYTHONPATH=. python ../scripts/export_openapi.py
+      - run: PYTHONPATH=. python ../scripts/check_generated_contracts.py
+      - name: Check generated contract drift
+        run: >-
+          git -C .. diff --exit-code --
+          contracts/ink_v1/simple_stroke.json
+          contracts/ink_v1/simple_stroke.sha256
+          contracts/openapi-v1.json
+          contracts/error_codes.json
+      - name: Check OpenAPI compatibility
+        run: |
+          if git -C .. cat-file -e HEAD^:contracts/openapi-v1.json 2>/dev/null; then
+            git -C .. show HEAD^:contracts/openapi-v1.json > "$RUNNER_TEMP/openapi-v1-baseline.json"
+            python ../scripts/check_openapi_compatibility.py \
+              --baseline "$RUNNER_TEMP/openapi-v1-baseline.json" \
+              --candidate ../contracts/openapi-v1.json
+          else
+            python ../scripts/check_openapi_compatibility.py \
+              --candidate ../contracts/openapi-v1.json \
+              --allow-missing-baseline
+          fi
 
   ios:
     runs-on: macos-latest

@@ -941,7 +941,7 @@ public actor SQLiteLocalStore: LocalNotesStore {
         let resolution = try blob(row, "resolution").map {
             try APIJSON.decoder().decode(JSONDocument.self, from: $0)
         }
-        var result = StoredSyncConflict(
+        let result = StoredSyncConflict(
             conflictID: conflictID,
             documentID: documentID,
             clientID: clientID,

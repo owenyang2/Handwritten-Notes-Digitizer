@@ -8,6 +8,12 @@
 
 # Web framework / API
 fastapi==0.115.6
+# FastAPI's supported Starlette range and its AnyIO dependency are pinned as a
+# pair. Starlette 0.41.3's TestClient still references AnyIO's deprecated
+# compatibility alias; keep this warning reproducible until the FastAPI stack
+# can be upgraded together to a Starlette release that removes that reference.
+starlette==0.41.3
+anyio==4.15.1
 uvicorn==0.34.0
 python-multipart==0.0.32
 

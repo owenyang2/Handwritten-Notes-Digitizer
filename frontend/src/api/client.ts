@@ -1068,6 +1068,7 @@ export interface SyncConflict {
   payload: Record<string, unknown>;
   status: string;
   resolution: Record<string, unknown> | null;
+  is_tombstone?: boolean;
   created_at: string;
   resolved_at: string | null;
 }
