@@ -14,10 +14,6 @@ let package = Package(
             name: "PersonalizedNotesKit",
             targets: ["PersonalizedNotesKit"]
         ),
-        .executable(
-            name: "PersonalizedNotesApp",
-            targets: ["PersonalizedNotesApp"]
-        ),
     ],
     targets: [
         .target(
@@ -26,16 +22,6 @@ let package = Package(
             linkerSettings: [
                 .linkedLibrary("sqlite3"),
             ]
-        ),
-        .executableTarget(
-            name: "PersonalizedNotesApp",
-            dependencies: ["PersonalizedNotesKit"],
-            path: "Sources/PersonalizedNotesApp"
-        ),
-        .testTarget(
-            name: "PersonalizedNotesKitTests",
-            dependencies: ["PersonalizedNotesKit"],
-            path: "Tests/PersonalizedNotesKitTests"
         ),
     ]
 )
