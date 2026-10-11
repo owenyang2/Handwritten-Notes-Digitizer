@@ -185,6 +185,9 @@ class Document(Base):
     trashed_at: Mapped[Optional[_dt.datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    is_favorite: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, index=True
+    )
     deleted_at: Mapped[Optional[_dt.datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -324,6 +327,7 @@ class DocumentPage(Base):
         Uuid, ForeignKey("documents.document_id", ondelete="CASCADE"), nullable=False, index=True
     )
     page_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     original_path: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
     raster_path: Mapped[str] = mapped_column(String(1024), nullable=False)
     image_id: Mapped[Optional[uuid.UUID]] = mapped_column(
@@ -346,6 +350,11 @@ class DocumentPage(Base):
     )
     paper_template: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     ink_asset_ref: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    active_ink_bundle_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid,
+        ForeignKey("ink_bundles.bundle_id", ondelete="SET NULL"),
+        nullable=True,
+    )
     preview_asset_ref: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
     page_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
@@ -967,6 +976,9 @@ class UploadSession(Base):
     idempotency_key: Mapped[Optional[uuid.UUID]] = mapped_column(
         Uuid, nullable=True
     )
+    purpose: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="asset", server_default="asset"
+    )
     filename: Mapped[str] = mapped_column(String(255), nullable=False, default="upload")
     content_type: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     expected_size: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -977,6 +989,16 @@ class UploadSession(Base):
     document_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         Uuid,
         ForeignKey("documents.document_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    page_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid,
+        ForeignKey("document_pages.page_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    ink_bundle_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid,
+        ForeignKey("ink_bundles.bundle_id", ondelete="SET NULL"),
         nullable=True,
     )
     assembled_ref: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
@@ -1331,6 +1353,12 @@ class InkBundle(Base):
     __tablename__ = "ink_bundles"
     __table_args__ = (
         UniqueConstraint("page_id", "content_hash", name="uq_ink_bundle_page_hash"),
+        Index(
+            "uq_ink_bundle_page_revision",
+            "page_id",
+            "revision_number",
+            unique=True,
+        ),
         Index("ix_ink_bundles_page_created", "page_id", "created_at"),
     )
 
@@ -1349,6 +1377,12 @@ class InkBundle(Base):
     schema_name: Mapped[str] = mapped_column(String(32), nullable=False, default="ink_v1")
     schema_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    parent_bundle_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid,
+        ForeignKey("ink_bundles.bundle_id", ondelete="SET NULL"),
+        nullable=True,
+    )
     stroke_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     point_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     coordinate_space: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
@@ -1359,8 +1393,15 @@ class InkBundle(Base):
     created_at: Mapped[_dt.datetime] = created_at_column()
 
     user: Mapped["User"] = relationship(back_populates="ink_bundles")
-    page: Mapped["DocumentPage"] = relationship()
+    page: Mapped["DocumentPage"] = relationship(
+        foreign_keys=[page_id],
+    )
     asset: Mapped["Asset"] = relationship(foreign_keys=[asset_id])
+    parent_bundle: Mapped[Optional["InkBundle"]] = relationship(
+        remote_side=[bundle_id],
+        foreign_keys=[parent_bundle_id],
+        uselist=False,
+    )
 
 
 class ConsentEvent(Base):

@@ -38,8 +38,10 @@ compatibility decision.
   `contracts/error_codes.json`.
 - Sync cursors are monotonically increasing server sequences; client
   operation IDs are idempotency keys.
-- Binary uploads are sent through the documented multipart or resumable-upload
-  endpoints. They are not embedded in JSON DTOs.
+- Imported PDF/image bytes use the documented multipart or resumable-upload
+  endpoints. Canonical `ink_v1` is JSON and may contain its versioned base64
+  native-drawing envelope; immutable ink downloads revalidate that envelope's
+  page ID and content hash before local installation.
 
 ## Required checks
 
@@ -49,6 +51,7 @@ From the repository root:
 PYTHONPATH=backend python scripts/generate_ink_v1_golden.py
 PYTHONPATH=backend python scripts/export_openapi.py
 PYTHONPATH=backend python scripts/check_generated_contracts.py
+python scripts/check_swift_api_models.py
 PYTHONPATH=backend python scripts/check_openapi_compatibility.py \
   --candidate contracts/openapi-v1.json --allow-missing-baseline
 ```

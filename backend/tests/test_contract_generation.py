@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 CONTRACTS = ROOT / "contracts"
 CHECK_GENERATED = ROOT / "scripts" / "check_generated_contracts.py"
 CHECK_OPENAPI = ROOT / "scripts" / "check_openapi_compatibility.py"
+CHECK_SWIFT_MODELS = ROOT / "scripts" / "check_swift_api_models.py"
 CONTRACT_BOUNDARY = ROOT / "docs" / "API_CONTRACT_BOUNDARY.md"
 
 
@@ -27,6 +28,11 @@ def _run(script: Path, *args: str) -> subprocess.CompletedProcess[str]:
 
 def test_generated_contracts_are_current() -> None:
     result = _run(CHECK_GENERATED)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_swift_api_models_match_openapi() -> None:
+    result = _run(CHECK_SWIFT_MODELS)
     assert result.returncode == 0, result.stdout + result.stderr
 
 

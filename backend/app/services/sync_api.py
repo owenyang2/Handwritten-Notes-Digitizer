@@ -25,9 +25,10 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field, field_validator
+from sqlalchemy.orm import object_session
 
 from app.data.base import utcnow
-from app.data.models import DocumentConflict, DocumentOperation, User
+from app.data.models import Document, DocumentConflict, DocumentOperation, DocumentPage, User
 from app.data.repositories import RepositoryFactory
 from app.services.auth_api import get_current_user, get_repositories
 
@@ -35,6 +36,7 @@ router = APIRouter(prefix="/sync", tags=["sync"])
 
 MAX_SYNC_BATCH = 50
 MAX_SYNC_PAYLOAD_BYTES = 64 * 1024
+ALLOWED_PAPER_TEMPLATES = {"blank", "ruled", "grid", "dot_grid", "cornell"}
 
 
 def _trimmed_text(value: str) -> str:
@@ -320,6 +322,13 @@ def _apply_known_document_operation(
                 detail="document.rename requires a non-blank title of at most 255 characters",
             )
         document.title = title.strip()
+    elif incoming.operation_type == "document.delete":
+        if document.trashed_at is None:
+            raise HTTPException(
+                status_code=422,
+                detail="document.delete requires the document to be in trash",
+            )
+        document.deleted_at = utcnow()
     elif incoming.operation_type == "document.archive":
         archived = payload.get("archived")
         if not isinstance(archived, bool):
@@ -332,6 +341,272 @@ def _apply_known_document_operation(
         document.trashed_at = utcnow()
     elif incoming.operation_type == "document.restore":
         document.trashed_at = None
+    elif incoming.operation_type == "document.favorite":
+        favorite = payload.get("favorite")
+        if not isinstance(favorite, bool):
+            raise HTTPException(
+                status_code=422,
+                detail="document.favorite requires a boolean favorite value",
+            )
+        document.is_favorite = favorite
+    elif incoming.operation_type == "document.tags":
+        tags = payload.get("tags")
+        if (
+            not isinstance(tags, list)
+            or len(tags) > 20
+            or any(not isinstance(tag, str) or not tag.strip() or len(tag.strip()) > 64 for tag in tags)
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="document.tags requires at most 20 non-blank tags of at most 64 characters",
+            )
+        metadata = dict(document.source_metadata or {})
+        normalized: list[str] = []
+        for tag in tags:
+            value = tag.strip()
+            if value.casefold() not in {existing.casefold() for existing in normalized}:
+                normalized.append(value)
+        metadata["tags"] = normalized
+        document.source_metadata = metadata
+    elif incoming.operation_type == "document.move":
+        folder_id = payload.get("folder_id")
+        metadata = dict(document.source_metadata or {})
+        if folder_id is not None and not isinstance(folder_id, str):
+            raise HTTPException(status_code=422, detail="document.move requires a folder path")
+        if isinstance(folder_id, str) and folder_id.strip():
+            parts = [part.strip() for part in folder_id.split("/")]
+            if (
+                not parts
+                or len(parts) > 4
+                or any(not part or len(part) > 64 for part in parts)
+                or len("/".join(parts)) > 128
+            ):
+                raise HTTPException(
+                    status_code=422,
+                    detail="document.move supports up to four folder levels of at most 64 characters",
+                )
+            metadata["folder_id"] = "/".join(parts)
+        else:
+            metadata.pop("folder_id", None)
+        document.source_metadata = metadata
+    elif incoming.operation_type == "page.add":
+        _apply_page_add(document, incoming.payload)
+    elif incoming.operation_type == "page.template":
+        _apply_page_template(document, incoming.payload)
+    elif incoming.operation_type == "page.rename":
+        _apply_page_rename(document, incoming.payload)
+    elif incoming.operation_type == "page.resize":
+        _apply_page_resize(document, incoming.payload)
+    elif incoming.operation_type == "page.delete":
+        _apply_page_delete(document, incoming.payload)
+    elif incoming.operation_type == "page.reorder":
+        _apply_page_reorder(document, incoming.payload)
+
+
+def _page_values(
+    payload: dict[str, Any],
+) -> tuple[uuid.UUID, int, str | None, int, int, int, str, str | None]:
+    raw = payload.get("page")
+    if not isinstance(raw, dict):
+        raise HTTPException(status_code=422, detail="page operation requires a page object")
+    try:
+        page_id = uuid.UUID(str(raw["page_id"]))
+        page_index = int(raw.get("page_index", 0))
+        title = raw.get("title")
+        width = int(raw["width"])
+        height = int(raw["height"])
+        dpi = int(raw.get("dpi", 132))
+        coordinate_space = str(raw.get("coordinate_space", "points")).strip()
+        paper_template = raw.get("paper_template")
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="page payload is invalid") from exc
+    if title is not None and (
+        not isinstance(title, str) or not title.strip() or len(title.strip()) > 255
+    ):
+        raise HTTPException(status_code=422, detail="page title must be non-blank and at most 255 characters")
+    if page_index < 0 or width < 1 or height < 1 or dpi < 1 or not coordinate_space:
+        raise HTTPException(status_code=422, detail="page dimensions and order must be positive")
+    if paper_template is not None and (
+        not isinstance(paper_template, str) or paper_template not in ALLOWED_PAPER_TEMPLATES
+    ):
+        raise HTTPException(status_code=422, detail="page paper_template is unsupported")
+    return page_id, page_index, title.strip() if isinstance(title, str) else None, width, height, dpi, coordinate_space, paper_template
+
+
+def _rewrite_page_order(document: Document, pages: list[DocumentPage]) -> None:
+    """Rewrite page indexes through temporary negatives to avoid unique clashes."""
+    for index, page in enumerate(pages):
+        page.page_index = -(index + 1)
+    document.pages = pages
+    session = object_session(document)
+    if session is not None:
+        session.flush()
+    for index, page in enumerate(pages):
+        page.page_index = index
+        page.order_key = f"{index:020d}"
+
+
+def _apply_page_add(document: Document, payload: dict[str, Any]) -> None:
+    page_id, page_index, title, width, height, dpi, coordinate_space, paper_template = _page_values(payload)
+    existing = next((page for page in document.pages if page.page_id == page_id), None)
+    if existing is not None:
+        return
+    pages = sorted(list(document.pages), key=lambda page: page.page_index)
+    insertion_index = min(page_index, len(pages))
+    page = DocumentPage(
+        page_id=page_id,
+        document_id=document.document_id,
+        page_index=0,
+        title=title,
+        raster_path=f"native-ink://{page_id}",
+        width=width,
+        height=height,
+        dpi=dpi,
+        coordinate_space=coordinate_space,
+        paper_template=paper_template,
+        order_key="00000000000000000000",
+    )
+    pages.insert(insertion_index, page)
+    _rewrite_page_order(document, pages)
+
+
+def _apply_page_template(document: Document, payload: dict[str, Any]) -> None:
+    try:
+        page_id = uuid.UUID(str(payload["page_id"]))
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="page.template requires a valid page_id") from exc
+    paper_template = payload.get("paper_template")
+    if paper_template is not None and (
+        not isinstance(paper_template, str) or paper_template not in ALLOWED_PAPER_TEMPLATES
+    ):
+        raise HTTPException(status_code=422, detail="page.template contains an unsupported template")
+    page = next((item for item in document.pages if item.page_id == page_id), None)
+    if page is None:
+        raise HTTPException(status_code=404, detail="Page not found")
+    page.paper_template = paper_template
+
+
+def _apply_page_rename(document: Document, payload: dict[str, Any]) -> None:
+    try:
+        page_id = uuid.UUID(str(payload["page_id"]))
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="page.rename requires a valid page_id") from exc
+    title = payload.get("title")
+    if title is not None and (
+        not isinstance(title, str) or not title.strip() or len(title.strip()) > 255
+    ):
+        raise HTTPException(status_code=422, detail="page.rename requires a non-blank title of at most 255 characters")
+    page = next((item for item in document.pages if item.page_id == page_id), None)
+    if page is None:
+        raise HTTPException(status_code=404, detail="Page not found")
+    page.title = title.strip() if isinstance(title, str) else None
+
+
+def _apply_page_resize(document: Document, payload: dict[str, Any]) -> None:
+    try:
+        page_id = uuid.UUID(str(payload["page_id"]))
+        width = int(payload["width"])
+        height = int(payload["height"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="page.resize requires page_id, width, and height") from exc
+    if not (128 <= width <= 32_768 and 128 <= height <= 32_768):
+        raise HTTPException(status_code=422, detail="page dimensions must be between 128 and 32768")
+    page = next((item for item in document.pages if item.page_id == page_id), None)
+    if page is None:
+        raise HTTPException(status_code=404, detail="Page not found")
+    page.width = width
+    page.height = height
+
+
+def _apply_page_delete(document: Document, payload: dict[str, Any]) -> None:
+    try:
+        page_id = uuid.UUID(str(payload["page_id"]))
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="page.delete requires a valid page_id") from exc
+    pages = sorted(list(document.pages), key=lambda page: page.page_index)
+    if len(pages) <= 1:
+        raise HTTPException(status_code=422, detail="A document must retain at least one page")
+    remaining = [page for page in pages if page.page_id != page_id]
+    if len(remaining) == len(pages):
+        return
+    _rewrite_page_order(document, remaining)
+
+
+def _apply_page_reorder(document: Document, payload: dict[str, Any]) -> None:
+    try:
+        page_id = uuid.UUID(str(payload["page_id"]))
+        target = int(payload["page_index"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="page.reorder requires page_id and page_index") from exc
+    pages = sorted(list(document.pages), key=lambda page: page.page_index)
+    current = next((index for index, page in enumerate(pages) if page.page_id == page_id), None)
+    if current is None:
+        raise HTTPException(status_code=404, detail="Page not found")
+    page = pages.pop(current)
+    pages.insert(min(max(target, 0), len(pages)), page)
+    _rewrite_page_order(document, pages)
+
+
+def _create_from_operation(
+    repos: RepositoryFactory,
+    user: User,
+    incoming: SyncOperationRequest,
+) -> Document:
+    if incoming.base_sync_version != 0 or incoming.entity_type != "document":
+        raise HTTPException(status_code=422, detail="document.create must start at version 0")
+    payload = incoming.payload
+    title = payload.get("title")
+    if not isinstance(title, str) or not title.strip() or len(title.strip()) > 255:
+        raise HTTPException(status_code=422, detail="document.create requires a valid title")
+    language = payload.get("default_language", "en")
+    source_kind = payload.get("source_kind", "native_ink")
+    is_favorite = payload.get("is_favorite", False)
+    source_metadata = payload.get("source_metadata")
+    if (
+        not isinstance(language, str)
+        or not language.strip()
+        or not isinstance(source_kind, str)
+        or not isinstance(is_favorite, bool)
+        or (source_metadata is not None and not isinstance(source_metadata, dict))
+    ):
+        raise HTTPException(status_code=422, detail="document.create metadata is invalid")
+
+    # A UUID collision must not reveal another account's document details.
+    existing_any_owner = repos.session.get(Document, incoming.document_id)
+    if existing_any_owner is not None:
+        raise HTTPException(status_code=409, detail="Document identity is unavailable")
+
+    document = repos.documents.create(
+        user.user_id,
+        title.strip(),
+        document_id=incoming.document_id,
+        source_kind=source_kind.strip() or "native_ink",
+        is_favorite=is_favorite,
+        default_language=language.strip(),
+        source_metadata=source_metadata,
+    )
+    pages = payload.get("pages", [])
+    if not isinstance(pages, list) or len(pages) > 500:
+        raise HTTPException(status_code=422, detail="document.create pages are invalid")
+    for raw_page in pages:
+        if not isinstance(raw_page, dict):
+            raise HTTPException(status_code=422, detail="document.create page is invalid")
+        page_payload = dict(payload)
+        page_payload["page"] = raw_page
+        _apply_page_add(document, page_payload)
+    if not document.pages:
+        # Native notebooks always have one durable page so a second client can
+        # bootstrap the same page identity even before ink is uploaded.
+        fallback_page = {
+            "page_id": str(uuid.uuid4()),
+            "page_index": 0,
+            "width": 768,
+            "height": 1024,
+            "dpi": 132,
+            "coordinate_space": "points",
+        }
+        _apply_page_add(document, {"page": fallback_page})
+    return document
 
 
 def _is_tombstone(incoming: SyncOperationRequest) -> bool:
@@ -399,6 +674,8 @@ def push_sync_operations(
             continue
 
         document = repos.documents.get(user.user_id, incoming.document_id)
+        if document is None and incoming.operation_type == "document.create":
+            document = _create_from_operation(repos, user, incoming)
         if document is None:
             # Do not disclose another user's document, and do not partially
             # commit a batch that contains an inaccessible target.

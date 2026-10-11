@@ -18,11 +18,12 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config.settings import get_settings
 from app.data import RecognitionJobState
-from app.data.models import DocumentRegion, RecognitionJob, RegionPrediction, User
+from app.data.models import DocumentRegion, RecognitionJob, RecognitionRun, RegionPrediction, User
 from app.data.object_store import ObjectStore
 from app.data.repositories import RepositoryFactory
 from app.services.auth_api import get_current_user, get_repositories
@@ -112,8 +113,10 @@ def _create_auto_regions(
     page,
     repos: RepositoryFactory,
     store: ObjectStore,
+    content_type: str = "math_display",
 ) -> list[DocumentRegion]:
-    page_bytes = store.get(page.raster_path)
+    from app.services.page_raster import page_raster
+    page_bytes, _ = page_raster(page, user_id, repos, store)
     boxes = detect_page_regions(page_bytes)
     existing_by_key: dict[tuple[int, int, int, int, str], list[DocumentRegion]] = {}
     for region in repos.document_regions.list_for_page(user_id, page.page_id):
@@ -127,7 +130,7 @@ def _create_auto_regions(
         existing_by_key.setdefault(key, []).append(region)
     created: list[DocumentRegion] = []
     for index, box in enumerate(boxes):
-        key = (box.x, box.y, box.width, box.height, box.content_type)
+        key = (box.x, box.y, box.width, box.height, content_type)
         existing = existing_by_key.get(key)
         if existing:
             # Automatic layout is safe to retry: a second request reuses the
@@ -140,7 +143,7 @@ def _create_auto_regions(
         region = DocumentRegion(
             page_id=page.page_id,
             order_index=index,
-            content_type=box.content_type,
+            content_type=content_type,
             bbox_x=box.x,
             bbox_y=box.y,
             bbox_width=box.width,
@@ -173,7 +176,17 @@ def _finish(
     job.error_message = error
     job.finished_at = dt.datetime.now(dt.timezone.utc)
     job.updated_at = job.finished_at
+    _sync_run_envelopes(session, job)
     session.commit()
+
+
+def _sync_run_envelopes(session: Session, job: RecognitionJob) -> None:
+    for run in session.scalars(select(RecognitionRun).where(RecognitionRun.job_id == job.job_id, RecognitionRun.user_id == job.user_id)):
+        run.state = {"succeeded": "complete", "no_text": "complete", "timeout": "failed"}.get(job.state.value, job.state.value)
+        run.result_ids = list(job.result_ids or [])
+        run.error_message = job.error_message
+        run.finished_at = job.finished_at
+        run.updated_at = job.updated_at
 
 
 def _queue_retry(
@@ -190,6 +203,7 @@ def _queue_retry(
         job.deadline_at = None
         job.finished_at = None
         job.updated_at = dt.datetime.now(dt.timezone.utc)
+        _sync_run_envelopes(session, job)
         session.commit()
         return True
     _finish(session, job, terminal_state, error=error)
@@ -205,15 +219,30 @@ def _run_job(job_id: uuid.UUID, session_factory: sessionmaker[Session], store: O
             job = session.get(RecognitionJob, job_id)
             if job is None or job.state not in (RecognitionJobState.QUEUED,):
                 return
+            # Loading a bounded model worker is setup, not inference. Keep the
+            # job queued while a cold process loads so restart recovery gets
+            # the same inference budget as an already-warm request.
+            mode = job.mode
+            session.commit()
+            _prepare_job_models(mode)
+            job = session.get(RecognitionJob, job_id, populate_existing=True)
+            if job is None or job.state != RecognitionJobState.QUEUED:
+                return
             now = dt.datetime.now(dt.timezone.utc)
             job.state = RecognitionJobState.RUNNING
             job.attempt += 1
             job.started_at = job.started_at or now
             job.deadline_at = now + dt.timedelta(seconds=float(get_settings().recognition_timeout_seconds))
             job.error_message = None
+            _sync_run_envelopes(session, job)
             session.commit()
 
             from app.services.math_regions_api import _crop_png, recognize_formula_crop
+            from app.services.prose_engine import recognize_prose_crop
+            from app.services.page_raster import page_raster
+            run = session.scalars(select(RecognitionRun).where(RecognitionRun.job_id == job_id, RecognitionRun.user_id == job.user_id)).first()
+            snapshot = run.source_snapshot[0] if run is not None and run.source_snapshot else None
+            frozen_regions = {item["region_id"]: item for item in snapshot.get("regions", [])} if snapshot else {}
 
             region_ids = [uuid.UUID(str(value)) for value in (job.region_ids or [])]
             if not region_ids:
@@ -241,18 +270,33 @@ def _run_job(job_id: uuid.UUID, session_factory: sessionmaker[Session], store: O
                     _finish(session, job, RecognitionJobState.FAILED, error="The source page was not found.")
                     return
                 try:
-                    page_bytes = store.get(page.raster_path)
-                    crop = store.get(region.source_crop_path) if region.source_crop_path else _crop_png(
-                        page_bytes,
-                        [region.bbox_x, region.bbox_y, region.bbox_width, region.bbox_height],
-                    )
-                    result = recognize_formula_crop(crop)
+                    frozen = frozen_regions.get(str(region_id))
+                    if frozen is not None:
+                        if page.page_revision != snapshot["page_revision"] or region.page_revision != frozen["region_revision"] or region.crop_sha256 != frozen["original_crop_sha256"]:
+                            _finish(session, job, RecognitionJobState.FAILED, error="Source changed. Convert the current revision again.")
+                            return
+                        crop = store.get(frozen["crop_ref"])
+                        if hashlib.sha256(crop).hexdigest() != frozen["crop_sha256"]:
+                            raise ValueError("Source crop failed its integrity check")
+                    else:
+                        page_bytes, _ = page_raster(page, job.user_id, repos, store)
+                        crop = _crop_png(page_bytes, [region.bbox_x, region.bbox_y, region.bbox_width, region.bbox_height])
+                    mode = "prose" if job.mode == "prose" or job.mode == "mixed" and region.content_type == "text" else "formula"
+                    result = recognize_prose_crop(crop) if mode == "prose" else recognize_formula_crop(crop)
+                    session.refresh(page)
+                    session.refresh(region)
+                    if frozen is not None and (page.page_revision != snapshot["page_revision"] or region.page_revision != frozen["region_revision"] or region.crop_sha256 != frozen["original_crop_sha256"]):
+                        _finish(session, job, RecognitionJobState.FAILED, error="Source changed. Convert the current revision again.")
+                        return
+                    if _deadline_expired(job.deadline_at):
+                        retry_requested = _queue_retry(session, job, "Recognition job exceeded its deadline.", terminal_state=RecognitionJobState.TIMEOUT)
+                        return
                     from app.services.model_resolution import resolve_model_assignment, task_for_mode
 
                     resolved = resolve_model_assignment(
                         repos,
                         job.user_id,
-                        task=task_for_mode(job.mode),
+                        task=task_for_mode(mode),
                         engine_id=result.engine_id,
                         engine_version=result.engine_version,
                         provenance=getattr(result, "provenance", None),
@@ -288,6 +332,10 @@ def _run_job(job_id: uuid.UUID, session_factory: sessionmaker[Session], store: O
                         "personalized": resolved.personalized,
                     },
                     settings=getattr(result, "settings", None),
+                    source_asset_ref=frozen["crop_ref"] if frozen else region.source_crop_path,
+                    source_crop_sha256=hashlib.sha256(crop).hexdigest(),
+                    source_bbox=frozen["bbox"] if frozen else [region.bbox_x, region.bbox_y, region.bbox_width, region.bbox_height],
+                    source_page_revision=page.page_revision,
                 )
                 repos.region_predictions.add(prediction)
                 result_ids.append(prediction.prediction_id)
@@ -299,6 +347,7 @@ def _run_job(job_id: uuid.UUID, session_factory: sessionmaker[Session], store: O
                 job.progress_total = len(region_ids)
                 job.result_ids = [str(value) for value in result_ids]
                 job.updated_at = dt.datetime.now(dt.timezone.utc)
+                _sync_run_envelopes(session, job)
                 session.commit()
             if unavailable and len(unavailable) == len(region_ids):
                 _finish(session, job, RecognitionJobState.FAILED, error="; ".join(unavailable))
@@ -328,7 +377,9 @@ def _run_job(job_id: uuid.UUID, session_factory: sessionmaker[Session], store: O
         try:
             with session_factory() as session:
                 job = session.get(RecognitionJob, job_id)
-                if job is not None and job.state == RecognitionJobState.RUNNING:
+                if job is not None and job.state in (RecognitionJobState.QUEUED, RecognitionJobState.RUNNING):
+                    if job.state == RecognitionJobState.QUEUED:
+                        job.attempt += 1
                     retry_requested = _queue_retry(
                         session,
                         job,
@@ -355,10 +406,33 @@ def recover_stale_jobs(session_factory: sessionmaker[Session]) -> int:
                 job.state = RecognitionJobState.QUEUED
                 job.error_message = "Recovered after the previous worker deadline expired."
                 job.deadline_at = None
+                _sync_run_envelopes(session, job)
             else:
                 _finish(session, job, RecognitionJobState.TIMEOUT, error="Recognition worker deadline expired.")
         session.commit()
     return count
+
+
+def _prepare_job_models(mode: str) -> None:
+    """Warm only the requested task; each runtime has a bounded startup probe."""
+    if mode in ("formula", "mixed", "figure"):
+        from app.services.math_regions_api import get_formula_engine_status
+        get_formula_engine_status()
+    if mode in ("prose", "mixed"):
+        from app.services.prose_engine import get_prose_engine_status
+        get_prose_engine_status()
+
+
+def recover_orphaned_runs(session_factory: sessionmaker[Session]) -> int:
+    """Old request-only envelopes cannot stay queued after installing a worker."""
+    with session_factory() as session:
+        runs = list(session.scalars(select(RecognitionRun).where(RecognitionRun.job_id.is_(None), RecognitionRun.state.in_(["queued", "running"]))))
+        for run in runs:
+            run.state = "failed"
+            run.error_message = "Conversion was created before worker setup. Retry conversion."
+            run.finished_at = dt.datetime.now(dt.timezone.utc)
+        session.commit()
+        return len(runs)
 
 
 def resume_queued_jobs(session_factory: sessionmaker[Session], store: ObjectStore) -> int:
@@ -400,7 +474,7 @@ def submit_page_recognition_job(
             raise HTTPException(status_code=404, detail="One or more regions were not found.")
     elif body.auto_layout:
         try:
-            region_ids = [region.region_id for region in _create_auto_regions(user_id=user.user_id, page=page, repos=repos, store=store)]
+            region_ids = [region.region_id for region in _create_auto_regions(user_id=user.user_id, page=page, repos=repos, store=store, content_type="text" if body.mode == "prose" else "math_display")]
         except Exception as exc:
             repos.session.rollback()
             raise HTTPException(status_code=422, detail=f"Automatic layout failed: {exc}") from exc

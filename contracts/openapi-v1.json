@@ -136,6 +136,20 @@
         "title": "AccountSessionResponse",
         "type": "object"
       },
+      "Body_attach_document_source_documents__document_id__source_post": {
+        "properties": {
+          "file": {
+            "format": "binary",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_attach_document_source_documents__document_id__source_post",
+        "type": "object"
+      },
       "Body_import_document_documents_import_post": {
         "properties": {
           "file": {
@@ -550,6 +564,18 @@
             ],
             "title": "Idempotency Key"
           },
+          "page_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Id"
+          },
           "part_size": {
             "anyOf": [
               {
@@ -561,6 +587,15 @@
               }
             ],
             "title": "Part Size"
+          },
+          "purpose": {
+            "default": "asset",
+            "enum": [
+              "asset",
+              "ink_v1"
+            ],
+            "title": "Purpose",
+            "type": "string"
           }
         },
         "required": [
@@ -738,6 +773,11 @@
             },
             "title": "Image Ids",
             "type": "array"
+          },
+          "is_favorite": {
+            "default": false,
+            "title": "Is Favorite",
+            "type": "boolean"
           },
           "pages": {
             "items": {
@@ -1061,6 +1101,28 @@
             "title": "Page Index",
             "type": "integer"
           },
+          "paper_template": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paper Template"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
           "width": {
             "title": "Width",
             "type": "integer"
@@ -1076,6 +1138,99 @@
           "coordinate_space"
         ],
         "title": "ImportedPageResponse",
+        "type": "object"
+      },
+      "InkBundleContentResponse": {
+        "description": "The immutable canonical payload used to restore ink on another client.",
+        "properties": {
+          "capture": {
+            "title": "Capture",
+            "type": "object"
+          },
+          "content_hash": {
+            "title": "Content Hash",
+            "type": "string"
+          },
+          "coordinate_space": {
+            "title": "Coordinate Space",
+            "type": "object"
+          },
+          "native_drawing": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Native Drawing"
+          },
+          "page_id": {
+            "format": "uuid",
+            "title": "Page Id",
+            "type": "string"
+          },
+          "schema": {
+            "title": "Schema",
+            "type": "string"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "strokes": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Strokes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "schema",
+          "schema_version",
+          "page_id",
+          "coordinate_space",
+          "strokes",
+          "capture",
+          "content_hash"
+        ],
+        "title": "InkBundleContentResponse",
+        "type": "object"
+      },
+      "InkBundleManifestResponse": {
+        "properties": {
+          "active_bundle_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Bundle Id"
+          },
+          "page_id": {
+            "format": "uuid",
+            "title": "Page Id",
+            "type": "string"
+          },
+          "revisions": {
+            "items": {
+              "$ref": "#/components/schemas/InkBundleResponse"
+            },
+            "title": "Revisions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "page_id",
+          "revisions"
+        ],
+        "title": "InkBundleManifestResponse",
         "type": "object"
       },
       "InkBundleRequest": {
@@ -1200,6 +1355,11 @@
       },
       "InkBundleResponse": {
         "properties": {
+          "active": {
+            "default": false,
+            "title": "Active",
+            "type": "boolean"
+          },
           "asset_id": {
             "format": "uuid",
             "title": "Asset Id",
@@ -1229,8 +1389,25 @@
             "title": "Page Id",
             "type": "string"
           },
+          "parent_bundle_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Bundle Id"
+          },
           "point_count": {
             "title": "Point Count",
+            "type": "integer"
+          },
+          "revision_number": {
+            "default": 1,
+            "title": "Revision Number",
             "type": "integer"
           },
           "schema_name": {
@@ -1244,6 +1421,11 @@
           "stroke_count": {
             "title": "Stroke Count",
             "type": "integer"
+          },
+          "upload_state": {
+            "default": "complete",
+            "title": "Upload State",
+            "type": "string"
           }
         },
         "required": [
@@ -1554,6 +1736,28 @@
           "page_index": {
             "title": "Page Index",
             "type": "integer"
+          },
+          "paper_template": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paper Template"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
           },
           "width": {
             "title": "Width",
@@ -2063,9 +2267,27 @@
             ],
             "title": "Idempotency Key"
           },
+          "ink_bundle_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ink Bundle Id"
+          },
           "mode": {
             "default": "raster",
-            "maxLength": 32,
+            "enum": [
+              "raster",
+              "ink",
+              "formula",
+              "prose",
+              "mixed"
+            ],
             "title": "Mode",
             "type": "string"
           },
@@ -2074,12 +2296,16 @@
               "format": "uuid",
               "type": "string"
             },
+            "maxItems": 256,
             "title": "Region Ids",
             "type": "array"
           },
           "scope": {
             "default": "page",
-            "maxLength": 16,
+            "enum": [
+              "page",
+              "region"
+            ],
             "title": "Scope",
             "type": "string"
           }
@@ -2123,6 +2349,16 @@
             "format": "uuid",
             "title": "Page Id",
             "type": "string"
+          },
+          "progress_current": {
+            "default": 0,
+            "title": "Progress Current",
+            "type": "integer"
+          },
+          "progress_total": {
+            "default": 0,
+            "title": "Progress Total",
+            "type": "integer"
           },
           "result_ids": {
             "items": {},
@@ -3010,6 +3246,48 @@
         "title": "SaveImageReviewsResponse",
         "type": "object"
       },
+      "SourceUploadResponse": {
+        "properties": {
+          "document_id": {
+            "format": "uuid",
+            "title": "Document Id",
+            "type": "string"
+          },
+          "page_count": {
+            "title": "Page Count",
+            "type": "integer"
+          },
+          "pages": {
+            "items": {
+              "$ref": "#/components/schemas/ImportedPageResponse"
+            },
+            "title": "Pages",
+            "type": "array"
+          },
+          "source_kind": {
+            "title": "Source Kind",
+            "type": "string"
+          },
+          "source_sha256": {
+            "title": "Source Sha256",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_id",
+          "title",
+          "page_count",
+          "pages",
+          "source_kind",
+          "source_sha256"
+        ],
+        "title": "SourceUploadResponse",
+        "type": "object"
+      },
       "SplitRegionRequest": {
         "properties": {
           "boxes": {
@@ -3740,6 +4018,17 @@
             ],
             "title": "Expected Sync Version"
           },
+          "is_favorite": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Favorite"
+          },
           "title": {
             "anyOf": [
               {
@@ -3872,6 +4161,30 @@
             "title": "Idempotent",
             "type": "boolean"
           },
+          "ink_bundle_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ink Bundle Id"
+          },
+          "page_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Id"
+          },
           "part_size": {
             "title": "Part Size",
             "type": "integer"
@@ -3882,6 +4195,10 @@
             },
             "title": "Parts",
             "type": "array"
+          },
+          "purpose": {
+            "title": "Purpose",
+            "type": "string"
           },
           "received_size": {
             "title": "Received Size",
@@ -3899,6 +4216,7 @@
         },
         "required": [
           "upload_id",
+          "purpose",
           "filename",
           "content_type",
           "expected_size",
@@ -3907,6 +4225,8 @@
           "part_size",
           "status",
           "document_id",
+          "page_id",
+          "ink_bundle_id",
           "assembled_ref",
           "parts",
           "expires_at"
@@ -4790,7 +5110,8 @@
                   "enum": [
                     "active",
                     "archived",
-                    "trash"
+                    "trash",
+                    "favorites"
                   ],
                   "type": "string"
                 },
@@ -5594,6 +5915,158 @@
         ]
       }
     },
+    "/documents/{document_id}/source": {
+      "get": {
+        "operationId": "download_document_source_documents__document_id__source_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download an attached PDF or image source",
+        "tags": [
+          "documents"
+        ]
+      },
+      "post": {
+        "description": "Attach source bytes while preserving client-assigned page identities.\n\nThe iPad creates and syncs the document/page aggregate first. This endpoint\nonly replaces the source layer and raster metadata, so retrying a timed-out\nupload cannot create a second document or a second page set.",
+        "operationId": "attach_document_source_documents__document_id__source_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_attach_document_source_documents__document_id__source_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceUploadResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Attach a durable PDF or image source to an existing document",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
     "/export": {
       "post": {
         "description": "Reads the current recognized words for the requested image (including all confirmed corrections) and returns them as plain text or markdown.  The export uses text as it stands at request time and never waits for adapter training (Req 8.3, 8.4).  Requires authentication. Returns 503 when the export capability is unavailable (Req 11.6).",
@@ -6325,6 +6798,79 @@
       }
     },
     "/pages/{page_id}/ink-bundles": {
+      "get": {
+        "operationId": "ink_bundle_manifest_pages__page_id__ink_bundles_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "page_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Page Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InkBundleManifestResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ink Bundle Manifest",
+        "tags": [
+          "assets"
+        ]
+      },
       "post": {
         "operationId": "upload_ink_bundle_pages__page_id__ink_bundles_post",
         "parameters": [
@@ -6479,6 +7025,92 @@
           }
         },
         "summary": "Latest Ink Bundle",
+        "tags": [
+          "assets"
+        ]
+      }
+    },
+    "/pages/{page_id}/ink-bundles/{bundle_id}/content": {
+      "get": {
+        "description": "Return one owner-scoped immutable ``ink_v1`` revision.\n\nThe manifest intentionally contains metadata only. This endpoint retrieves\nthe exact canonical bytes for second-client bootstrap and validates them\nagain before they cross the API boundary. A bundle ID from another page or\nowner is indistinguishable from a missing revision.",
+        "operationId": "download_ink_bundle_content_pages__page_id__ink_bundles__bundle_id__content_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "page_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Page Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "bundle_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Bundle Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InkBundleContentResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download Ink Bundle Content",
         "tags": [
           "assets"
         ]
@@ -8002,6 +8634,158 @@
           }
         },
         "summary": "Get Recognition Run",
+        "tags": [
+          "assets"
+        ]
+      }
+    },
+    "/recognition-runs/{run_id}/results": {
+      "get": {
+        "operationId": "recognition_run_results_recognition_runs__run_id__results_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "object"
+                  },
+                  "title": "Response Recognition Run Results Recognition Runs  Run Id  Results Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Recognition Run Results",
+        "tags": [
+          "assets"
+        ]
+      }
+    },
+    "/recognition-runs/{run_id}/source": {
+      "get": {
+        "operationId": "recognition_run_source_recognition_runs__run_id__source_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Recognition Run Source",
         "tags": [
           "assets"
         ]

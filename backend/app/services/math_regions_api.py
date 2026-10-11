@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from app.config.settings import get_settings
 from app.data.enums import ModelTask
 from app.data.models import DocumentRegion, RegionPrediction, User
-from app.data.object_store import ObjectStore
+from app.data.object_store import ObjectNotFoundError, ObjectStore
 from app.data.repositories import RepositoryFactory
 from app.ml.backends.compact import CompactMathEngine
 from app.ml.backends.unimernet import UniMERNetEngine
@@ -21,6 +21,7 @@ from app.services.document_review import create_document_revision
 from app.services.images_api import get_object_store
 from app.services.isolation import get_or_404
 from app.services.model_resolution import resolve_model_assignment
+from app.services.page_raster import page_raster
 
 router = APIRouter(tags=["math-regions"])
 
@@ -215,7 +216,7 @@ def create_region(
             detail=f"Unsupported coordinate space; expected {page.coordinate_space}.",
         )
     try:
-        page_bytes = store.get(page.raster_path)
+        page_bytes, _ = page_raster(page, user.user_id, repos, store)
         crop_bytes = _crop_png(page_bytes, [x, y, w, h])
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Could not create region crop: {exc}") from exc
@@ -257,7 +258,7 @@ def recognize_region(
 ) -> RecognizeRegionResponse:
     region = get_or_404(repos.document_regions.get(user.user_id, region_id))
     page = get_or_404(repos.document_pages.get(user.user_id, region.page_id))
-    png_bytes = store.get(page.raster_path)
+    png_bytes, _ = page_raster(page, user.user_id, repos, store)
     crop = _crop_png(
         png_bytes,
         [region.bbox_x, region.bbox_y, region.bbox_width, region.bbox_height],
@@ -347,7 +348,7 @@ def patch_region(
         if w <= 0 or h <= 0 or x < 0 or y < 0 or x + w > page.width or y + h > page.height:
             raise HTTPException(status_code=422, detail="Bounding box must be contained within the page raster.")
         try:
-            crop = _crop_png(store.get(page.raster_path), [x, y, w, h])
+            crop = _crop_png(page_raster(page, user.user_id, repos, store)[0], [x, y, w, h])
         except Exception as exc:
             raise HTTPException(status_code=422, detail=f"Could not update region crop: {exc}") from exc
         region.bbox_x, region.bbox_y = x, y
@@ -434,7 +435,7 @@ def split_region(
     parent = get_or_404(repos.document_regions.get(user.user_id, region_id))
     page = get_or_404(repos.document_pages.get(user.user_id, parent.page_id))
     created: list[DocumentRegion] = []
-    page_bytes = store.get(page.raster_path)
+    page_bytes, _ = page_raster(page, user.user_id, repos, store)
     for offset, values in enumerate(body.boxes):
         if len(values) != 4:
             raise HTTPException(status_code=422, detail="Each split box must contain four integers.")
@@ -492,7 +493,7 @@ def merge_regions(
     content_type = body.content_type or resolved[0].content_type
     _validate_content_type(content_type)
     try:
-        crop = _crop_png(store.get(page.raster_path), [x, y, right - x, bottom - y])
+        crop = _crop_png(page_raster(page, user.user_id, repos, store)[0], [x, y, right - x, bottom - y])
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Could not create merged crop: {exc}") from exc
     merged = DocumentRegion(
@@ -596,4 +597,12 @@ def get_page_raster(
     store: ObjectStore = Depends(get_object_store),
 ) -> Response:
     page = get_or_404(repos.document_pages.get(user.user_id, page_id))
-    return Response(content=store.get(page.raster_path), media_type="image/png")
+    try:
+        raster, identity = page_raster(page, user.user_id, repos, store)
+    except (ValueError, ObjectNotFoundError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return Response(content=raster, media_type="image/png", headers={
+        "Cache-Control": "no-store",
+        "X-Page-Revision": str(identity["page_revision"]),
+        "X-Ink-Hash": identity["ink_hash"] or "",
+    })

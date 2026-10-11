@@ -1,4 +1,5 @@
 import uuid
+from pathlib import PurePosixPath
 from datetime import datetime
 from typing import Literal
 
@@ -15,11 +16,13 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 class PageSummary(BaseModel):
     page_id: uuid.UUID
     page_index: int
+    title: str | None = None
     image_id: uuid.UUID | None
     width: int
     height: int
     dpi: int
     coordinate_space: str
+    paper_template: str | None = None
 
 
 class DocumentResponse(BaseModel):
@@ -33,6 +36,7 @@ class DocumentResponse(BaseModel):
     updated_at: datetime
     archived_at: datetime | None = None
     trashed_at: datetime | None = None
+    is_favorite: bool = False
     sync_version: int = 0
     default_language: str = "en"
     course_context: str | None = None
@@ -55,6 +59,7 @@ class CreateDocumentRequest(BaseModel):
 class UpdateDocumentRequest(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
     archived: bool | None = None
+    is_favorite: bool | None = None
     default_language: str | None = Field(default=None, min_length=2, max_length=32)
     course_context: str | None = Field(default=None, max_length=1_000)
     expected_sync_version: int | None = Field(default=None, ge=0)
@@ -68,16 +73,26 @@ def _document_response(document: Document, repos: RepositoryFactory | None = Non
             PageSummary(
                 page_id=page.page_id,
                 page_index=page.page_index,
+                title=page.title,
                 image_id=page.image_id,
                 width=page.width,
                 height=page.height,
                 dpi=page.dpi,
                 coordinate_space=page.coordinate_space,
+                paper_template=page.paper_template,
             )
             for page in repos.document_pages.list_for_document(
                 document.user_id, document.document_id
             )
         ]
+    metadata = dict(document.source_metadata or {})
+    if document.source_kind in ("pdf_import", "image_import") and document.original_path:
+        # Older website imports retained originals before source metadata was
+        # introduced. Native bootstrap needs the same attachment indication
+        # and file extension as newer source uploads.
+        metadata.setdefault("source_attached", True)
+        suffix = PurePosixPath(document.original_path).suffix.lower()
+        metadata.setdefault("original_filename", f"Imported-notes{suffix}")
     return DocumentResponse(
         document_id=document.document_id,
         title=document.title,
@@ -89,10 +104,11 @@ def _document_response(document: Document, repos: RepositoryFactory | None = Non
         updated_at=document.updated_at,
         archived_at=document.archived_at,
         trashed_at=document.trashed_at,
+        is_favorite=document.is_favorite,
         sync_version=document.sync_version,
         default_language=document.default_language,
         course_context=document.course_context,
-        source_metadata=document.source_metadata,
+        source_metadata=metadata or None,
     )
 
 
@@ -133,7 +149,7 @@ def list_documents(
     query: str | None = Query(default=None, max_length=120),
     include_archived: bool = Query(default=False),
     include_trashed: bool = Query(default=False),
-    view: Literal["active", "archived", "trash"] | None = Query(default=None),
+    view: Literal["active", "archived", "trash", "favorites"] | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     user: User = Depends(get_current_user),
@@ -214,6 +230,7 @@ def update_document(
             document_id,
             title=title,
             archived=updates.get("archived"),
+            favorite=updates.get("is_favorite"),
             default_language=language,
             course_context=context,
             set_course_context="course_context" in updates,

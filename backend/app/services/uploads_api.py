@@ -13,7 +13,7 @@ import re
 import uuid
 import datetime as _dt
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field, field_validator
@@ -24,6 +24,7 @@ from app.data.models import UploadPart, UploadSession, User
 from app.data.object_store import ObjectStore
 from app.data.repositories import RepositoryFactory
 from app.services.auth_api import get_current_user, get_repositories
+from app.services.assets_api import persist_ink_bundle, validate_ink_payload
 from app.services.images_api import get_object_store
 from app.services.upload_limits import UploadTooLarge, read_request_stream_bounded
 
@@ -44,6 +45,7 @@ def _error(status_code: int, code: str, message: str) -> HTTPException:
 
 
 class CreateUploadRequest(BaseModel):
+    purpose: Literal["asset", "ink_v1"] = "asset"
     filename: str = Field(default="upload", max_length=255)
     content_type: str | None = Field(default=None, max_length=128)
     expected_size: int = Field(gt=0)
@@ -51,6 +53,7 @@ class CreateUploadRequest(BaseModel):
     part_size: int | None = Field(default=None, gt=0)
     idempotency_key: uuid.UUID | None = None
     document_id: uuid.UUID | None = None
+    page_id: uuid.UUID | None = None
 
     @field_validator("expected_sha256")
     @classmethod
@@ -74,6 +77,7 @@ class UploadPartSummary(BaseModel):
 
 class UploadSessionResponse(BaseModel):
     upload_id: uuid.UUID
+    purpose: str
     filename: str
     content_type: str | None
     expected_size: int
@@ -82,6 +86,8 @@ class UploadSessionResponse(BaseModel):
     part_size: int
     status: str
     document_id: uuid.UUID | None
+    page_id: uuid.UUID | None
+    ink_bundle_id: uuid.UUID | None
     assembled_ref: str | None
     parts: list[UploadPartSummary]
     expires_at: datetime
@@ -101,6 +107,7 @@ def _session_response(
     ordered = sorted(ordered, key=lambda part: part.part_number)
     return UploadSessionResponse(
         upload_id=session.upload_id,
+        purpose=session.purpose,
         filename=session.filename,
         content_type=session.content_type,
         expected_size=session.expected_size,
@@ -109,6 +116,8 @@ def _session_response(
         part_size=session.part_size,
         status=session.status,
         document_id=session.document_id,
+        page_id=session.page_id,
+        ink_bundle_id=session.ink_bundle_id,
         assembled_ref=session.assembled_ref,
         parts=[
             UploadPartSummary(
@@ -170,29 +179,79 @@ def create_upload(
             "upload_too_large",
             f"Upload exceeds the {settings.max_upload_bytes} byte limit",
         )
+    if body.purpose == "ink_v1" and body.page_id is None:
+        raise _error(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "upload_incomplete",
+            "page_id is required for an ink_v1 upload",
+        )
+    if body.purpose == "asset" and body.page_id is not None:
+        raise _error(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "upload_conflict",
+            "page_id is only valid for an ink_v1 upload",
+        )
     if body.idempotency_key is not None:
         existing = repos.uploads.get_by_idempotency(user.user_id, body.idempotency_key)
         if existing is not None:
+            if (
+                existing.purpose != body.purpose
+                or existing.filename != body.filename
+                or existing.content_type != body.content_type
+                or existing.expected_size != body.expected_size
+                or existing.expected_sha256 != body.expected_sha256
+                or (
+                    body.part_size is not None
+                    and existing.part_size != _clamp_part_size(body.part_size)
+                )
+                or (body.page_id is not None and existing.page_id != body.page_id)
+                or (
+                    body.document_id is not None
+                    and existing.document_id != body.document_id
+                )
+            ):
+                raise _error(
+                    status.HTTP_409_CONFLICT,
+                    "upload_conflict",
+                    "idempotency_key is already bound to a different upload",
+                )
             return _session_response(
                 existing,
                 list(repos.uploads.list_parts(existing.upload_id)),
                 idempotent=True,
             )
 
-    if body.document_id is not None:
-        document = repos.documents.get(user.user_id, body.document_id)
+    if body.purpose == "ink_v1":
+        assert body.page_id is not None
+        page = repos.document_pages.get(user.user_id, body.page_id)
+        if page is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+        if body.document_id is not None and body.document_id != page.document_id:
+            raise _error(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "upload_conflict",
+                "document_id does not match the ink page",
+            )
+        document_id = page.document_id
+    else:
+        document_id = body.document_id
+
+    if document_id is not None:
+        document = repos.documents.get(user.user_id, document_id)
         if document is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
 
     session = UploadSession(
         user_id=user.user_id,
         idempotency_key=body.idempotency_key,
+        purpose=body.purpose,
         filename=body.filename,
         content_type=body.content_type,
         expected_size=body.expected_size,
         expected_sha256=body.expected_sha256,
         part_size=_clamp_part_size(body.part_size),
-        document_id=body.document_id,
+        document_id=document_id,
+        page_id=body.page_id,
         expires_at=utcnow() + SESSION_TTL,
     )
     repos.uploads.add(session)
@@ -385,20 +444,83 @@ def complete_upload(
         )
 
     payload = b"".join(chunks)
-    filename = session.filename.lower()
-    content_type = (session.content_type or "").lower()
-    if content_type.endswith("pdf") or filename.endswith(".pdf"):
-        assembled_ref = store.put_document_bytes(
-            str(user.user_id), payload, suffix=".pdf"
-        )
-    elif content_type in {"image/jpeg", "image/jpg"} or filename.endswith((".jpg", ".jpeg")):
-        assembled_ref = store.put_image_bytes(
-            str(user.user_id), payload, suffix=".jpg"
-        )
+    assembled_ref: str
+    if session.purpose == "ink_v1":
+        if session.page_id is None:
+            session.status = "failed"
+            session.error_code = "upload_incomplete"
+            session.error_message = "Ink upload session has no page binding"
+            repos.session.commit()
+            raise _error(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                session.error_code,
+                session.error_message,
+            )
+        page = repos.document_pages.get(user.user_id, session.page_id)
+        if page is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+        try:
+            import json
+
+            decoded = json.loads(payload.decode("utf-8"))
+            if not isinstance(decoded, dict):
+                raise ValueError("ink payload must be a JSON object")
+            validated = validate_ink_payload(decoded, session.page_id)
+            ink_response, asset = persist_ink_bundle(
+                page=page,
+                user=user,
+                repos=repos,
+                store=store,
+                validated=validated,
+            )
+        except UnicodeDecodeError as exc:
+            session.status = "failed"
+            session.error_code = "ink_integrity_failure"
+            session.error_message = "Ink upload is not valid UTF-8 JSON"
+            repos.session.commit()
+            raise _error(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                session.error_code,
+                session.error_message,
+            ) from exc
+        except ValueError as exc:
+            session.status = "failed"
+            session.error_code = "ink_integrity_failure"
+            session.error_message = str(exc)
+            repos.session.commit()
+            raise _error(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                session.error_code,
+                session.error_message,
+            ) from exc
+        except HTTPException as exc:
+            # A structurally invalid canonical payload cannot be repaired by
+            # retrying the same immutable parts. Preserve its failure state
+            # and the part manifest for diagnostics/retry policy decisions.
+            if exc.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY:
+                detail = exc.detail if isinstance(exc.detail, dict) else {}
+                session.status = "failed"
+                session.error_code = str(detail.get("code") or "ink_integrity_failure")
+                session.error_message = str(detail.get("message") or exc.detail)
+                repos.session.commit()
+            raise
+        assembled_ref = asset.object_ref
+        session.ink_bundle_id = ink_response.bundle_id
     else:
-        assembled_ref = store.put_image_bytes(
-            str(user.user_id), payload, suffix=".png"
-        )
+        filename = session.filename.lower()
+        content_type = (session.content_type or "").lower()
+        if content_type.endswith("pdf") or filename.endswith(".pdf"):
+            assembled_ref = store.put_document_bytes(
+                str(user.user_id), payload, suffix=".pdf"
+            )
+        elif content_type in {"image/jpeg", "image/jpg"} or filename.endswith((".jpg", ".jpeg")):
+            assembled_ref = store.put_image_bytes(
+                str(user.user_id), payload, suffix=".jpg"
+            )
+        else:
+            assembled_ref = store.put_image_bytes(
+                str(user.user_id), payload, suffix=".png"
+            )
 
     session.assembled_ref = assembled_ref
     session.parts_manifest = [

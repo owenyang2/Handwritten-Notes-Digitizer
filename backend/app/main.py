@@ -49,6 +49,7 @@ from app.services.consent_api import (
     consent_router,
 )
 from app.ml.recognition import get_loaded_model_status
+from app.services.prose_engine import get_prose_engine_status
 from app.services.capability_registry import get_component_availability, get_capability_availability
 from app.services.observability import RequestIdMiddleware
 
@@ -86,6 +87,8 @@ async def lifespan(app: FastAPI):
     # lifespan independently testable with a lightweight initialization stub
     # and avoids invoking worker recovery before the persistence layer exists.
     if callable(session_factory):
+        from app.services.jobs import recover_orphaned_runs
+        recover_orphaned_runs(session_factory)
         recover_stale_jobs(session_factory)
         from app.services.images_api import get_object_store
         resume_queued_jobs(session_factory, get_object_store())
@@ -141,6 +144,7 @@ def create_app() -> FastAPI:
                 "reason": model_status.reason,
             },
             "formula_model": formula_status,
+            "prose_model": get_prose_engine_status(),
         }
 
     # Auth + Session layer: /auth/login and the auth gate used by protected

@@ -131,13 +131,19 @@ class DocumentRepository(_ScopedRepository):
         user_id: UUIDLike | str,
         title: str,
         *,
+        document_id: UUIDLike | str | None = None,
+        source_kind: str = "images",
+        is_favorite: bool = False,
         default_language: str = "en",
         course_context: str | None = None,
         source_metadata: dict | None = None,
     ) -> Document:
         doc = Document(
+            document_id=None if document_id is None else _as_uuid(document_id),
             user_id=_as_uuid(user_id),
             title=title,
+            source_kind=source_kind,
+            is_favorite=is_favorite,
             default_language=default_language,
             course_context=course_context,
             source_metadata=source_metadata,
@@ -200,6 +206,12 @@ class DocumentRepository(_ScopedRepository):
             )
         elif view == "trash":
             stmt = stmt.where(Document.trashed_at.is_not(None))
+        elif view == "favorites":
+            stmt = stmt.where(
+                Document.is_favorite.is_(True),
+                Document.archived_at.is_(None),
+                Document.trashed_at.is_(None),
+            )
         else:
             if not include_archived:
                 stmt = stmt.where(Document.archived_at.is_(None))
@@ -268,6 +280,7 @@ class DocumentRepository(_ScopedRepository):
         *,
         title: str | None = None,
         archived: bool | None = None,
+        favorite: bool | None = None,
         default_language: str | None = None,
         course_context: str | None = None,
         set_course_context: bool = False,
@@ -288,6 +301,8 @@ class DocumentRepository(_ScopedRepository):
             document.title = title
         if archived is not None:
             document.archived_at = utcnow() if archived else None
+        if favorite is not None:
+            document.is_favorite = favorite
         if default_language is not None:
             document.default_language = default_language
         if set_course_context:
@@ -538,6 +553,7 @@ class DocumentSyncRepository(_ScopedRepository):
                             "document_id": str(document.document_id),
                             "title": document.title,
                             "source_kind": document.source_kind,
+                            "is_favorite": document.is_favorite,
                             "active_revision_id": (
                                 str(document.active_revision_id)
                                 if document.active_revision_id is not None
@@ -1637,6 +1653,28 @@ class InkBundleRepository(_ScopedRepository):
         )
         return self._session.scalars(stmt).one_or_none()
 
+    def next_revision_number(
+        self, user_id: UUIDLike | str, page_id: UUIDLike | str
+    ) -> int:
+        stmt = select(func.max(InkBundle.revision_number)).where(
+            InkBundle.user_id == _as_uuid(user_id),
+            InkBundle.page_id == _as_uuid(page_id),
+        )
+        return int(self._session.scalar(stmt) or 0) + 1
+
+    def list_for_page(
+        self, user_id: UUIDLike | str, page_id: UUIDLike | str
+    ) -> Sequence[InkBundle]:
+        stmt = (
+            select(InkBundle)
+            .where(
+                InkBundle.user_id == _as_uuid(user_id),
+                InkBundle.page_id == _as_uuid(page_id),
+            )
+            .order_by(InkBundle.revision_number.desc())
+        )
+        return list(self._session.scalars(stmt).all())
+
     def latest_for_page(
         self, user_id: UUIDLike | str, page_id: UUIDLike | str
     ) -> Optional[InkBundle]:
@@ -1646,7 +1684,7 @@ class InkBundleRepository(_ScopedRepository):
                 InkBundle.user_id == _as_uuid(user_id),
                 InkBundle.page_id == _as_uuid(page_id),
             )
-            .order_by(InkBundle.created_at.desc())
+            .order_by(InkBundle.revision_number.desc(), InkBundle.created_at.desc())
             .limit(1)
         )
         return self._session.scalars(stmt).first()

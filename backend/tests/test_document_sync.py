@@ -178,6 +178,77 @@ def test_push_is_idempotent_and_pull_uses_server_cursor(sync_client) -> None:
         assert len(RepositoryFactory(session).sync.list_operations(user.user_id)) == 2
 
 
+def test_favorite_operation_projects_and_pulls_as_a_document_change(sync_client) -> None:
+    client, session_factory, store = sync_client
+    user, token = _user_and_token(session_factory, store, "favorite-alice")
+    document = _document(session_factory, user.user_id)
+    operation = _operation(
+        document.document_id,
+        base=0,
+        operation_type="document.favorite",
+        payload={"favorite": True},
+    )
+
+    response = client.post(
+        "/sync/push", json={"operations": [operation]}, headers=_auth(token)
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["accepted"][0]["sync_version"] == 1
+
+    pulled = client.get("/sync/pull?cursor=0", headers=_auth(token))
+    assert pulled.status_code == 200
+    assert pulled.json()["items"][0]["operation_type"] == "document.favorite"
+    assert pulled.json()["items"][0]["payload"] == {"favorite": True}
+
+    with session_factory() as session:
+        stored = session.get(Document, document.document_id)
+        assert stored is not None
+        assert stored.is_favorite is True
+
+
+def test_organization_operations_project_and_sync_metadata(sync_client) -> None:
+    client, session_factory, store = sync_client
+    user, token = _user_and_token(session_factory, store, "organization-alice")
+    document = _document(session_factory, user.user_id)
+
+    tags = _operation(
+        document.document_id,
+        base=0,
+        operation_type="document.tags",
+        payload={"tags": ["math", "exam", "math"]},
+    )
+    tags_response = client.post(
+        "/sync/push", json={"operations": [tags]}, headers=_auth(token)
+    )
+    assert tags_response.status_code == 200, tags_response.text
+
+    move = _operation(
+        document.document_id,
+        base=1,
+        operation_type="document.move",
+        payload={"folder_id": "semester-1"},
+    )
+    move_response = client.post(
+        "/sync/push", json={"operations": [move]}, headers=_auth(token)
+    )
+    assert move_response.status_code == 200, move_response.text
+
+    with session_factory() as session:
+        stored = session.get(Document, document.document_id)
+        assert stored is not None
+        assert stored.source_metadata == {
+            "tags": ["math", "exam"],
+            "folder_id": "semester-1",
+        }
+
+    pulled = client.get("/sync/pull?cursor=0", headers=_auth(token))
+    assert pulled.status_code == 200
+    assert [item["operation_type"] for item in pulled.json()["items"]] == [
+        "document.tags",
+        "document.move",
+    ]
+
+
 def test_stale_operations_are_retained_as_owner_scoped_conflicts(sync_client) -> None:
     client, session_factory, store = sync_client
     alice, alice_token = _user_and_token(session_factory, store, "alice")
@@ -259,3 +330,282 @@ def test_batch_versions_are_checked_in_order_and_payload_is_bounded(sync_client)
         headers=_auth(token),
     )
     assert too_many.status_code == 422
+
+
+def test_offline_document_create_assigns_stable_id_and_bootstraps_first_page(sync_client) -> None:
+    client, session_factory, store = sync_client
+    user, token = _user_and_token(session_factory, store, "offline-alice")
+    document_id = uuid.uuid4()
+    page_id = uuid.uuid4()
+    operation = _operation(
+        document_id,
+        base=0,
+        operation_type="document.create",
+        payload={
+            "title": "Offline class notes",
+            "default_language": "en",
+            "source_kind": "native_ink",
+            "source_metadata": {"original_filename": "class-notes.pdf"},
+            "pages": [
+                {
+                    "page_id": str(page_id),
+                    "page_index": 0,
+                    "width": 768,
+                    "height": 1024,
+                    "dpi": 132,
+                    "coordinate_space": "points",
+                }
+            ],
+        },
+    )
+
+    first = client.post("/sync/push", json={"operations": [operation]}, headers=_auth(token))
+    assert first.status_code == 200, first.text
+    body = first.json()
+    assert body["accepted"][0]["document_id"] == str(document_id)
+    assert body["accepted"][0]["sync_version"] == 1
+
+    repeated = client.post("/sync/push", json={"operations": [operation]}, headers=_auth(token))
+    assert repeated.status_code == 200, repeated.text
+    assert repeated.json()["accepted"][0]["idempotent"] is True
+
+    with session_factory() as session:
+        stored = session.get(Document, document_id)
+        assert stored is not None
+        assert stored.title == "Offline class notes"
+        assert stored.source_metadata == {"original_filename": "class-notes.pdf"}
+        assert stored.sync_version == 1
+        assert len(stored.pages) == 1
+        assert stored.pages[0].page_id == page_id
+
+    pulled = client.get("/sync/pull?cursor=0", headers=_auth(token))
+    assert pulled.status_code == 200, pulled.text
+    assert pulled.json()["items"][0]["operation_type"] == "document.create"
+
+
+def test_page_operations_keep_normalized_order_and_reject_last_page_delete(sync_client) -> None:
+    client, session_factory, store = sync_client
+    user, token = _user_and_token(session_factory, store, "page-alice")
+    document = _document(session_factory, user.user_id)
+    first_page = uuid.uuid4()
+    second_page = uuid.uuid4()
+
+    def push(base: int, operation_type: str, payload: dict) -> dict:
+        response = client.post(
+            "/sync/push",
+            json={"operations": [_operation(
+                document.document_id,
+                base=base,
+                operation_type=operation_type,
+                payload=payload,
+            )]},
+            headers=_auth(token),
+        )
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    first = push(
+        0,
+        "page.add",
+        {"page": {
+            "page_id": str(first_page),
+            "page_index": 0,
+            "width": 768,
+            "height": 1024,
+            "dpi": 132,
+            "coordinate_space": "points",
+        }, "page_index": 0},
+    )
+    assert first["accepted"][0]["sync_version"] == 1
+    second = push(
+        1,
+        "page.add",
+        {"page": {
+            "page_id": str(second_page),
+            "page_index": 1,
+            "width": 768,
+            "height": 1024,
+            "dpi": 132,
+            "coordinate_space": "points",
+        }, "page_index": 1},
+    )
+    assert second["accepted"][0]["sync_version"] == 2
+    reordered = push(
+        2,
+        "page.reorder",
+        {"page_id": str(second_page), "page_index": 0},
+    )
+    assert reordered["accepted"][0]["sync_version"] == 3
+
+    with session_factory() as session:
+        stored = session.get(Document, document.document_id)
+        assert stored is not None
+        assert [page.page_id for page in stored.pages] == [second_page, first_page]
+        assert [page.page_index for page in stored.pages] == [0, 1]
+
+    deleted = push(
+        3,
+        "page.delete",
+        {"page_id": str(first_page)},
+    )
+    assert deleted["accepted"][0]["sync_version"] == 4
+
+    last_delete = client.post(
+        "/sync/push",
+        json={"operations": [_operation(
+            document.document_id,
+            base=4,
+            operation_type="page.delete",
+            payload={"page_id": str(second_page)},
+        )]},
+        headers=_auth(token),
+    )
+    assert last_delete.status_code == 422, last_delete.text
+
+
+def test_page_template_operation_round_trips_and_validates(sync_client) -> None:
+    client, session_factory, store = sync_client
+    user, token = _user_and_token(session_factory, store, "page-template-alice")
+    document = _document(session_factory, user.user_id)
+    page_id = uuid.uuid4()
+
+    create = client.post(
+        "/sync/push",
+        json={"operations": [_operation(
+            document.document_id,
+            base=0,
+            operation_type="page.add",
+            payload={"page": {
+                "page_id": str(page_id),
+                "page_index": 0,
+                "title": "Formula sheet",
+                "width": 768,
+                "height": 1024,
+                "dpi": 132,
+                "coordinate_space": "points",
+                "paper_template": "grid",
+            }, "page_index": 0},
+        )]},
+        headers=_auth(token),
+    )
+    assert create.status_code == 200, create.text
+
+    update = client.post(
+        "/sync/push",
+        json={"operations": [_operation(
+            document.document_id,
+            base=1,
+            operation_type="page.template",
+            payload={"page_id": str(page_id), "paper_template": "cornell"},
+        )]},
+        headers=_auth(token),
+    )
+    assert update.status_code == 200, update.text
+
+    with session_factory() as session:
+        stored = session.get(Document, document.document_id)
+        assert stored is not None
+        assert stored.pages[0].paper_template == "cornell"
+
+    rename = client.post(
+        "/sync/push",
+        json={"operations": [_operation(
+            document.document_id,
+            base=2,
+            operation_type="page.rename",
+            payload={"page_id": str(page_id), "title": "Chapter 1"},
+        )]},
+        headers=_auth(token),
+    )
+    assert rename.status_code == 200, rename.text
+    with session_factory() as session:
+        stored = session.get(Document, document.document_id)
+        assert stored is not None
+        assert stored.pages[0].title == "Chapter 1"
+
+    resize = client.post(
+        "/sync/push",
+        json={"operations": [_operation(
+            document.document_id,
+            base=3,
+            operation_type="page.resize",
+            payload={"page_id": str(page_id), "width": 595, "height": 842},
+        )]},
+        headers=_auth(token),
+    )
+    assert resize.status_code == 200, resize.text
+    with session_factory() as session:
+        stored = session.get(Document, document.document_id)
+        assert stored is not None
+        assert stored.pages[0].width == 595
+        assert stored.pages[0].height == 842
+
+    invalid = client.post(
+        "/sync/push",
+        json={"operations": [_operation(
+            document.document_id,
+            base=4,
+            operation_type="page.template",
+            payload={"page_id": str(page_id), "paper_template": "unknown"},
+        )]},
+        headers=_auth(token),
+    )
+    assert invalid.status_code == 422, invalid.text
+
+
+def test_permanent_delete_requires_trash_and_emits_tombstone(sync_client) -> None:
+    client, session_factory, store = sync_client
+    user, token = _user_and_token(session_factory, store, "permanent-delete-alice")
+    document = _document(session_factory, user.user_id)
+
+    not_trashed = client.post(
+        "/sync/push",
+        json={"operations": [_operation(
+            document.document_id,
+            base=0,
+            operation_type="document.delete",
+            payload={},
+        )]},
+        headers=_auth(token),
+    )
+    assert not_trashed.status_code == 422, not_trashed.text
+
+    trash = client.post(
+        "/sync/push",
+        json={"operations": [_operation(
+            document.document_id,
+            base=0,
+            operation_type="document.trash",
+            payload={},
+        )]},
+        headers=_auth(token),
+    )
+    assert trash.status_code == 200, trash.text
+
+    delete = client.post(
+        "/sync/push",
+        json={"operations": [_operation(
+            document.document_id,
+            base=1,
+            operation_type="document.delete",
+            payload={},
+        )]},
+        headers=_auth(token),
+    )
+    assert delete.status_code == 200, delete.text
+    assert delete.json()["accepted"][0]["sync_version"] == 2
+
+    with session_factory() as session:
+        stored = session.get(Document, document.document_id)
+        assert stored is not None
+        assert stored.deleted_at is not None
+
+    with session_factory() as session:
+        assert RepositoryFactory(session).documents.get(user.user_id, document.document_id) is None
+
+    pulled = client.get("/sync/pull?cursor=0&limit=20", headers=_auth(token))
+    assert pulled.status_code == 200, pulled.text
+    delete_change = next(
+        item for item in pulled.json()["items"] if item["operation_type"] == "document.delete"
+    )
+    assert delete_change["is_tombstone"] is True

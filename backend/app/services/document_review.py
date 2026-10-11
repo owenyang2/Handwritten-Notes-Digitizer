@@ -221,6 +221,9 @@ def post_region_review(
                 status_code=422,
                 detail="prediction_id does not belong to this region.",
             )
+        page = repos.document_pages.get(user.user_id, region.page_id)
+        if prediction.source_page_revision is not None and page is not None and prediction.source_page_revision != page.page_revision:
+            raise HTTPException(409, "Source changed. Convert the current page before reviewing.")
 
     previous = repos.review_revisions.latest_for_region(user.user_id, region.region_id)
     legacy_previous = repos.region_reviews.latest_for_region(user.user_id, region.region_id)
