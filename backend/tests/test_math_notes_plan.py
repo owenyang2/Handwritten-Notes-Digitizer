@@ -35,6 +35,23 @@ from app.ml.train_base import UnsupportedLabelError, encode_text
 from app.services.personalization_service import complete_training_run
 
 
+def test_formula_metrics_preserve_token_errors_and_paired_page_bootstrap():
+    from benchmarks.metrics import paired_bootstrap_delta_ci, token_error_rate
+
+    assert token_error_rate("x + y", "x - y") == pytest.approx(0.2)
+    assert token_error_rate("", "") == 0.0
+    assert token_error_rate("", "x") == 1.0
+    assert paired_bootstrap_delta_ci(
+        [0.7, 0.4, 0.2], [0.3, 0.3, 0.1],
+        groups=["p1", "p1", "p2"], resamples=128,
+    ) == pytest.approx((-0.2, -0.25, -0.1))
+    assert paired_bootstrap_delta_ci([], []) == (0.0, 0.0, 0.0)
+    with pytest.raises(ValueError, match="before and after"):
+        paired_bootstrap_delta_ci([0.5], [])
+    with pytest.raises(ValueError, match="groups"):
+        paired_bootstrap_delta_ci([0.5], [0.4], groups=[])
+
+
 def test_encode_text_rejects_unsupported_characters():
     with pytest.raises(UnsupportedLabelError):
         encode_text("a=b")

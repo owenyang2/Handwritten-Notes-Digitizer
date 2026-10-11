@@ -142,19 +142,7 @@ def token_error_rate(reference: str, hypothesis: str) -> float:
     hyp = _tokens(normalize_latex(hypothesis))
     if not ref:
         return 0.0 if not hyp else 1.0
-    # Levenshtein on tokens.
-    dp = list(range(len(hyp) + 1))
-    for i, ref_tok in enumerate(ref, start=1):
-        prev = dp[0]
-        dp[0] = i
-        for j, hyp_tok in enumerate(hyp, start=1):
-            cur = dp[j]
-            if ref_tok == hyp_tok:
-                dp[j] = prev
-            else:
-                dp[j] = 1 + min(prev, dp[j], dp[j - 1])
-            prev = cur
-    return dp[-1] / len(ref)
+    return _edit_distance(ref, hyp) / len(ref)
 
 
 def summarize(
@@ -274,27 +262,12 @@ def paired_bootstrap_delta_ci(
         raise ValueError("before and after must have the same length")
     if not before:
         return (0.0, 0.0, 0.0)
-    if groups is None:
-        groups = [str(index) for index in range(len(before))]
-    if len(groups) != len(before):
+    if groups is not None and len(groups) != len(before):
         raise ValueError("groups must have the same length as before and after")
-
-    grouped: dict[str, list[float]] = defaultdict(list)
-    for group, old, new in zip(groups, before, after):
-        grouped[str(group)].append(float(new) - float(old))
-    keys = sorted(grouped)
-    rng = random.Random(seed)
-    estimates: list[float] = []
-    for _ in range(max(1, resamples)):
-        sample: list[float] = []
-        for _ in keys:
-            sample.extend(grouped[rng.choice(keys)])
-        estimates.append(float(statistic(sample)))
-    estimates.sort()
-    low = estimates[int(0.025 * (len(estimates) - 1))]
-    high = estimates[int(0.975 * (len(estimates) - 1))]
-    point = statistic([float(new) - float(old) for old, new in zip(before, after)])
-    return float(point), low, high
+    deltas = [float(new) - float(old) for old, new in zip(before, after)]
+    return paired_bootstrap_ci(
+        deltas, groups=groups, statistic=statistic, resamples=resamples, seed=seed
+    )
 
 
 def render_formula(text: str) -> object | None:
