@@ -8,6 +8,7 @@ export interface MathEditorOptions {
   mount: HTMLElement;
   latex?: string;
   cropUrl?: string;
+  plainText?: boolean;
   onChange?: (latex: string) => void;
 }
 
@@ -25,10 +26,12 @@ export function renderLatexPreview(target: HTMLElement, latex: string): void {
 export class MathEditor {
   private readonly mount: HTMLElement;
   private onChange?: (latex: string) => void;
+  private plainText = false;
 
   constructor(options: MathEditorOptions) {
     this.mount = options.mount;
     this.onChange = options.onChange;
+    this.plainText = options.plainText ?? false;
     this.render(options.latex ?? "", options.cropUrl);
   }
 
@@ -40,7 +43,8 @@ export class MathEditor {
 
     const crop = document.createElement("img");
     crop.className = "math-editor-crop";
-    crop.alt = "Original formula crop";
+    crop.alt = this.plainText ? "Original handwriting crop" : "Original formula crop";
+    crop.hidden = !cropUrl;
     if (cropUrl) crop.src = cropUrl;
     layout.appendChild(crop);
 
@@ -53,11 +57,13 @@ export class MathEditor {
     const preview = document.createElement("div");
     preview.className = "math-editor-preview";
     preview.setAttribute("data-testid", "math-editor-preview");
-    renderLatexPreview(preview, latex);
+    if (this.plainText) preview.textContent = latex;
+    else renderLatexPreview(preview, latex);
     layout.appendChild(preview);
 
     textarea.addEventListener("input", () => {
-      renderLatexPreview(preview, textarea.value);
+      if (this.plainText) preview.textContent = textarea.value;
+      else renderLatexPreview(preview, textarea.value);
       this.onChange?.(textarea.value);
     });
 

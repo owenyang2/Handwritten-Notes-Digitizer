@@ -56,6 +56,7 @@ export class MathNotesWorkspace {
   private activeDocumentRevisionId: string | null = null;
   private activeExcluded = false;
   private includeInTraining = false;
+  private recognitionMode: "formula" | "prose" = "formula";
 
   constructor(options: MathNotesOptions) {
     this.mount = options.mount;
@@ -70,7 +71,7 @@ export class MathNotesWorkspace {
     this.mount.style.display = "";
 
     const heading = document.createElement("h2");
-    heading.textContent = "Formula review";
+    heading.textContent = this.recognitionMode === "prose" ? "Prose review" : "Formula review";
     this.mount.appendChild(heading);
 
     const help = document.createElement("p");
@@ -87,6 +88,24 @@ export class MathNotesWorkspace {
     autoLayoutButton.setAttribute("data-testid", "math-notes-auto-layout");
     layoutActions.appendChild(autoLayoutButton);
     this.mount.appendChild(layoutActions);
+    const modePicker = document.createElement("select");
+    modePicker.setAttribute("aria-label", "Recognition task");
+    modePicker.setAttribute("data-testid", "recognition-mode");
+    for (const [value, label] of [["formula", "Formulas"], ["prose", "Handwritten prose"]]) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      option.selected = value === this.recognitionMode;
+      modePicker.appendChild(option);
+    }
+    modePicker.addEventListener("change", () => {
+      this.recognitionMode = modePicker.value === "prose" ? "prose" : "formula";
+      heading.textContent = this.recognitionMode === "prose" ? "Prose review" : "Formula review";
+      help.textContent = this.recognitionMode === "prose"
+        ? "Select a handwritten text line or auto-detect lines. Review and save the text before exporting."
+        : "Select a complete expression. Review and save the LaTeX before exporting.";
+    });
+    layoutActions.prepend(modePicker);
 
     if (this.pages.length > 1) {
       const pagePicker = document.createElement("label");
@@ -255,10 +274,17 @@ export class MathNotesWorkspace {
       new MathEditor({
         mount: editorMount,
         latex: this.activeLatex,
+        plainText: region.content_type === "text",
         onChange: (latex) => {
           this.activeLatex = latex;
         },
       });
+      void this.loadCropPreview({x: region.bbox[0], y: region.bbox[1], width: region.bbox[2], height: region.bbox[3]})
+        .then((url) => {
+          if (this.activeRegionId !== region.region_id || !url) return;
+          const crop = editorMount.querySelector<HTMLImageElement>(".math-editor-crop");
+          if (crop) { crop.src = url; crop.hidden = false; }
+        });
       status.textContent = "Loaded saved region.";
     });
   }
@@ -273,10 +299,10 @@ export class MathNotesWorkspace {
     consent: HTMLInputElement,
   ): Promise<void> {
     status.textContent = "Queuing selected expression…";
-    const created = await createPageRegion(this.page.page_id, bbox);
+    const created = await createPageRegion(this.page.page_id, bbox, this.recognitionMode === "prose" ? "text" : "math_display", this.page.coordinate_space);
     const job = await createRecognitionJob(this.page.page_id, {
       region_ids: [created.region_id],
-      mode: "formula",
+      mode: this.recognitionMode,
     });
     const finished = await waitForRecognitionJob(job.job_id, (progress) => {
       status.textContent = progress.progress_total > 0
@@ -298,17 +324,12 @@ export class MathNotesWorkspace {
     consent.checked = false;
     consent.disabled = this.activeExcluded;
     saveBtn.disabled = false;
-    const img = new Image();
-    img.crossOrigin = "use-credentials";
-    img.src = getPageRasterUrl(this.page.page_id);
-    const cropUrl = await new Promise<string | undefined>((resolve) => {
-      img.onload = () => resolve(cropObjectUrl(img, bbox));
-      img.onerror = () => resolve(undefined);
-    });
+    const cropUrl = await this.loadCropPreview(bbox);
     new MathEditor({
       mount: editorMount,
       latex: this.activeLatex,
       cropUrl,
+      plainText: this.recognitionMode === "prose",
       onChange: (latex) => {
         this.activeLatex = latex;
       },
@@ -327,6 +348,19 @@ export class MathNotesWorkspace {
     this.renderQueue(queueMount, editorMount, saveBtn, status, exclusion, consent);
   }
 
+  private loadCropPreview(bbox: {x: number; y: number; width: number; height: number}): Promise<string | undefined> {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = "use-credentials";
+      img.onload = () => {
+        try { resolve(cropObjectUrl(img, bbox)); }
+        catch { resolve(undefined); }
+      };
+      img.onerror = () => resolve(undefined);
+      img.src = getPageRasterUrl(this.page.page_id);
+    });
+  }
+
   private async autoLayout(
     button: HTMLButtonElement,
     queueMount: HTMLElement,
@@ -341,7 +375,7 @@ export class MathNotesWorkspace {
     try {
       const job = await createRecognitionJob(this.page.page_id, {
         auto_layout: true,
-        mode: "formula",
+        mode: this.recognitionMode,
       });
       const finished = await waitForRecognitionJob(job.job_id, (progress) => {
         status.textContent = progress.progress_total > 0

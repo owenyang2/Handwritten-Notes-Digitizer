@@ -4,6 +4,13 @@ import { PageViewer } from "./pageViewer.js";
 import { ReviewQueue } from "./reviewQueue.js";
 
 describe("MathEditor", () => {
+  it("keeps prose, currency and markup literal in the review preview", () => {
+    const mount = document.createElement("div");
+    new MathEditor({ mount, latex: "Cost $10 <b>today</b>", plainText: true });
+    const preview = mount.querySelector("[data-testid='math-editor-preview']")!;
+    expect(preview.textContent).toBe("Cost $10 <b>today</b>");
+    expect(preview.querySelector("b, .katex")).toBeNull();
+  });
   it("renders a supported formula with KaTeX", () => {
     const mount = document.createElement("div");
     new MathEditor({ mount, latex: "x^2" });

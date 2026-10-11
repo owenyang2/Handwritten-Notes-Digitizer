@@ -7,7 +7,7 @@
 //   - Unavailable states show "unavailable" text
 //   - formatMetric and formatDelta helpers
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   BeforeAfterView,
   formatMetric,
@@ -821,5 +821,25 @@ describe("BeforeAfterView.setAuthToken", () => {
     const view = new BeforeAfterView({ mount });
     // Should not throw.
     expect(() => view.setAuthToken("test-token-abc")).not.toThrow();
+  });
+
+  it("preserves the custom API origin, updated token, optional assignments, and empty deletes", async () => {
+    const view = new BeforeAfterView({ mount: document.createElement("div"), apiBase: "https://notes.example/api" });
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify(makeStatus()), { status: 200 }))
+      .mockResolvedValueOnce(new Response("Not found", { status: 404 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    try {
+      view.setAuthToken("updated-token");
+      expect(await view.fetchStatus()).toEqual(makeStatus());
+      expect(fetchMock).toHaveBeenNthCalledWith(1, "https://notes.example/api/personalization/status", expect.objectContaining({
+        credentials: "include",
+        headers: expect.objectContaining({ Authorization: "Bearer updated-token" }),
+      }));
+      expect(await view.fetchAssignments()).toEqual([]);
+      await expect(view.deleteTrainingPair("pair-1")).resolves.toBeUndefined();
+    } finally {
+      fetchMock.mockRestore();
+    }
   });
 });

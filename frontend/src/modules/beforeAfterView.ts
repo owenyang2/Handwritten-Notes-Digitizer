@@ -15,6 +15,7 @@
 //   5. Shows an appropriate message when personalization failed or was rejected.
 
 import type { BeforeAfterReport } from "../types.js";
+import { ApiError, fetchJson } from "../api/client.js";
 
 // --------------------------------------------------------------------------- //
 // API response shapes (mirrors backend Pydantic models)
@@ -144,108 +145,54 @@ export class BeforeAfterView {
   // API calls
   // --------------------------------------------------------------------------
 
+  private request<T>(path: string, init?: RequestInit): Promise<T> {
+    return fetchJson<T>(path, {
+      ...init,
+      headers: {
+        ...(init?.headers ?? {}),
+        ...(this.authToken ? { Authorization: `Bearer ${this.authToken}` } : {}),
+      },
+    }, this.apiBase);
+  }
+
   /** Fetch GET /personalization/status for the authenticated user. */
   async fetchStatus(): Promise<PersonalizationStatusResponse> {
-    const headers: Record<string, string> = {};
-    if (this.authToken) {
-      headers["Authorization"] = `Bearer ${this.authToken}`;
-    }
-    const resp = await fetch(`${this.apiBase}/personalization/status`, {
-      headers,
-      credentials: "include",
-    });
-    if (!resp.ok) {
-      throw new Error(`Status fetch failed: ${resp.status} ${resp.statusText}`);
-    }
-    return resp.json() as Promise<PersonalizationStatusResponse>;
+    return this.request("/personalization/status");
   }
 
   /** Fetch GET /personalization/evaluation for the authenticated user. */
   async fetchEvaluation(): Promise<EvaluationApiResponse> {
-    const headers: Record<string, string> = {};
-    if (this.authToken) {
-      headers["Authorization"] = `Bearer ${this.authToken}`;
-    }
-    const resp = await fetch(`${this.apiBase}/personalization/evaluation`, {
-      headers,
-      credentials: "include",
-    });
-    if (!resp.ok) {
-      throw new Error(`Evaluation fetch failed: ${resp.status} ${resp.statusText}`);
-    }
-    return resp.json() as Promise<EvaluationApiResponse>;
+    return this.request("/personalization/evaluation");
   }
 
   /** Fetch GET /personalization/training-pairs for transparency data. */
   async fetchTrainingPairs(): Promise<TrainingPairListResponse> {
-    const headers: Record<string, string> = {};
-    if (this.authToken) {
-      headers["Authorization"] = `Bearer ${this.authToken}`;
-    }
-    const resp = await fetch(`${this.apiBase}/personalization/training-pairs`, {
-      headers,
-      credentials: "include",
-    });
-    if (!resp.ok) {
-      throw new Error(`Training-pairs fetch failed: ${resp.status} ${resp.statusText}`);
-    }
-    return resp.json() as Promise<TrainingPairListResponse>;
+    return this.request("/personalization/training-pairs");
   }
 
   /** Fetch safe model-routing evidence for the authenticated user. */
   async fetchAssignments(): Promise<ModelAssignmentSummaryResponse[]> {
-    const headers: Record<string, string> = {};
-    if (this.authToken) {
-      headers["Authorization"] = `Bearer ${this.authToken}`;
+    try {
+      return await this.request("/personalization/assignments");
+    } catch (err) {
+      // Assignment evidence is optional against an older backend.
+      if (err instanceof ApiError && err.status === 404) return [];
+      throw err;
     }
-    const resp = await fetch(`${this.apiBase}/personalization/assignments`, {
-      headers,
-      credentials: "include",
-    });
-    // Keep the status view usable against an older backend during a rolling
-    // deploy; assignment evidence is additive and a missing endpoint means
-    // there is simply no evidence to display yet.
-    if (resp.status === 404) return [];
-    if (!resp.ok) {
-      throw new Error(`Model-assignment fetch failed: ${resp.status} ${resp.statusText}`);
-    }
-    return resp.json() as Promise<ModelAssignmentSummaryResponse[]>;
   }
 
   /** Update the label text for one stored training example. */
   async updateTrainingPair(pairId: string, correctedText: string): Promise<TrainingPairSummaryResponse> {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-    if (this.authToken) {
-      headers["Authorization"] = `Bearer ${this.authToken}`;
-    }
-    const resp = await fetch(`${this.apiBase}/personalization/training-pairs/${pairId}`, {
+    return this.request(`/personalization/training-pairs/${pairId}`, {
       method: "PATCH",
-      headers,
-      credentials: "include",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ corrected_text: correctedText }),
     });
-    if (!resp.ok) {
-      throw new Error(`Training-pair update failed: ${resp.status} ${resp.statusText}`);
-    }
-    return resp.json() as Promise<TrainingPairSummaryResponse>;
   }
 
   /** Delete one stored training example. */
   async deleteTrainingPair(pairId: string): Promise<void> {
-    const headers: Record<string, string> = {};
-    if (this.authToken) {
-      headers["Authorization"] = `Bearer ${this.authToken}`;
-    }
-    const resp = await fetch(`${this.apiBase}/personalization/training-pairs/${pairId}`, {
-      method: "DELETE",
-      headers,
-      credentials: "include",
-    });
-    if (!resp.ok) {
-      throw new Error(`Training-pair delete failed: ${resp.status} ${resp.statusText}`);
-    }
+    await this.request(`/personalization/training-pairs/${pairId}`, { method: "DELETE" });
   }
 
   // --------------------------------------------------------------------------

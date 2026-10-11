@@ -99,11 +99,12 @@ function detailToMessage(detail: unknown): string | undefined {
   return undefined;
 }
 
-async function fetchJson<T>(
+export async function fetchJson<T>(
   path: string,
   init?: RequestInit,
+  baseUrl?: string,
 ): Promise<T> {
-  const { data } = await fetchJsonWithMeta<T>(path, init);
+  const { data } = await fetchJsonWithMeta<T>(path, init, baseUrl);
   return data;
 }
 
@@ -120,8 +121,9 @@ interface FetchJsonMeta<T> {
 async function fetchJsonWithMeta<T>(
   path: string,
   init?: RequestInit,
+  baseUrl = getBaseUrl(),
 ): Promise<FetchJsonMeta<T>> {
-  const url = `${getBaseUrl()}${path}`;
+  const url = `${baseUrl}${path}`;
   const response = await fetch(url, {
     credentials: "include", // send session cookie
     ...init,
@@ -144,7 +146,7 @@ async function fetchJsonWithMeta<T>(
   }
 
   return {
-    data: (await response.json()) as T,
+    data: response.status === 204 ? undefined as T : (await response.json()) as T,
     headers: response.headers,
   };
 }
@@ -643,6 +645,7 @@ export async function createPageRegion(
   pageId: string,
   bbox: { x: number; y: number; width: number; height: number },
   contentType = "math_display",
+  coordinateSpace?: string,
 ): Promise<CreateRegionResponse> {
   return fetchJson<CreateRegionResponse>(`/pages/${encodeURIComponent(pageId)}/regions`, {
     method: "POST",
@@ -650,28 +653,9 @@ export async function createPageRegion(
     body: JSON.stringify({
       bbox: [bbox.x, bbox.y, bbox.width, bbox.height],
       content_type: contentType,
+      ...(coordinateSpace ? { coordinate_space: coordinateSpace } : {}),
     }),
   });
-}
-
-export interface RecognizeRegionResponse {
-  region_id: string;
-  prediction_id: string | null;
-  engine_id: string;
-  text: string;
-  truncated: boolean;
-  available: boolean;
-  reason: string | null;
-  score?: number | null;
-  candidates?: Array<{ text: string; score?: number | null; truncated?: boolean; kind?: string }>;
-  latency_ms?: number | null;
-}
-
-export async function recognizeRegion(regionId: string): Promise<RecognizeRegionResponse> {
-  return fetchJson<RecognizeRegionResponse>(
-    `/regions/${encodeURIComponent(regionId)}/recognize`,
-    { method: "POST" },
-  );
 }
 
 export interface RegionReviewResponse {
@@ -761,12 +745,6 @@ export async function getRecognitionJob(jobId: string): Promise<RecognitionJobDt
   return fetchJson<RecognitionJobDto>(`/jobs/${encodeURIComponent(jobId)}`);
 }
 
-export async function retryRecognitionJob(jobId: string): Promise<RecognitionJobDto> {
-  return fetchJson<RecognitionJobDto>(`/jobs/${encodeURIComponent(jobId)}/retry`, {
-    method: "POST",
-  });
-}
-
 const TERMINAL_RECOGNITION_JOB_STATES = new Set([
   "succeeded",
   "no_text",
@@ -790,58 +768,6 @@ export async function waitForRecognitionJob(
     delay = Math.min(1_000, Math.round(delay * 1.35));
   }
   throw new Error("Recognition job did not finish before the client wait limit.");
-}
-
-export async function patchPageRegion(
-  regionId: string,
-  payload: {
-    bbox?: [number, number, number, number];
-    content_type?: string;
-    order_index?: number;
-    expected_page_revision?: number;
-  },
-): Promise<CreateRegionResponse> {
-  return fetchJson<CreateRegionResponse>(`/regions/${encodeURIComponent(regionId)}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-}
-
-export async function reorderPageRegions(pageId: string, regionIds: string[]): Promise<CreateRegionResponse[]> {
-  return fetchJson<CreateRegionResponse[]>(`/pages/${encodeURIComponent(pageId)}/regions/reorder`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ region_ids: regionIds }),
-  });
-}
-
-export async function splitPageRegion(regionId: string, boxes: Array<[number, number, number, number]>): Promise<CreateRegionResponse[]> {
-  return fetchJson<CreateRegionResponse[]>(`/regions/${encodeURIComponent(regionId)}/split`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ boxes }),
-  });
-}
-
-export async function mergePageRegions(pageId: string, regionIds: string[], contentType?: string): Promise<CreateRegionResponse> {
-  return fetchJson<CreateRegionResponse>(`/pages/${encodeURIComponent(pageId)}/regions/merge`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ region_ids: regionIds, content_type: contentType }),
-  });
-}
-
-export interface DocumentRevisionSummary {
-  revision_id: string;
-  revision_number: number;
-  created_at: string;
-}
-
-export async function getDocumentRevisions(documentId: string): Promise<DocumentRevisionSummary[]> {
-  return fetchJson<DocumentRevisionSummary[]>(
-    `/documents/${encodeURIComponent(documentId)}/revisions`,
-  );
 }
 
 export function getPageRasterUrl(pageId: string): string {
@@ -1182,79 +1108,6 @@ export async function acknowledgeSyncCursor(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ cursor }),
     },
-  );
-}
-
-export async function listSyncClients(): Promise<SyncClientInfo[]> {
-  return fetchJson<SyncClientInfo[]>("/sync/clients", { method: "GET" });
-}
-
-export interface ResumableUploadSession {
-  upload_id: string;
-  filename: string;
-  content_type: string | null;
-  expected_size: number;
-  expected_sha256: string;
-  received_size: number;
-  part_size: number;
-  status: string;
-  document_id: string | null;
-  assembled_ref: string | null;
-  parts: Array<{ part_number: number; size_bytes: number; sha256: string }>;
-  expires_at: string;
-  error_code: string | null;
-  error_message: string | null;
-}
-
-export async function createResumableUpload(body: {
-  filename: string;
-  expected_size: number;
-  expected_sha256: string;
-  content_type?: string;
-  part_size?: number;
-  idempotency_key?: string;
-  document_id?: string;
-}): Promise<ResumableUploadSession> {
-  return fetchJson<ResumableUploadSession>("/uploads", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-}
-
-export async function uploadResumablePart(
-  uploadId: string,
-  partNumber: number,
-  data: Blob,
-  sha256: string,
-  signal?: AbortSignal,
-): Promise<ResumableUploadSession> {
-  return fetchJson<ResumableUploadSession>(
-    `/uploads/${encodeURIComponent(uploadId)}/parts/${partNumber}`,
-    {
-      method: "PUT",
-      headers: { "X-Part-SHA256": sha256 },
-      body: data,
-      signal,
-    },
-  );
-}
-
-export async function completeResumableUpload(
-  uploadId: string,
-): Promise<ResumableUploadSession> {
-  return fetchJson<ResumableUploadSession>(
-    `/uploads/${encodeURIComponent(uploadId)}/complete`,
-    { method: "POST" },
-  );
-}
-
-export async function getResumableUpload(
-  uploadId: string,
-): Promise<ResumableUploadSession> {
-  return fetchJson<ResumableUploadSession>(
-    `/uploads/${encodeURIComponent(uploadId)}`,
-    { method: "GET" },
   );
 }
 

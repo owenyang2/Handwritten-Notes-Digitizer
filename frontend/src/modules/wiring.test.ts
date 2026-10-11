@@ -38,8 +38,9 @@ function cleanup(el: HTMLElement): void {
 // API client mock helpers
 // ---------------------------------------------------------------------------
 
-// We mock the entire api/client module so no real HTTP calls are made.
-vi.mock("../api/client.js", () => ({
+// Mock API endpoints while the shared transport uses the stubbed fetch below.
+vi.mock("../api/client.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/client.js")>()),
   getHealth: vi.fn(),
   uploadImage: vi.fn(),
   recognizeImage: vi.fn(),
@@ -58,8 +59,6 @@ vi.mock("../api/client.js", () => ({
   createRecognitionJob: vi.fn(),
   getRecognitionJob: vi.fn(),
   waitForRecognitionJob: vi.fn(),
-  retryRecognitionJob: vi.fn(),
-  recognizeRegion: vi.fn(),
   saveRegionReview: vi.fn(),
   listPageRegions: vi.fn(),
   getPageRasterUrl: vi.fn((pageId: string) => `/api/pages/${pageId}/raster`),
@@ -74,21 +73,8 @@ vi.mock("../api/client.js", () => ({
   resolveSyncConflict: vi.fn(),
   registerSyncClient: vi.fn(),
   acknowledgeSyncCursor: vi.fn(),
-  listSyncClients: vi.fn(),
-  createResumableUpload: vi.fn(),
-  uploadResumablePart: vi.fn(),
-  completeResumableUpload: vi.fn(),
-  getResumableUpload: vi.fn(),
   getConsent: vi.fn(),
   recordConsent: vi.fn(),
-  ApiError: class ApiError extends Error {
-    status: number;
-    constructor(status: number, message: string) {
-      super(message);
-      this.status = status;
-      this.name = "ApiError";
-    }
-  },
 }));
 
 vi.mock("../api/capabilities.js", () => ({
