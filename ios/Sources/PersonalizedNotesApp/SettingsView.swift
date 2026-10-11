@@ -25,6 +25,7 @@ struct AppSettings: Equatable {
 struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
+    @State private var endpointText = ""
 
     var body: some View {
         Form {
@@ -44,16 +45,74 @@ struct SettingsView: View {
                 Text(trainingConsentExplanation)
             }
 
-            Section("Device") {
+            Section {
                 LabeledContent("Client ID", value: model.clientID)
-                LabeledContent("API", value: OfflineStoreBootstrap.backendURL().absoluteString)
+            } header: {
+                Text("Device")
+            }
+
+            Section {
+                TextField("https://notes.example.com", text: $endpointText)
+                    .autocorrectionDisabled()
+                    #if canImport(UIKit)
+                    .keyboardType(.URL)
+                    .textInputAutocapitalization(.never)
+                    #endif
+                Button("Save API endpoint") {
+                    Task {
+                        if await model.updateBackendURL(endpointText) {
+                            endpointText = OfflineStoreBootstrap.backendURL().absoluteString
+                        }
+                    }
+                }
+                .disabled(endpointText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button {
+                    Task { await model.testBackendConnection() }
+                } label: {
+                    HStack {
+                        Text("Test connection")
+                        Spacer()
+                        if case .testing = model.backendConnectionState {
+                            ProgressView()
+                        }
+                    }
+                }
+                .disabled(endpointText != OfflineStoreBootstrap.backendURL().absoluteString)
+                endpointStatus
+            } header: {
+                Text("Backend")
+            } footer: {
+                Text("On a physical iPad, use the reachable server address—not 127.0.0.1, which points back to the iPad. Credentials are sent only to the endpoint you choose.")
             }
         }
         .navigationTitle("Settings")
+        .onAppear {
+            endpointText = OfflineStoreBootstrap.backendURL().absoluteString
+        }
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Done") { dismiss() }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var endpointStatus: some View {
+        switch model.backendConnectionState {
+        case .idle:
+            EmptyView()
+        case .testing:
+            Label("Checking server…", systemImage: "network")
+                .foregroundStyle(.secondary)
+        case let .connected(modelStatus):
+            Label(
+                modelStatus == "loaded" ? "Connected · handwriting model ready" : "Connected · handwriting model unavailable",
+                systemImage: "checkmark.circle.fill"
+            )
+            .foregroundStyle(modelStatus == "loaded" ? .green : .orange)
+        case let .failed(message):
+            Label(message, systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.red)
         }
     }
 

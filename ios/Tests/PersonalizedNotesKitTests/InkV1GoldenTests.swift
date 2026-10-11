@@ -20,6 +20,29 @@ final class InkV1GoldenTests: XCTestCase {
         XCTAssertEqual(try InkV1Codec.encode(again), first)
     }
 
+    func testContentHashChangesWhenNativeDrawingChanges() throws {
+        let base = Self.makeFixedBundle()
+        let first = InkBundle(
+            pageID: base.pageID,
+            coordinateSpace: base.coordinateSpace,
+            strokes: base.strokes,
+            capture: base.capture,
+            nativeDrawing: NativeDrawing(data: Data("native-a".utf8))
+        )
+        let second = InkBundle(
+            pageID: base.pageID,
+            coordinateSpace: base.coordinateSpace,
+            strokes: base.strokes,
+            capture: base.capture,
+            nativeDrawing: NativeDrawing(data: Data("native-b".utf8))
+        )
+
+        XCTAssertNotEqual(first.contentHash, second.contentHash)
+        XCTAssertNotEqual(try InkV1Codec.encode(first), try InkV1Codec.encode(second))
+        XCTAssertEqual(try InkV1Codec.decode(try InkV1Codec.encode(first)), first)
+        XCTAssertEqual(try InkV1Codec.decode(try InkV1Codec.encode(second)), second)
+    }
+
     func testEncodeDecodeRoundTrip() throws {
         let bundle = Self.makeFixedBundle()
         let encoded = try InkV1Codec.encode(bundle)

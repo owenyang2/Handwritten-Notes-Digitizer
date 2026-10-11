@@ -47,6 +47,7 @@ let package = Package(
             ],
             path: "Sources/PersonalizedNotesApp",
             exclude: [
+                "Info.plist",
                 "PersonalizedNotes.entitlements",
             ]
         ),

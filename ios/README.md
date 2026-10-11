@@ -52,4 +52,4 @@ The generated app is iPad-only (device family 2), iOS 17, Swift 6, linked with S
 
 ## Default backend
 
-The iPad client talks to `http://127.0.0.1:8000` unless `personalized-notes.backend-url` is set in UserDefaults. Point that at a reachable host when running on a physical device; loopback is only useful in Simulator next to a local FastAPI process.
+The iPad client talks to `http://127.0.0.1:8000` by default. Use Settings → Backend to enter and test a reachable host when running on a physical device; loopback is only useful in Simulator next to a local FastAPI process. Debug builds may use a controlled local HTTP host; non-loopback release endpoints must use HTTPS.

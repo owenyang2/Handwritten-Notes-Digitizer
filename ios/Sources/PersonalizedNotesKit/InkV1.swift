@@ -294,7 +294,11 @@ public struct InkBundle: Codable, Equatable, Hashable, Sendable {
             payload["native_drawing"] = [
                 "platform": nativeDrawing.platform,
                 "media_type": nativeDrawing.mediaType,
-                "platform_version": nativeDrawing.platformVersion as Any,
+                // CanonicalJSON accepts Foundation JSON values, not Swift's
+                // Optional.none. Encode a missing platform version as an
+                // explicit JSON null so the content hash covers the full
+                // bundle instead of silently falling back to SHA-256(empty).
+                "platform_version": nativeDrawing.platformVersion.map { $0 as Any } ?? NSNull(),
                 "data": nativeDrawing.data.base64EncodedString(),
             ]
         }

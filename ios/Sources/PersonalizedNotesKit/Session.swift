@@ -30,6 +30,22 @@ public enum SessionVaultError: Error, Equatable, Sendable {
     case invalidStoredSession
 }
 
+extension SessionVaultError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .invalidStoredSession:
+            return "The saved sign-in session could not be read. Sign in again."
+        case .keychain(let status):
+            #if canImport(Security)
+            let detail = SecCopyErrorMessageString(status.rawValue, nil) as String? ?? "Unknown Keychain error"
+            return "Secure sign-in storage failed: \(detail) (\(status.rawValue))."
+            #else
+            return "Secure sign-in storage failed (\(status.rawValue))."
+            #endif
+        }
+    }
+}
+
 /// A platform-independent wrapper for the small subset of OSStatus needed in
 /// the public error surface. This keeps the core package testable without
 /// leaking Security.framework types through every call site.
@@ -85,7 +101,9 @@ public final class KeychainSessionVault: SessionVault, @unchecked Sendable {
 
     public func load() throws -> AccountSession? {
         var result: CFTypeRef?
-        let status = SecItemCopyMatching(baseQuery() as CFDictionary, &result)
+        var query = baseQuery()
+        query[kSecReturnData] = true
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess else {
             throw SessionVaultError.keychain(OSStatusCode(rawValue: status))
@@ -136,7 +154,6 @@ public final class KeychainSessionVault: SessionVault, @unchecked Sendable {
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,
             kSecAttrAccount: account,
-            kSecReturnData: true,
         ]
     }
 }
@@ -154,23 +171,23 @@ public actor AccountSessionController {
         self.client = client
     }
 
-    public func restore() throws -> AccountSession? {
+    public func restore() async throws -> AccountSession? {
         let session = try vault.load()
         current = session
-        Task { await client.setSession(session) }
+        await client.setSession(session)
         return session
     }
 
-    public func install(_ session: AccountSession) throws {
+    public func install(_ session: AccountSession) async throws {
         try vault.save(session)
         current = session
-        Task { await client.setSession(session) }
+        await client.setSession(session)
     }
 
-    public func logout() throws {
+    public func logout() async throws {
         try vault.remove()
         current = nil
-        Task { await client.setSession(nil) }
+        await client.setSession(nil)
     }
 
     public func session() -> AccountSession? { current }

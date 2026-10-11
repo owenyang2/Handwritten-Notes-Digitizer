@@ -74,7 +74,21 @@ public enum APIJSON {
         decoder.keyDecodingStrategy = .custom { path in
             AnyJSONCodingKey(stringValue: decodeSnakeCasePreservingID(path.last?.stringValue ?? ""))
         }
-        decoder.dateDecodingStrategy = .iso8601
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let value = try container.decode(String.self)
+            // SQLite timestamps serialize without a zone; backend UTC values
+            // may include microseconds. Foundation's plain .iso8601 strategy
+            // rejects those real responses despite accepting the CI fixtures.
+            let hasZone = value.range(of: "(Z|[+-][0-9]{2}:[0-9]{2})$", options: .regularExpression) != nil
+            let normalized = hasZone ? value : value + "Z"
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = formatter.date(from: normalized) { return date }
+            formatter.formatOptions = [.withInternetDateTime]
+            if let date = formatter.date(from: normalized) { return date }
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Invalid backend timestamp: \(value)")
+        }
         return decoder
     }
 }
@@ -101,6 +115,7 @@ private func decodeSnakeCasePreservingID(_ key: String) -> String {
     let rest = parts.dropFirst().map { part -> String in
         if part == "id" { return "ID" }
         if part == "ids" { return "IDs" }
+        if part == "sha256" { return "SHA256" }
         return part.prefix(1).uppercased() + part.dropFirst()
     }.joined()
     return first + rest

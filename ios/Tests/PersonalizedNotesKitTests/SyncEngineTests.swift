@@ -32,6 +32,75 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertNil(response.items.first?.isTombstone)
     }
 
+    func testRecognitionRunDTOsRoundTripSnakeCaseAndExposeTerminalState() throws {
+        let request = RecognitionRunRequest(
+            scope: "page",
+            mode: "ink",
+            idempotencyKey: UUID(uuidString: "11111111-1111-4111-8111-111111111111"),
+            regionIDs: [],
+            inkBundleID: UUID(uuidString: "22222222-2222-4222-8222-222222222222")
+        )
+        let encoded = try APIJSON.encoder().encode(request)
+        let encodedObject = try JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        XCTAssertEqual(encodedObject?["idempotency_key"] as? String, "11111111-1111-4111-8111-111111111111")
+        XCTAssertTrue((encodedObject?["region_ids"] as? [Any])?.isEmpty == true)
+        XCTAssertEqual(encodedObject?["ink_bundle_id"] as? String, "22222222-2222-4222-8222-222222222222")
+
+        let run: RecognitionRun = try APIJSON.decoder().decode(
+            RecognitionRun.self,
+            from: Data(
+                """
+                {
+                  "run_id": "22222222-2222-4222-8222-222222222222",
+                  "document_id": "33333333-3333-4333-8333-333333333333",
+                  "page_id": "44444444-4444-4444-8444-444444444444",
+                  "state": "failed",
+                  "scope": "page",
+                  "mode": "ink",
+                  "error_message": "model_unavailable",
+                  "result_ids": [],
+                  "created_at": "2026-01-01T00:00:00Z"
+                }
+                """.utf8
+            )
+        )
+
+        XCTAssertEqual(run.state, "failed")
+        XCTAssertEqual(run.errorMessage, "model_unavailable")
+        XCTAssertTrue(run.isTerminal)
+        XCTAssertFalse(run.isSuccessful)
+
+        let persistedRun = try APIJSON.decoder().decode(
+            RecognitionRun.self,
+            from: APIJSON.encoder().encode(run)
+        )
+        XCTAssertEqual(persistedRun, run)
+    }
+
+    func testBackendHealthDTODecodesCapabilityAndModelReadiness() throws {
+        let health: BackendHealthResponse = try APIJSON.decoder().decode(
+            BackendHealthResponse.self,
+            from: Data(
+                """
+                {
+                  "status": "ok",
+                  "capabilities": {
+                    "recognition": false,
+                    "sync": true
+                  },
+                  "model_status": "unavailable",
+                  "model": {"loaded": false}
+                }
+                """.utf8
+            )
+        )
+
+        XCTAssertEqual(health.status, "ok")
+        XCTAssertEqual(health.modelStatus, "unavailable")
+        XCTAssertEqual(health.capabilities["sync"], .bool(true))
+        XCTAssertEqual(health.capabilities["recognition"], .bool(false))
+    }
+
     func testSyncNowPushesPendingOperationAndPullsEmptyFeed() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("sync-engine-\(UUID().uuidString)", isDirectory: true)

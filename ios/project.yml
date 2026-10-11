@@ -40,6 +40,20 @@ targets:
         CFBundleShortVersionString: "0.1.0"
         CFBundleVersion: "1"
         LSRequiresIPhoneOS: true
+        LSSupportsOpeningDocumentsInPlace: false
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.handwrittennotes.notebook
+            UTTypeDescription: Personalized Notes Notebook
+            UTTypeConformsTo:
+              - public.data
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - hndnote
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Personalized Notes Notebook
+            CFBundleTypeRole: Editor
+            LSItemContentTypes:
+              - com.handwrittennotes.notebook
         UISupportedInterfaceOrientations~ipad:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationPortraitUpsideDown
@@ -52,6 +66,9 @@ targets:
         BGTaskSchedulerPermittedIdentifiers:
           - com.handwrittennotes.digitizer.refresh
         NSPhotoLibraryUsageDescription: Personalized Notes can import photos you explicitly share into a notebook. The camera is not used.
+        NSLocalNetworkUsageDescription: Personalized Notes connects to your configured notes server on your local network for sign-in and sync.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
     entitlements:
@@ -71,7 +88,40 @@ targets:
         embed: true
         codeSign: true
     scheme:
-      testTargets: []
+      testTargets:
+        - PersonalizedNotesTests
+        - PersonalizedNotesUITests
+
+  PersonalizedNotesUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: UITests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.handwrittennotes.digitizer.uitests
+        PRODUCT_NAME: PersonalizedNotesUITests
+        TARGETED_DEVICE_FAMILY: "2"
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: PersonalizedNotes
+    dependencies:
+      - target: PersonalizedNotes
+
+  PersonalizedNotesTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Tests/PersonalizedNotesAppTests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.handwrittennotes.digitizer.tests
+        PRODUCT_NAME: PersonalizedNotesTests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: PersonalizedNotes
+    dependencies:
+      - target: PersonalizedNotes
 
   ShareExtension:
     type: app-extension

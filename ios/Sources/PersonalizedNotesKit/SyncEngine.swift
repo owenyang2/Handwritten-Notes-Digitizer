@@ -40,13 +40,13 @@ public enum SyncEngineError: Error, Equatable, Sendable {
 /// local operation in the same document; conflicts remain durable until a
 /// user-visible decision is recorded.
 public actor SyncEngine {
-    private let localStore: any LocalNotesStore
+    private let localStore: SQLiteLocalStore
     private let service: any SyncService
     public let clientID: String
     private var state: SyncState = .idle
 
     public init(
-        localStore: any LocalNotesStore,
+        localStore: SQLiteLocalStore,
         service: any SyncService,
         clientID: String
     ) {
@@ -74,6 +74,10 @@ public actor SyncEngine {
 
     public func pendingOperations(limit: Int = 50) async throws -> [PendingOperation] {
         try await localStore.pendingOperations(limit: limit)
+    }
+
+    public func failedOperations(limit: Int = 50) async throws -> [PendingOperation] {
+        try await localStore.failedOperations(limit: limit)
     }
 
     public func retry(operationID: UUID) async throws {
