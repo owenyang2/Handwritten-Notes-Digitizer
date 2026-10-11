@@ -1,8 +1,8 @@
 """UniMERNet-small backend adapter.
 
-The adapter supports a standard Transformers image-to-text checkpoint and an
-optional local ``inference.py`` bridge supplied by the upstream project.  A
-directory containing only a config is never advertised as usable.
+The adapter supports the official checkpoint through an isolated upstream
+runtime, a standard Transformers image-to-text checkpoint, and an optional
+local ``inference.py`` bridge. A config-only directory is never advertised as usable.
 """
 
 from __future__ import annotations
@@ -36,6 +36,8 @@ class UniMERNetEngine:
         self._model: Any = None
         self._processor: Any = None
         self._bridge: Any = None
+        self._bridge_probe: Any = None
+        self._bridge_with_settings: Any = None
         self._availability: bool | None = None
         self._reason = (
             f"UniMERNet-small weights were not found at {self.model_dir}. "
@@ -62,6 +64,8 @@ class UniMERNetEngine:
             return False
         try:
             self._ensure_loaded()
+            if self._bridge_probe is not None and not self._bridge_probe():
+                raise RuntimeError("upstream bridge did not pass its inference probe")
             self._availability = True
         except Exception as exc:
             self._reason = f"UniMERNet snapshot is unavailable: {exc}"
@@ -74,10 +78,20 @@ class UniMERNetEngine:
         started = time.perf_counter()
         inference_settings = settings or EngineSettings()
         try:
+            truncated = False
             with Image.open(io.BytesIO(image_bytes)) as opened:
                 image = opened.convert("RGB")
             if self._bridge is not None:
-                text = str(self._bridge(image_bytes))
+                prediction = (
+                    self._bridge_with_settings(image_bytes, max_tokens=inference_settings.max_tokens, beam_size=inference_settings.beam_size)
+                    if self._bridge_with_settings is not None
+                    else self._bridge(image_bytes)
+                )
+                if isinstance(prediction, dict):
+                    text = str(prediction["text"])
+                    truncated = bool(prediction.get("truncated", False))
+                else:
+                    text = str(prediction)
             else:
                 inputs = self._processor(images=image, return_tensors="pt")
                 generated = self._model.generate(
@@ -93,7 +107,7 @@ class UniMERNetEngine:
         return EngineResult(
             engine_id=self.engine_id,
             engine_version=str(self._provenance.get("revision") or self.engine_version),
-            candidates=[EngineCandidate(text=text, kind="latex")],
+            candidates=[EngineCandidate(text=text, kind="latex", truncated=truncated)],
             latency_ms=(time.perf_counter() - started) * 1000,
             provenance=self._provenance,
             settings={"max_tokens": inference_settings.max_tokens, "beam_size": inference_settings.beam_size},
@@ -113,6 +127,17 @@ class UniMERNetEngine:
             if not callable(infer):
                 raise RuntimeError("inference.py must export infer(image_bytes)")
             self._bridge = infer
+            self._bridge_probe = getattr(module, "is_available", None)
+            self._bridge_with_settings = getattr(module, "infer_with_settings", None)
+            self._ensure_provenance()
+            return
+        if (self.model_dir / "unimernet_small.pth").is_file():
+            from app.ml.backends.unimernet_runtime import get_runtime
+
+            runtime = get_runtime(self.model_dir)
+            self._bridge = runtime.infer
+            self._bridge_probe = runtime.probe
+            self._bridge_with_settings = runtime.infer
             self._ensure_provenance()
             return
         from transformers import AutoProcessor, VisionEncoderDecoderModel
@@ -131,7 +156,8 @@ class UniMERNetEngine:
                 "weight_sha256": sha256_tree(self.model_dir),
             }
         else:
-            self._provenance.setdefault("weight_sha256", sha256_tree(self.model_dir))
+            if "weight_sha256" not in self._provenance:
+                self._provenance["weight_sha256"] = sha256_tree(self.model_dir)
 
 
 __all__ = ["UniMERNetEngine"]

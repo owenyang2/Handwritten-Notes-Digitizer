@@ -28,11 +28,9 @@ pydantic-settings==2.7.0
 # The markers keep x86_64 containers on the intended CPU build while allowing
 # the same pinned requirements file to install on ARM64 and macOS.
 torch==2.5.1+cpu; platform_system == "Linux" and platform_machine == "x86_64"
-torchaudio==2.5.1+cpu; platform_system == "Linux" and platform_machine == "x86_64"
 torchvision==0.20.1+cpu; platform_system == "Linux" and platform_machine == "x86_64"
-torch==2.5.1; platform_system != "Linux" or platform_machine != "x86_64"
-torchaudio==2.5.1; platform_system != "Linux" or platform_machine != "x86_64"
-torchvision==0.20.1; platform_system != "Linux" or platform_machine != "x86_64"
+torch==2.5.1; platform_system == "Darwin" or platform_system == "Windows" or platform_machine == "arm64" or platform_machine == "aarch64"
+torchvision==0.20.1; platform_system == "Darwin" or platform_system == "Windows" or platform_machine == "arm64" or platform_machine == "aarch64"
 transformers==4.47.1
 numpy==1.26.4
 pyctcdecode==0.5.0
