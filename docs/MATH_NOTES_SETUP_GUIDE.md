@@ -22,16 +22,20 @@ Manual crop selection and LaTeX review work without a formula model.
 | Markdown, HTML, LaTeX, LaTeX bundle, and controlled PDF export | Implemented | Nothing for local use |
 | Owner-scoped durable recognition jobs, bounded retries, startup recovery | Implemented | A persistent database/object-store deployment |
 | Native compact image-to-LaTeX model and training CLI | Implemented | Real formula images/labels and training time, or a checkpoint |
-| UniMERNet-small adapter | Code path implemented; not installed here | Download the approved snapshot, complete license review, and verify its artifact digest |
+| UniMERNet-small adapter | Installed and probed on this Mac | Separate Linux runtime for Docker; representative handwriting for quality evaluation |
+| Pretrained TrOCR prose conversion | Installed and probed on this Mac | Human review and a verified held-out quality set |
+| Native conversion and shared ink viewing | Implemented with durable jobs and frozen source revisions | Complete live two-device acceptance and physical Pencil tests |
 | Legacy prose CRNN and personalization worker | Code path implemented; not trained here | Supply licensed IAM data, a matched manifest, a trained base model, and verified eval images |
 | Formula metrics and benchmark runner | Implemented | A verified prediction file and held-out image/label split |
 | Automatic page layout | Implemented as a conservative, reviewable heuristic | Human review remains required; a learned layout/VLM model is not bundled |
 | Production operations | Compose/local deployment is implemented | HTTPS, secrets, backups, managed database/object storage, and deployment policy |
 
 The plan deliberately forbids claiming recognition accuracy from the checked-in
-placeholder/synthetic fixtures. Until you provide real data and a verified model
-artifact, the /health endpoint should report formula recognition as unavailable
-and the UI will let you enter LaTeX manually.
+placeholder/synthetic fixtures. Without a compatible formula artifact, /health
+reports formula recognition as unavailable and the UI allows manual LaTeX entry.
+The completed Mac setup is recorded in [Model and iPad setup](MODEL_AND_IPAD_SETUP.md);
+its real-model smoke checks establish functional inference, not accuracy on a
+held-out set.
 
 ## 2. Prerequisites
 
@@ -270,10 +274,18 @@ for a release, pass a reviewed immutable commit instead of a moving branch.
 Do not rename this directory to base_model; the legacy prose model uses a
 different artifact contract.
 
-For local development, restart the backend process after installation. For
-Docker, the host directory backend/var/objectstore/models is mounted into the
-backend container read-only, so install the snapshot there and restart the
-backend:
+The official snapshot uses an upstream `.pth` checkpoint. Install its compatible
+runtime as well as the weights: the verified Mac setup, pinned dependencies,
+and iPad instructions are in [MODEL_AND_IPAD_SETUP.md](MODEL_AND_IPAD_SETUP.md).
+The adapter runs that optional environment in a separate cached process and
+checks real inference before reporting the model as loaded. For local
+development, restart the backend after completing both installations.
+
+For Docker, `backend/var/objectstore/models` is mounted into the backend container
+read-only. This provides the weights but does not install the upstream runtime.
+The current image needs a compatible Linux runtime and worker packaging before
+this checkpoint can load; the Mac environment cannot run in the container.
+After completing that container setup, restart and check health:
 
 ~~~bash
 docker compose restart backend

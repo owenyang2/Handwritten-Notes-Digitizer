@@ -1,6 +1,6 @@
 # iPad Note App Usability Implementation Plan
 
-Status: proposed implementation plan
+Status: engineering alpha acceptance pass complete — iPad alpha foundation, resumable transfer durability, destination-aware import, mixed-source archive portability, normalized page-title search navigation, Pencil hardware actions, bounded notebook conversion, raster conversion fallback, contextual onboarding, normalized local revision/transfer persistence, and guarded second-client ink restoration completed
 
 Audit date: 2026-09-12
 
@@ -12,13 +12,85 @@ Related roadmap: [`PERSONALIZED_NOTES_PLATFORM_REMAINING_TASKS.md`](PERSONALIZED
 
 ## 1. Executive decision
 
-The iPad target is a working PencilKit shell and useful architectural spike, not
-yet a dependable note-taking alpha. It can authenticate an existing account,
-show locally cached notebooks, create a local notebook, persist a native
-`PKDrawing`, and enqueue a few document lifecycle operations. It cannot yet
-guarantee that a newly created notebook, its pages, or its ink reach another
-device. The current share-import path also removes its staged source after
-creating only a local placeholder.
+The current branch now has a dependable local-first writing foundation: native
+registration/sign-in and guest mode, account export/deletion actions, stable
+offline document/page identities, idempotent remote bootstrap, a multipage
+PencilKit editor, crash-safer native and `ink_v1` commits, real PencilKit
+stroke conversion, durable PDF/image/native-archive imports, source
+upload/download, visible
+sync recovery, durable local import-failure retry, and a source-linked
+page-conversion request/status path.
+The remaining milestones below are still required before calling the target
+beta-ready; conversion review, model readiness, and the broader
+selection/region/notebook workflow remain open.
+
+Verified in this implementation slice:
+
+- iPad simulator build and launch on iPad Pro 13-inch (M4); the latest full
+  run used the iOS 18.6 simulator runtime.
+- Swift package tests pass, including durable local-store reopen, failed-sync
+  retry, page lifecycle, `ink_v1` golden coverage, DTO wire-shape checks, and
+  HTTP-client contract tests for health, authenticated recognition, and
+  unauthenticated password-recovery routes, and resumable ink-upload wire
+  contracts (28 tests total), including register → `me` → restore → revoke
+  session lifecycle coverage.
+- The native `PersonalizedNotesUITests` target passes on the iPad Pro 13-inch
+  (M4) simulator for auth-control accessibility, offline notebook creation
+  across relaunch, accessible page/canvas/tool actions, add/duplicate page
+  actions, and page/notebook export affordances for PDF, PNG, JPEG, canonical
+  `ink_v1`, and native archive, including opening and closing the live PDF
+  share controller, plus favoriting a notebook and opening the Favorites view;
+  the full run executes 6 UI tests and 27 app tests, including page-number and
+  diacritic-insensitive page filtering plus library page-title search opening
+  the exact matching page.
+- Backend suite passes: 885 passed, 2 skipped; generated OpenAPI is current.
+- Server ink revisions are immutable, content-hash deduplicated, linked by
+  parent revision, exposed through a page manifest, and bound explicitly to
+  recognition requests. Direct and resumable bounded uploads are verified;
+  resumable retries preserve the page binding and publish through the same
+  immutable revision writer.
+- Native archive import tests pass on the iPad simulator for page identity
+  remapping, safe-path rejection, checksum mismatch detection, supported v1
+  round-trip metadata, and mixed PDF/image page-source preservation.
+- A user can import into the current notebook or create a new notebook from
+  Files or Photos, with page-specific source metadata retained for mixed
+  notebooks; native archive export/import preserves those per-page source
+  bindings.
+- Imported source bytes are copied into app-owned storage, attached to the
+  existing stable document/page aggregate, hash-idempotent on retry, restored
+  on another signed-in client, and composited into page PDF export with ink.
+- The host app can import selected Photos images through the same durable Files
+  pipeline, export a complete notebook PDF, and retain/retry staged sources
+  that fail before local notebook creation.
+- The editor exposes native iPad printing from the same deterministic notebook
+  PDF artifact; the print affordance is covered by the full UI run.
+- Development settings accept a validated API endpoint and can probe the
+  backend capability/model-readiness health response; the app keeps the
+  loopback default for Simulator and requires HTTPS for non-loopback release
+  endpoints.
+- The library exposes an optional Getting Started guide from the empty state
+  and More menu, covering local save versus sync, first Pencil input, page
+  creation, and retry-safe sync/conversion behavior without blocking offline
+  writing.
+- The local SQLite store now records schema version 3, migrates old blob-backed
+  notebooks additively to normalized `local_pages`, immutable local revision,
+  and transfer-queue tables, keeps the legacy page blob as a rollback/read-
+  repair source, dual-writes page edits, and defers page-row cleanup until
+  purge acknowledgement; migration, reopen/retry, and queue cleanup behavior
+  is covered by package tests.
+- Import preflight rejects empty, mislabeled, unsupported, and structurally
+  invalid files before raster decoding; iPad runtime tests cover valid PDF/PNG
+  inputs and a 100-page PDF with alternating portrait/landscape dimensions.
+- Focused two-client proof now covers a failed first reconnect followed by a
+  successful retry, stable document/page identity bootstrap, active immutable
+  ink-manifest discovery, owner-scoped byte-identical revision download, local
+  content-hash validation, and exact native/canonical pair installation. A
+  reconnect never overwrites a newer unsynced local revision.
+
+These checks prove an engineering alpha foundation, not the full beta exit
+gate: physical-device Pencil behavior, accessibility, quota/fault campaigns,
+search/organization, conversion review, and model-backed recognition remain
+open.
 
 The next implementation must prioritize trust before feature breadth:
 
@@ -34,6 +106,34 @@ The next implementation must prioritize trust before feature breadth:
 Do not begin with collaboration, audio recording, AI chat, or decorative
 parity features. Those features should follow a measured iPad alpha in which
 offline edits survive crashes and converge across devices.
+
+### Immediate next move (re-scoped after the alpha implementation)
+
+The current branch is a large, uncommitted alpha slice. Stop adding features
+until it is reviewable and its main user journey is understandable. Work in
+this order:
+
+1. Review and consolidate the current changes into coherent slices. Confirm
+   migrations, generated contracts, and app/backend boundaries before merging.
+2. Run one bounded acceptance pass covering first launch, local notebook
+   creation, writing, force-quit/reopen, page actions, import, annotation,
+   export, and visible recovery from an ordinary sync failure. Record confusing
+   interactions and fix those before expanding the feature set.
+3. Prove the primary trust gap: create and edit a notebook on one
+   client, then bootstrap the same document, page IDs, and ink revision on a
+   second client. Cover retry and reconnect behavior with focused tests.
+   **Completed in this acceptance pass; physical multi-device validation is
+   still required before beta.**
+4. Test Apple Pencil writing and the core accessibility path on a physical
+   iPad. Treat simulator UI coverage as supporting evidence only.
+5. Once those checkpoints are green, move to source-linked conversion review:
+   show output beside the original ink, expose uncertainty, and support
+   accept/edit/retry without replacing source strokes. Do this only against a
+   useful recognition model or an explicit deterministic test fixture.
+
+Randomized crash campaigns, 1,000-notebook performance runs, and exhaustive
+fault matrices are beta-hardening work. They must not block this alpha
+checkpoint or replace hands-on product validation.
 
 ## 2. Scope and success definition
 
@@ -67,110 +167,127 @@ The iPad usability initiative is complete when a new user can:
 
 | Area | Current implementation | Useful foundation |
 | --- | --- | --- |
-| App shell | `RootView` routes between loading, login, library, and one notebook. | Simple SwiftUI state flow that can be split into feature coordinators. |
-| Authentication | Username/password sign-in and Keychain-backed session restore. | `SharedBackendClient.register(...)` already implements the backend registration call. |
-| Library | Local list, title search, active/archive/trash picker, create action, lifecycle swipe actions, and sync summary. | SQLite library projections and pending operation storage exist. |
-| Drawing | `PKCanvasView`, system `PKToolPicker`, Pencil-only drawing, pan/zoom, and local native `PKDrawing` persistence. | PencilKit provides low-latency capture and a native lossless representation. |
-| Sync | Durable document-operation queue, idempotency keys, cursors, and local conflict records. | A sound foundation for metadata sync once creation and content sync are added. |
+| App shell | `RootView` routes loading, welcome/auth, library, and a multipage notebook editor. | Simple SwiftUI state flow that can be split into feature coordinators. |
+| Authentication | Welcome, sign-in, registration, guest mode, Keychain-backed session restore, session expiry fallback, and typed password-reset request/confirm UI. | Email verification, guest merge, refresh-token rotation, and richer field validation remain open. |
+| Library | Local list, title search, active/archive/trash picker, create/import actions, lifecycle actions, sync summary, and sync issue recovery. | SQLite library projections and pending operation storage exist. |
+| Drawing | `PKCanvasView`, system `PKToolPicker`, Pencil/touch toggle, pan/zoom, source underlay, and local native `PKDrawing` persistence. | PencilKit provides low-latency capture and a native lossless representation. |
+| Sync | Durable document-operation queue, idempotency keys, cursors, stable page IDs, source transfer, immutable ink manifests, resumable ink sessions, guarded active-ink download, and local retry/conflict records. | Exact conversion binding and focused two-client reconnect/bootstrap are implemented; broader physical multi-device and conflict campaigns remain open. |
 | Share extension | Accepts PDFs and images into an App Group inbox. | Correct process boundary for share-sheet ingestion. |
-| Account | Current user display, session list, and session revocation. | Useful security management surface. |
-| Settings | Wi-Fi-only upload toggle, personalization consent acknowledgement, client ID, and API host display. | Initial privacy and network controls. |
-| Tests | Ink golden test, local-store persistence test, and fake-service sync tests. | Demonstrates that the shared package is testable without a device. |
+| Account | Current user display, session list/revocation, export receipt, confirmation-gated deletion, and local native archive export/import. | Recovery password policy, email verification, and complete account-rights delivery remain open. |
+| Settings | Wi-Fi-only upload toggle, personalization consent acknowledgement, client ID, validated API endpoint editing, and capability/model-readiness test. | Initial privacy and network controls. |
+| Tests | Ink golden test, local-store persistence test, organization metadata persistence, fake-service sync tests, DTO wire-shape checks, URLProtocol transport contract tests, app-unit tests, and a native iPad UI test target. | Import, drawing-restore, fault, and physical-device campaigns remain open. |
 
 ### 3.2 Confirmed usability and integrity gaps
 
 #### Account entry
 
-- `RootView` exposes only **Sign In**. There is no registration form, even
-  though `SharedBackendClient.register(username:email:password:)` exists.
-- Registration is therefore not conceptually web-only; it is merely missing
-  from the iPad UI and `AppModel`.
-- There is no forgot-password, email-verification, password visibility,
-  password rules, field-level validation, request progress, or recovery path
-  for an expired/revoked session.
-- The login footer says sign-in is required only for sync, but `AppModel.start()`
-  routes users without a session back to login and prevents local library use.
-- Account deletion/export, password change, and privacy controls are not
-  available in the native account screen.
+- `AuthFlowView` now provides welcome, registration, sign-in, and guest entry;
+  session restore remains Keychain-backed and local notes remain available
+  after session expiry.
+- Password recovery now uses the backend request/confirm contract with generic
+  request messaging, one-time token entry, and development-only display of a
+  server-returned debug token. Email verification and password policy/field-level
+  validation remain open; guest-to-account attachment now requires an explicit
+  stable-ID merge decision.
+- Account export currently exposes the backend's metadata receipt contract;
+  the notebook editor also provides a local versioned native archive export.
+  Deletion is explicit and documents that the local iPad copy is retained.
 
 #### Notebook creation and cross-device identity
 
-- `AppModel.createNotebook` writes a randomly identified `DocumentRecord`
-  directly to SQLite and does not call `POST /documents` or enqueue a create
-  operation.
-- `POST /sync/push` rejects operations for documents absent from the server.
-- `POST /documents` currently generates the server document ID rather than
-  accepting the client's durable ID. A local notebook therefore needs an
-  explicit ID reconciliation mechanism or a new client-assigned-ID contract.
-- Pulled operations are projected only onto an already-present local document.
-  Pulling a change is not sufficient to discover a remotely created notebook.
-- Result: archive/trash/rename sync cannot make a locally created notebook
-  whole on another client until creation and snapshot/bootstrap semantics are
-  defined.
+- `document.create` now carries client-assigned document/page UUIDs, is
+  idempotent by client operation identity, and atomically creates the server
+  aggregate on first push.
+- Pulling a create change bootstraps a remote local projection; page add,
+  delete, reorder, and duplicate use stable IDs and ordered indexes.
+- Direct document creation remains a separate server API path, so the broader
+  normalized-page/snapshot contract still needs a formal versioned migration.
+- A newly bootstrapped client now follows the active page manifest to an
+  owner-scoped immutable content endpoint, revalidates the canonical hash, and
+  installs the exact native/canonical pair. Pending offline local ink is never
+  replaced by a reconnect download.
 
 #### Ink durability and portability
 
 - Drawing changes are debounced for 50 ms and written to native `PKDrawing`
   and an `ink_v1` file.
-- The `ink_v1` bundle is currently written with `strokes: []` while claiming
-  pressure, azimuth, altitude, and timing capture. The app-neutral canonical
-  data is therefore not an actual representation of the drawing.
-- Drawing-save errors are swallowed. There is no save-state indicator,
-  persistent failure record, retry action, or recovery UI.
-- Ink is never placed in a durable upload queue and `uploadInkBundle` is not
-  called by the app.
-- There is no revision protocol tying native bytes, canonical strokes,
-  thumbnail, upload digest, and server acknowledgement together.
+- `PencilKitInkAdapter` now writes non-empty canonical strokes and preserves
+  supported point timing, force, azimuth, altitude, size, color, and tool data.
+- Native and canonical files are committed through a versioned manifest with
+  SHA-256 validation and a serialized commit queue; the editor exposes local
+  save state and retryable sync failures.
+- A failed local commit records a durable page-scoped recovery snapshot and
+  journal entry; the editor and sync-issues screen expose retry across relaunch.
+- Ink uploads are performed after metadata/source sync and deduplicated by
+  content hash. The server now retains immutable page revisions with parent
+  lineage, an explicit active revision, a page manifest, bounded-size
+  validation, and exact revision binding for conversion requests. Thumbnail
+  generation remains open; resumable ink transfer now uses the authenticated
+  multipart session protocol with a stable local idempotency key.
 
 #### Pages and editing
 
-- `NotebookCanvasView` always opens the first page. It has no page navigation,
-  insertion, deletion, duplication, reordering, or thumbnails.
-- The page is a fixed white 768×1024 canvas. There are no paper templates,
-  page size/orientation controls, covers, PDF underlay, or per-page metadata.
-- Drawing is hardcoded to `.pencilOnly`. This is good for accidental-touch
-  prevention but makes the simulator and users who draw by touch appear
-  broken, and there is no setting or contextual explanation.
-- The system tool picker supplies basic tools, but the app has no explicit
-  undo/redo, reusable pen presets, custom palette, lasso command surface,
-  eraser mode control, ruler/shape affordance, zoom reset, or left-handed
-  toolbar layout.
+- `NotebookEditorView` now provides page thumbnails, add, duplicate, delete,
+  reorder, page navigation, explicit move/delete actions with confirmation,
+  explicit undo/redo, fit/reset zoom, and scene background flushes.
+- Pencil-only capture is the default, with a discoverable touch-drawing toggle;
+  source PDF/image underlays are rendered in the PencilKit content layer and
+  page export composites source plus retained ink.
+- Paper templates, custom page sizes/orientation, persistent presets, and a
+  native PencilKit lasso affordance are implemented. Cut/copy/paste commands
+  are exposed for the native selection; selection extraction/transform,
+  convert-selection, shape recognition, left-handed layout, and
+  delete-with-undo remain open.
 - There are no typed text boxes, images, links, checklists, shapes, attachments,
   or audio. These are later parity items, not data-integrity blockers.
 
 #### Share and import
 
 - The extension writes a manifest and source bytes to the App Group.
-- The host app creates one placeholder document and then calls
-  `markConsumed`, which deletes the staged manifest and source file.
-- The source bytes are not copied to app-owned durable storage, uploaded, or
-  turned into real pages before deletion. This can lose the only imported copy
-  known to the app.
-- There is no in-app Files picker, Photos picker, document scanner, import
-  preview, multi-page progress, cancellation, retry, or explanation of format
-  limits.
+- The host app copies the extension source into app-owned durable storage
+  before acknowledging the inbox item, creates real pages from PDF/image
+  dimensions, and keeps the source metadata for retry.
+- Files import and share-sheet ingestion are present. The backend now accepts
+  a hash-idempotent source upload against the existing stable document and
+  exposes owner-scoped download for second-client hydration.
+- PhotosPicker entry points, drag-and-drop, and the local retry path are
+  present; scanner support and remote upload/processing progress remain open.
+  The current import path now routes Files, share-sheet, PhotosPicker,
+  drag-and-drop, and `.hndnote` notebook sources through one
+  `ImportCoordinator`, exposes per-file
+  importing progress with cancellation, enforces a 10 MB client-side cap,
+  checks free space before staging, and keeps a durable failure journal for
+  sources that fail before a notebook is created.
 
 #### Library and discovery
 
-- The library is a flat text list. Search matches titles only.
-- There are no folders/sections, tags, favorites, pinning, recent items, grid
-  view, covers/thumbnails, sorting, multi-select, batch actions, rename,
-  duplicate, move/copy, or permanent-delete flow.
-- Pagination fields exist in the shared model but are not exposed as an
-  infinite or paged library experience.
-- Failed queued operations and conflicts are stored but not shown. The visible
-  count covers pending operations only, so work can disappear from the user's
-  mental model after a failed attempt.
+- The library has title/source-metadata search, lifecycle actions, notebook
+  duplication, favorite state with a synced Favorites smart view, bounded
+  folder paths, tags, recent/imported/unsynced/needs-attention views, a
+  persisted list/grid choice, page-preview cards, updated/created/title
+  sorting, multi-select bulk actions, and explicit permanent-delete confirmation.
+- Pagination is exposed as incremental loading with stable selection for the
+  current view. Local search now includes page titles and opens the matching
+  page from list, grid, and context-menu results; recognized-text search,
+  drag-and-drop folder placement, thumbnail-cache eviction, pinning, and
+  copy-to-folder remain open.
+- Failed queued operations and conflicts now appear in a sync-issues sheet with
+  retry, keep-server, and retry-as-new actions. Folder depth/path validation,
+  metadata limits, and server-side ownership checks are covered; two-client
+  organization convergence and 1,000-item performance remain open.
 
 #### Conversion and personalization
 
-- The iPad app has no selected-stroke, region, page, or notebook conversion
-  action and no review UI.
+- The iPad editor now has a page-conversion action that first requires the
+  current canonical ink revision to be uploaded, then displays the real
+  queued/running/partial/failed/complete server state. The original ink is
+  never replaced; selection, region, notebook, and review UI remain open.
 - There is no handwriting/full-content search, converted-block editor,
-  uncertainty queue, source highlighting, or native export.
+  uncertainty queue, source highlighting, or conversion-result export.
 - Recognition model artifacts are not present in the current development
   environment. The UI must show recognition as unavailable rather than imply
-  that empty or fallback output is a successful conversion.
+  that empty or fallback output is a successful conversion; the page action now
+  maps model_unavailable to that explicit state.
 
 #### Device, networking, and release configuration
 
@@ -190,10 +307,14 @@ The iPad usability initiative is complete when a new user can:
 
 #### Quality and accessibility
 
-- The package has seven tests and no app UI test target.
-- There are no automated registration, import, canvas restore, multipage,
-  conflict, background transfer, token-expiry, or real-backend integration
-  tests.
+- The shared package now has local-store, sync, and ink golden coverage plus
+  backend contract/integration tests. A native UI test target covers auth
+  controls, offline notebook persistence across relaunch, and initial page
+  operations; an iPad unit-test target covers native archive round-trip and
+  integrity failures.
+- Automated registration, import, local and second-client canvas restore,
+  conflict, and transport contract coverage exists; background transfer,
+  token-expiry UI, and full live-backend iPad campaigns remain open.
 - VoiceOver labels/rotors, Dynamic Type layouts, keyboard commands, pointer
   behavior, reduced motion, increased contrast, switch control, and left-handed
   layouts have not been verified.
@@ -391,9 +512,10 @@ feature flags. The native app should distinguish:
 - conversion endpoint available but model not ready;
 - incompatible API contract.
 
-Development settings should permit a validated API URL and “Test Connection.”
-Release builds must use an HTTPS allowlisted endpoint and must not expose an
-arbitrary-host credential exfiltration path.
+- [x] Development settings permit a validated API URL and “Test Connection.”
+  Release builds require HTTPS for non-loopback endpoints and the health probe
+  does not attach account credentials. A production allowlist is still a
+  deployment responsibility.
 
 ## 6. Phased implementation plan
 
@@ -403,38 +525,61 @@ Goal: establish data invariants before changing the user interface.
 
 #### Backend and shared contracts
 
-- [ ] Choose and document the client-assigned document/page ID contract from
+- [x] Choose and document the client-assigned document/page ID contract from
   AD-1.
-- [ ] Add an idempotent offline document-create path and include it in sync
+- [x] Add an idempotent offline document-create path and include it in sync
   pull/snapshot history.
-- [ ] Define page create/rename/reorder/duplicate/delete operations and their
-  conflict behavior.
-- [ ] Define immutable ink revision upload and manifest responses, including
+- [x] Define page create/rename/reorder/duplicate/delete operations and their
+  conflict behavior through stable IDs, optimistic local projection, server
+  versioning, and durable conflict records.
+- [x] Define immutable ink revision upload and manifest responses, including
   digest deduplication, maximum size, resumable state, and active revision.
-- [ ] Add capability/model-readiness response and structured error codes.
-- [ ] Generate or contract-test the Swift API models against OpenAPI.
+  Direct and resumable bounded revision uploads, manifest responses,
+  deduplication, stable page binding, and exact active-revision conversion
+  binding are implemented and contract-tested.
+- [x] Add capability/model-readiness response and structured error codes; the
+  iPad health probe and unavailable-model state are contract-tested.
+- [x] Contract-test the Swift `Codable` API models against OpenAPI with
+  `scripts/check_swift_api_models.py`, including explicit schema aliases and
+  Foundation-compatible acronym handling for `ID`, `IDs`, and `SHA256`.
 
 #### Local persistence
 
-- [ ] Add schema migrations and normalized pages/revisions/transfer queues.
-- [ ] Implement crash-safe dual-format ink commits.
-- [ ] Convert real PencilKit strokes into non-empty canonical `ink_v1`.
-- [ ] Add a persistent save-failure journal and recovery on launch.
-- [ ] Copy share-extension sources into app-owned durable storage before
+- [x] Add schema migrations and normalized pages/revisions/transfer queues.
+  Schema version 3 creates normalized page rows, immutable local revision
+  records, and stable transfer jobs additively; page edits soft-delete stale
+  projection rows, revision commits and their ink transfer intent are written
+  in one transaction, source/ink upload state updates reuse stable IDs, and
+  purge acknowledgement removes dependent rows only after cleanup. Package
+  tests cover legacy backfill, reopen/retry transitions, and page-purge
+  cleanup.
+- [x] Implement crash-safe dual-format ink commits.
+- [x] Convert real PencilKit strokes into non-empty canonical `ink_v1`.
+- [x] Add a persistent save-failure journal and recovery on launch.
+- [x] Copy share-extension sources into app-owned durable storage before
   acknowledging/removing the inbox item.
-- [ ] Add quota/free-space checks and preserve the staged source on failure.
+- [x] Add client-side size/free-space checks and preserve the staged source on
+  failure; server account quotas remain authoritative.
+- [x] Queue acknowledged document/page deletion cleanup so local ink revisions,
+  recovery journals, and app-owned imported sources are removed only after the
+  server operation is accepted.
 
 #### Automated proof
 
-- [ ] Add cross-language non-empty `ink_v1` golden fixtures.
-- [ ] Test document creation offline, app termination, reconnect, idempotent
-  retry, second-client bootstrap, and ID equality.
-- [ ] Test interrupted dual-file commits at every boundary and prove the last
-  complete revision reopens.
+- [x] Add cross-language non-empty `ink_v1` golden fixtures.
+- [x] UI-test document creation offline, app termination, and relaunch
+  persistence. Focused tests also cover reconnect failure/retry, idempotent
+  immutable ink download, second-client bootstrap, ID equality, and exact ink
+  restoration; a signed physical two-device run remains open.
+- [x] Test interrupted dual-file commits at every boundary with debug-only
+  fault injection and prove the last complete revision (or the fully published
+  new revision) reopens without a hybrid native/canonical pair.
 - [ ] Test share-import crashes before copy, after copy, during upload, after
   server acceptance, and before inbox cleanup.
-- [ ] Run at least 10,000 randomized save/crash/recovery sequences with zero
-  confirmed stroke loss.
+- [ ] Before beta release, run a bounded randomized save/crash/recovery
+  campaign. Start with 100 sequences and inspect every failure; scale toward
+  10,000 only after the smaller run is clean and disk/time limits plus automatic
+  artifact cleanup are enforced. This is deferred during alpha iteration.
 
 Exit gate:
 
@@ -451,25 +596,30 @@ Goal: let users start and recover without visiting the web app.
 
 #### Native UI
 
-- [ ] Replace the inline login form with an `AuthFlow` containing Welcome,
-  Create Account, Sign In, and recovery states.
-- [ ] Add username, email, password, confirmation, show/hide password, submit
-  progress, inline validation, keyboard submit, and server-field error mapping.
-- [ ] Wire `AppModel.register(...)` to the existing client method, install the
+- [x] Replace the inline login form with an `AuthFlow` containing Welcome,
+  Create Account, Sign In, and password-recovery states.
+- [x] Add username, email, password, confirmation, show/hide password, submit
+  progress, inline validation, keyboard submit, and safe retryable error
+  display; field-specific server mapping remains open.
+- [x] Wire `AppModel.register(...)` to the existing client method, install the
   returned session in Keychain, and transition into onboarding/library.
-- [ ] Preserve user-entered fields after retryable network failures; clear
+- [x] Preserve user-entered fields after retryable network failures and clear
   password fields after successful authentication.
-- [ ] Add forgot-password request/reset and email verification only after the
-  backend contract is implemented. Do not link to a dead web route.
-- [ ] Decide and implement local guest mode. Prompt for account creation when
+- [x] Add password-reset request/confirm UI against the typed backend
+  contract. Keep request responses non-enumerating, accept one-time tokens,
+  and expose a development debug token only when the server returns it.
+- [ ] Add email verification against a real delivery and token policy before
+  release; do not link to a dead web route.
+- [x] Decide and implement local guest mode. Prompt for account creation when
   the user first asks to sync, convert, or open notes on the web.
-- [ ] Provide a deliberate guest-to-account merge that attaches local stable
-  IDs without duplication.
-- [ ] Add session-expired reauthentication that leaves local notes available.
-- [ ] Add Account actions for data export and account deletion with explicit
+- [x] Provide a deliberate guest-to-account merge that attaches local stable
+  IDs without duplication after the user confirms the upload; deferring keeps
+  the pending operations local for a later explicit sync.
+- [x] Add session-expired reauthentication that leaves local notes available.
+- [x] Add Account actions for data export and account deletion with explicit
   consequences and reauthentication as required.
-- [ ] Keep session list/revocation and label the current device clearly.
-- [ ] Make onboarding optional and contextual: create a notebook, write a
+- [x] Keep session list/revocation and label the current device clearly.
+- [x] Make onboarding optional and contextual: create a notebook, write a
   stroke, add a page, and explain local-save versus sync state.
 
 #### Security and policy
@@ -486,10 +636,13 @@ Goal: let users start and recover without visiting the web app.
 
 #### Tests
 
-- [ ] Unit-test form validation and state transitions.
-- [ ] Integration-test register → authenticated `me` → session restore → revoke.
-- [ ] UI-test create account, duplicate username/email, offline retry, invalid
-  credentials, expired token, sign out, and guest upgrade.
+- [x] Unit-test username/email/password/reset-token validation; full SwiftUI
+  state-transition and backend-auth integration coverage remains open.
+- [x] Integration-test register → authenticated `me` → session restore → revoke
+  through the native transport and durable session vault.
+- [x] UI-test the welcome/auth controls and offline notebook creation path;
+  duplicate username/email, invalid credentials, expired token, sign out, and
+  guest upgrade remain open.
 - [ ] Verify Password AutoFill content types and hardware-keyboard navigation.
 
 Exit gate:
@@ -506,45 +659,56 @@ Goal: make the app useful for a real class or meeting before adding conversion.
 
 #### Editor shell
 
-- [ ] Replace `NotebookCanvasView` with `NotebookEditorView` and a
+- [x] Replace `NotebookCanvasView` with `NotebookEditorView` and a
   `NotebookEditorModel` scoped to one notebook.
-- [ ] Add page thumbnail navigation, current-page indicator, add, duplicate,
-  reorder, rotate, and delete-with-undo.
-- [ ] Autosave on drawing changes, page transitions, scene backgrounding, memory
-  warnings, and editor close.
-- [ ] Show separate local-save and sync states near the notebook title; expose
+- [x] Add page thumbnail navigation, current-page indicator, add, duplicate,
+  reorder, and explicit delete with confirmation. Rotate and delete-with-undo
+  remain open.
+- [x] Autosave on drawing changes, page transitions, scene backgrounding, and
+  editor close; memory warnings trigger the same local flush boundary.
+- [x] Show separate local-save and sync states near the notebook title; expose
   details and retry when attention is required.
-- [ ] Add explicit undo/redo with disabled state and keyboard shortcuts.
-- [ ] Support Pencil and optional touch drawing, with a discoverable toggle.
-- [ ] Preserve pan/zoom and add fit-page/reset zoom.
-- [ ] Support portrait/landscape, split view, and Stage Manager without losing
-  tool state or changing stroke coordinates.
+- [x] Add explicit undo/redo with disabled state and keyboard shortcuts.
+- [x] Support Pencil and optional touch drawing, with a discoverable toggle.
+- [x] Preserve pan/zoom and add fit-page/reset zoom.
+- [x] Keep the editor usable in regular and compact horizontal size classes:
+  compact windows move the page navigator above the canvas, while the canvas
+  keeps its page coordinate space. Physical rotation, Stage Manager, and
+  Pencil coordinate verification remain open.
 
 #### Drawing tools
 
-- [ ] Keep the system tool picker where it provides a complete experience;
+- [x] Keep the system tool picker where it provides a complete experience;
   supplement it with app commands instead of cloning it.
-- [ ] Add three to five persistent pen/highlighter presets with color and width.
+- [x] Add five persistent pen/highlighter/eraser presets with color and width.
 - [ ] Add lasso selection with move, resize if safely representable, duplicate,
-  cut/copy/paste, delete, and convert-selection actions.
-- [ ] Expose object/pixel eraser behavior supported by the deployment target.
-- [ ] Add ruler and shape recognition only if PencilKit support and round-trip
-  behavior meet the iOS 17 compatibility floor.
-- [ ] Respect Apple Pencil double-tap/squeeze capabilities when available and
-  provide ordinary toolbar alternatives.
+  cut/copy/paste, delete, and convert-selection actions. The native PencilKit
+  lasso tool and native cut/copy/paste commands are exposed and UI-tested;
+  selection extraction/transform/delete/convert behavior remains open.
+- [x] Expose vector eraser behavior supported by the deployment target; pixel
+  erasing remains open until its round-trip semantics are verified.
+- [x] Add an explicit Ruler command backed by the supported PencilKit ruler;
+  shape recognition remains open until its round-trip behavior meets the iOS
+  17 compatibility floor.
+- [x] Respect Apple Pencil double-tap/squeeze capabilities when available and
+  provide ordinary toolbar alternatives. System-configured eraser/previous
+  tool actions and native picker visibility are bridged; physical Pencil
+  validation remains part of device testing.
 - [ ] Add left/right palette placement and palm-rejection guidance.
 
 #### Paper and pages
 
-- [ ] Add blank, ruled, grid, dot-grid, and Cornell templates as derived
+- [x] Add blank, ruled, grid, dot-grid, and Cornell templates as derived
   backgrounds, not flattened ink.
-- [ ] Add common page sizes plus orientation and a simple custom size path.
+- [x] Add common page sizes plus orientation and a simple custom size path.
 - [ ] Add notebook covers and first-page thumbnails.
-- [ ] Keep templates changeable without modifying stroke coordinates.
+- [x] Keep templates changeable without modifying stroke coordinates.
 
 #### Tests and performance
 
-- [ ] UI-test every page operation and app relaunch.
+- [x] UI-test add/duplicate/reorder/delete page actions, offline notebook
+  creation, and app relaunch persistence; drawing restore and force-quit fault
+  coverage remain open.
 - [ ] Test undo/redo across autosave boundaries and define whether history is
   session-only or persisted.
 - [ ] Measure Pencil latency and frame hitches while save, thumbnail, and upload
@@ -567,35 +731,59 @@ app.
 
 #### Import
 
-- [ ] Build one `ImportCoordinator` used by share extension, Files,
-  `PhotosPicker`, drag-and-drop, and optional document scanner entry points.
-- [ ] Use security-scoped resource access correctly for selected files and copy
+- [x] Build one `ImportCoordinator` used by share extension, Files,
+  `PhotosPicker`, and drag-and-drop; optional document scanner entry points
+  remain open.
+- [x] Use security-scoped resource access correctly for selected files and copy
   into the durable import store before parsing.
-- [ ] Validate media type, signature, size, page count, dimensions, and storage
-  availability before expensive decoding.
-- [ ] Generate a real page per PDF page/image with source dimensions and
+- [x] Validate the selected source's readable size and local storage
+  availability before staging; signature/media/page/dimension validation still
+  needs to move ahead of expensive decoding for the remaining import sources.
+- [x] Generate a real page per PDF page/image with source dimensions and
   thumbnails.
-- [ ] Display queued/importing/uploading/processing/failed/complete states with
-  cancel, retry, and safe cleanup.
-- [ ] Let the user choose new notebook versus insert into the current notebook.
-- [ ] Keep the source PDF/image as a non-destructive page underlay and draw ink
+- [x] Display local importing progress with per-file counts, cancel, durable
+  local failure records, retry, and safe cleanup. Queued/uploading/processing
+  reconciliation and remote retry state remain open.
+- [x] Let the user choose new notebook versus insert into the current notebook
+  from Files or Photos. Imported pages retain page-specific PDF/image source
+  bindings, and native archive round trips preserve mixed-source notebooks.
+- [x] Keep the source PDF/image as a non-destructive page underlay and draw ink
   in a separate layer.
 
 #### Export and sharing
 
-- [ ] Export the current page or notebook as PDF with background, source asset,
+- [x] Export the current page or notebook as PDF with background, source asset,
   and ink rendered consistently.
-- [ ] Export original source, PNG/JPEG page image, native archive, canonical
-  `ink_v1`, and converted Markdown/LaTeX where available.
-- [ ] Add standard share sheet and Files exporter with progress/cancellation.
-- [ ] Define a versioned native notebook archive containing manifests, assets,
-  native drawings, canonical ink, and checksums for backup/migration.
-- [ ] Add print support only after PDF export is deterministic.
+- [x] Export original source when available, PNG/JPEG page images, a native
+  notebook archive, and canonical `ink_v1`; converted Markdown/LaTeX remains
+  dependent on recognition output.
+- [x] Present local exports through the standard iPad share sheet.
+- [x] Add a Files exporter for PDF and native archive artifacts; cancellation
+  is handled by the system document exporter and errors remain user-visible.
+- [x] Define a versioned native notebook archive containing manifests, source
+  assets, native drawings, canonical ink, and SHA-256 checksums for
+  backup/migration.
+- [x] Import `.hndnote` packages through the shared coordinator with schema and
+  version checks, safe-path validation, checksum/size validation, page identity
+  remapping, source validation, per-page source preservation, and iPad
+  round-trip tests; future archive schema versions remain explicitly rejected
+  until supported.
+- [x] Add print support after PDF export became deterministic; the editor sends
+  the generated notebook PDF to `UIPrintInteractionController`.
 
 #### Tests
 
+- [x] UI-test that PDF, PNG, JPEG, canonical `ink_v1`, and native archive
+  export actions are discoverable from the editor and that PDF opens/closes the
+  system share controller with a generated artifact.
 - [ ] Test 1-page/100-page PDFs, rotated pages, large images, malformed files,
   password-protected PDFs, cancellation, low storage, and app termination.
+- [x] Runtime-test each export artifact, including source-unavailable and
+  partially-saved-ink failures; iPad-targeted tests open generated PDFs,
+  verify deterministic PNG/JPEG dimensions/signatures, decode canonical ink,
+  round-trip native archives, preserve original source bytes, and assert
+  explicit failure behavior; the focused iPad run also verifies a 100-page
+  notebook PDF and alternating rotated page dimensions.
 - [ ] Pixel-diff representative PDF exports and validate page count, dimensions,
   searchable text, and source/ink alignment.
 - [ ] Verify cleanup never removes the last durable copy of an import.
@@ -613,22 +801,31 @@ Goal: keep hundreds of notebooks and pages manageable.
 
 #### Library
 
-- [ ] Add grid/list display with persisted preference and useful cover/page
+- [x] Add grid/list display with persisted preference and useful cover/page
   thumbnails.
-- [ ] Add sort by updated, created, title, and manual/favorite order.
-- [ ] Add rename, duplicate, favorite, move, archive, trash, restore, and
-  permanent delete to both context menus and multi-select actions.
-- [ ] Add folders with nesting limited to a tested depth; support drag-and-drop
-  and a move sheet.
-- [ ] Add tags and smart views for favorites, recent, imported, unsynced, and
+- [x] Add persisted sort by updated, created, and title. Manual/favorite order
+  remains open with the organization model.
+- [x] Add rename, duplicate, favorite, archive, trash, and restore to the
+  single-notebook context menu and lifecycle actions. Favorite state is stored
+  locally, synced through `document.favorite`, included in the server document
+  contract, and exposed through the Favorites library view.
+- [x] Add move and permanent delete to context menus and add multi-select
+  actions. Permanent deletion is server-acknowledged and drains a durable local
+  purge queue for ink, recovery, and app-owned import files.
+- [x] Add folders with nesting limited to a tested depth and a move sheet;
+  drag-and-drop placement remains open.
+- [x] Add tags and smart views for favorites, recent, imported, unsynced, and
   needs-attention items.
-- [ ] Define trash retention and communicate when permanent deletion affects
-  every synced device.
-- [ ] Add pagination/incremental loading, stable selection, and thumbnail cache
-  eviction.
+- [x] Define trash retention as manual-only and communicate that permanent
+  deletion is an explicitly confirmed, account-wide action after server
+  acceptance; automatic retention is intentionally not enabled.
+- [x] Add pagination/incremental loading and stable selection; thumbnail cache
+  eviction remains open.
 
 #### Search
 
+- [x] Search local notebook title, source metadata, and page titles; show the
+  matching page and open it as the editor's initial page from library results.
 - [ ] Phase search as title/metadata → recognized text → handwriting index →
   attachment OCR/object metadata, depending on available models.
 - [ ] Add in-library scopes and in-notebook search with page/result previews.
@@ -640,8 +837,9 @@ Goal: keep hundreds of notebooks and pages manageable.
 
 - [ ] Verify folder/tag/favorite mutations offline and across two clients.
 - [ ] Test library performance at 1,000 notebooks and thumbnail-cache pressure.
-- [ ] Test Unicode titles/tags, empty states, duplicate names, and search result
-  navigation.
+- [x] Test Unicode page titles and search-result navigation, including
+  diacritic-insensitive lookup; Unicode tags, empty states, and duplicate-name
+  coverage remain open.
 
 Exit gate:
 
@@ -654,13 +852,17 @@ Exit gate:
 
 Goal: deliver the differentiated workflow only after original notes are safe.
 
-- [ ] Add Convert Selection, Convert Page, and bounded Convert Notebook actions.
-- [ ] Upload/reuse the exact immutable ink revision being converted and record
-  its digest and coordinate transform.
-- [ ] Show queued/running/partial/failed/cancelled/complete status per region or
-  page and resume after relaunch.
-- [ ] Gracefully use raster fallback for unsupported ink and show model
-  unavailability as a real error state.
+- [ ] Add Convert Selection from lasso regions.
+- [x] Convert Page and bounded Convert Notebook actions reuse the per-page
+  exact-revision path and cap notebook conversion at 100 pages; imported pages
+  without local ink use the attached raster source as a safe fallback.
+- [x] Upload/reuse the exact immutable ink revision being converted and record
+  its digest and coordinate transform through the page manifest request.
+- [x] Show queued/running/partial/failed/cancelled/complete status per page and
+  persist/resume non-terminal runs after relaunch.
+- [x] Gracefully use raster fallback for imported pages without local ink and
+  show model unavailability as a real error state; unsupported ink formats
+  remain open.
 - [ ] Present converted blocks beside or over the source with one-tap source
   highlighting.
 - [ ] Add critical-symbol and uncertainty review for signs, digits/letters,
@@ -709,8 +911,9 @@ Run this work throughout earlier milestones and close all gates before beta:
 - [ ] Verify VoiceOver, Full Keyboard Access, Switch Control, Voice Control,
   pointer, 200% text, increased contrast, reduced motion, and color-independent
   status.
-- [ ] Add keyboard shortcuts for new/open/search, undo/redo, page navigation,
-  tool selection, zoom, and export.
+- [x] Add keyboard shortcuts for new/import, undo/redo, page navigation,
+  zoom, export, and in-app pen/pencil/marker/eraser selection; search/open
+  focus shortcuts remain open.
 - [ ] Instrument content-free launch, save latency, sync queue age, transfer
   failures, recognition state, and crashes. Never log note text, ink coordinates,
   filenames, tokens, or source images.
@@ -837,7 +1040,24 @@ Maintain a release evidence folder containing test command, commit SHA, device/
 OS, fixture set, result, known deviations, and owner. Simulator success is not
 physical-device evidence.
 
+For local Xcode campaigns, reuse one task-specific DerivedData directory, keep
+generated test artifacts below 2 GB, and clean them after recording the result.
+Abort the campaign if free disk space falls below 10 GB. Do not retain a result
+bundle for a high-iteration passing run unless it is needed to diagnose a
+failure.
+
 ## 10. Recommended implementation sequence
+
+Current handoff priority:
+
+1. Make the existing alpha branch reviewable and run the bounded user journey.
+2. Close share-import crash-retention gaps; focused second-client
+   bootstrap/reconnect proof is complete, with physical multi-device validation
+   retained as a beta gate.
+3. Validate Pencil behavior and accessibility on a physical iPad.
+4. Build conversion review around a useful model or deterministic fixture.
+5. Defer scale, soak, and broad fault campaigns to beta hardening with resource
+   limits and cleanup in place.
 
 The dependency order is intentional:
 

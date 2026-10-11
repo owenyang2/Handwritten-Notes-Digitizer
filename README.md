@@ -1,5 +1,7 @@
 # Handwriting Notes Digitizer
 
+**Remaining work:** [Dated TODO checklist — October 11, 2026](TODO-2026-10-11.md).
+
 A local web app for importing handwritten PDFs or images, reviewing formula crops as editable LaTeX, and exporting a versioned document containing prose, mathematics, and retained figures.
 
 The project is built around a FastAPI backend, a Vite/TypeScript frontend, durable recognition jobs, and pluggable formula engines. The original CRNN/CTC prose recognizer remains available for legacy line workflows; formula recognition uses a real, artifact-backed UniMERNet-small adapter or the native compact PyTorch image-to-LaTeX model. No missing or untrained model is presented as a successful recognition capability.

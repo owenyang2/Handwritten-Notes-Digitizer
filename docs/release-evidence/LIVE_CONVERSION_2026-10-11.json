@@ -1,0 +1,197 @@
+{
+  "fixture_limit": "Functional demos, not independent held-out quality benchmarks.",
+  "journeys": [
+    {
+      "mode": "formula",
+      "document": {
+        "document_id": "c11b4171-e1d6-4dcc-a175-7ea7479c9453",
+        "title": "Formula recognition demo",
+        "page_count": 1,
+        "pages": [
+          {
+            "page_id": "42f225a9-db13-4a5b-a0bc-a1e6709e7947",
+            "page_index": 0,
+            "title": null,
+            "image_id": "0dbdcc3b-1d17-40b9-b28b-df1d13c7170e",
+            "width": 360,
+            "height": 100,
+            "dpi": 200,
+            "coordinate_space": "normalized-raster-v1",
+            "paper_template": null
+          }
+        ]
+      },
+      "run": {
+        "run_id": "14615542-05c2-49c9-8834-2197251840b5",
+        "document_id": "c11b4171-e1d6-4dcc-a175-7ea7479c9453",
+        "page_id": "42f225a9-db13-4a5b-a0bc-a1e6709e7947",
+        "state": "complete",
+        "scope": "page",
+        "mode": "formula",
+        "error_message": null,
+        "result_ids": [
+          "fcc70cf7-f30d-43c6-ae0f-540f8ffaa13c"
+        ],
+        "created_at": "2026-10-11T21:08:57.398350",
+        "idempotent": false,
+        "progress_current": 1,
+        "progress_total": 1
+      },
+      "blocks": [
+        {
+          "region_id": "45e36a72-de19-4ad7-a8f8-b8fc1ce654e9",
+          "prediction_id": "fcc70cf7-f30d-43c6-ae0f-540f8ffaa13c",
+          "bbox": [
+            21,
+            23,
+            203,
+            56
+          ],
+          "content_type": "math_display",
+          "order_index": 0,
+          "prediction_text": "\\mathbf { x } + \\mathbf { y } = 2",
+          "reviewed_text": null,
+          "excluded": false,
+          "review_version": null,
+          "truncated": false,
+          "engine_id": "unimernet-small",
+          "source_stale": false,
+          "crop_revision": 1
+        }
+      ],
+      "review": {
+        "review_id": "bcbc3928-2db1-4de4-bbd4-277bcbf0b768",
+        "region_id": "45e36a72-de19-4ad7-a8f8-b8fc1ce654e9",
+        "reviewed_text": "\\mathbf { x } + \\mathbf { y } = 2",
+        "excluded": false,
+        "version": 1,
+        "review_revision_id": "a1173b46-d44e-4bd8-b67e-22cf91b8ae35",
+        "document_revision_id": "31b01d69-6128-480c-9e4d-0f5f13743ceb",
+        "training_example_id": null
+      },
+      "reopened": [
+        {
+          "region_id": "45e36a72-de19-4ad7-a8f8-b8fc1ce654e9",
+          "prediction_id": "fcc70cf7-f30d-43c6-ae0f-540f8ffaa13c",
+          "bbox": [
+            21,
+            23,
+            203,
+            56
+          ],
+          "content_type": "math_display",
+          "order_index": 0,
+          "prediction_text": "\\mathbf { x } + \\mathbf { y } = 2",
+          "reviewed_text": "\\mathbf { x } + \\mathbf { y } = 2",
+          "excluded": false,
+          "review_version": 1,
+          "truncated": false,
+          "engine_id": "unimernet-small",
+          "source_stale": false,
+          "crop_revision": 1
+        }
+      ],
+      "export": {
+        "status": "success",
+        "format": "markdown",
+        "text": "$$\n\\mathbf { x } + \\mathbf { y } = 2\n$$"
+      }
+    },
+    {
+      "mode": "prose",
+      "document": {
+        "document_id": "a080a0d5-8408-49c4-b804-c7cf3278812c",
+        "title": "Handwritten prose demo",
+        "page_count": 1,
+        "pages": [
+          {
+            "page_id": "b382f017-a088-43be-ab23-73d49f3f0d1d",
+            "page_index": 0,
+            "title": null,
+            "image_id": "d3af57d9-9a40-4bd9-9f8b-df55e4c868a8",
+            "width": 248,
+            "height": 76,
+            "dpi": 200,
+            "coordinate_space": "normalized-raster-v1",
+            "paper_template": null
+          }
+        ]
+      },
+      "run": {
+        "run_id": "5d0181d4-9eb2-4e6a-8ffe-201f7ac0d8dc",
+        "document_id": "a080a0d5-8408-49c4-b804-c7cf3278812c",
+        "page_id": "b382f017-a088-43be-ab23-73d49f3f0d1d",
+        "state": "complete",
+        "scope": "page",
+        "mode": "prose",
+        "error_message": null,
+        "result_ids": [
+          "093455e1-ae70-4b64-8e48-8ee121e5059b"
+        ],
+        "created_at": "2026-10-11T21:09:02.178510",
+        "idempotent": false,
+        "progress_current": 1,
+        "progress_total": 1
+      },
+      "blocks": [
+        {
+          "region_id": "21e44ee8-bc77-42ce-bf1b-8f4be2141b4a",
+          "prediction_id": "093455e1-ae70-4b64-8e48-8ee121e5059b",
+          "bbox": [
+            0,
+            0,
+            248,
+            76
+          ],
+          "content_type": "text",
+          "order_index": 0,
+          "prediction_text": "indus the",
+          "reviewed_text": null,
+          "excluded": false,
+          "review_version": null,
+          "truncated": false,
+          "engine_id": "trocr-handwritten",
+          "source_stale": false,
+          "crop_revision": 1
+        }
+      ],
+      "review": {
+        "review_id": "49cd3f0b-584a-451e-b034-f9080c22bbd8",
+        "region_id": "21e44ee8-bc77-42ce-bf1b-8f4be2141b4a",
+        "reviewed_text": "indus the",
+        "excluded": false,
+        "version": 1,
+        "review_revision_id": "71e385f9-b247-4aa5-aada-5f5559cfd11a",
+        "document_revision_id": "549bdcff-7c19-4bc4-8b23-3b6024544dd3",
+        "training_example_id": null
+      },
+      "reopened": [
+        {
+          "region_id": "21e44ee8-bc77-42ce-bf1b-8f4be2141b4a",
+          "prediction_id": "093455e1-ae70-4b64-8e48-8ee121e5059b",
+          "bbox": [
+            0,
+            0,
+            248,
+            76
+          ],
+          "content_type": "text",
+          "order_index": 0,
+          "prediction_text": "indus the",
+          "reviewed_text": "indus the",
+          "excluded": false,
+          "review_version": 1,
+          "truncated": false,
+          "engine_id": "trocr-handwritten",
+          "source_stale": false,
+          "crop_revision": 1
+        }
+      ],
+      "export": {
+        "status": "success",
+        "format": "markdown",
+        "text": "indus the"
+      }
+    }
+  ]
+}
