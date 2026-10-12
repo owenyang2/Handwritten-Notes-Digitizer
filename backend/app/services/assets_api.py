@@ -586,7 +586,11 @@ def create_recognition_run(
                     kind = "text" if task == "prose" else "math_display"
                     # Reuse the same source crop on retry without duplicating review blocks.
                     region = next((item for item in repos.document_regions.list_for_page(user.user_id, page_id)
-                                   if item.crop_sha256 == digest and item.content_type == kind), None)
+                                   if item.crop_sha256 == digest and item.content_type == kind
+                                   and item.page_revision == page.page_revision
+                                   and item.coordinate_space == page.coordinate_space
+                                   and [item.bbox_x, item.bbox_y, item.bbox_width, item.bbox_height]
+                                   == [box.x, box.y, box.width, box.height]), None)
                     if region is None:
                         region = repos.document_regions.add(DocumentRegion(page_id=page_id, order_index=index,
                             content_type=kind, bbox_x=box.x, bbox_y=box.y, bbox_width=box.width, bbox_height=box.height,
@@ -597,10 +601,15 @@ def create_recognition_run(
             for region in regions:
                 bbox = [region.bbox_x, region.bbox_y, region.bbox_width, region.bbox_height]
                 crop = crop_png(raster, bbox)
+                digest = hashlib.sha256(crop).hexdigest()
+                if region.crop_sha256 != digest:
+                    region.page_revision += 1
+                    region.crop_sha256 = digest
+                    region.source_crop_path = store.put_region_crop(str(user.user_id), crop, suffix=".png")
                 frozen.append({"region_id": str(region.region_id), "bbox": bbox, "content_type": region.content_type,
                     "region_revision": region.page_revision, "original_crop_sha256": region.crop_sha256,
                     "crop_ref": store.put_region_crop(str(user.user_id), crop, suffix=".png"),
-                    "crop_sha256": hashlib.sha256(crop).hexdigest()})
+                    "crop_sha256": digest})
             snapshot["regions"] = frozen
             snapshot["region_ids"] = [item["region_id"] for item in frozen]
             if not frozen:

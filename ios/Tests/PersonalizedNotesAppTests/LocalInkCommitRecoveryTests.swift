@@ -8,6 +8,58 @@ import PencilKit
 #endif
 
 final class LocalInkCommitRecoveryTests: XCTestCase {
+    func testRemoteDownloadCannotReplaceALocalCommitThatArrivesInFlight() async throws {
+        for initiallyEmpty in [false, true] {
+            let pageID = UUID()
+            defer { LocalInkCache.remove(pageID: pageID) }
+            let queue = InkCommitQueue.shared
+            let oldBundle = makeBundle(pageID: pageID, marker: "old")
+            if !initiallyEmpty {
+                _ = try await queue.commit(pageID: pageID, pkDrawingData: oldBundle.nativeDrawing!.data, bundle: oldBundle)
+                try await queue.markInkUploaded(pageID: pageID, contentHash: oldBundle.contentHash)
+            }
+            let expectedID = LocalInkCache.revisionMetadata(pageID: pageID)?.revisionID
+            let expectedHash = LocalInkCache.readInkBundle(pageID: pageID)?.contentHash
+            let remote = makeRestorableBundle(pageID: pageID)
+            let revision = makeRevision(remote)
+            // The network download is in flight while Pencil publishes new ink.
+            let newBundle = makeBundle(pageID: pageID, marker: "new")
+            let local = try await queue.commit(pageID: pageID, pkDrawingData: newBundle.nativeDrawing!.data, bundle: newBundle)
+            let installed = try await queue.installRemoteBundle(
+                remote, revision: revision, expectedLocalRevisionID: expectedID, expectedLocalContentHash: expectedHash
+            )
+            XCTAssertNil(installed)
+            XCTAssertEqual(LocalInkCache.revisionMetadata(pageID: pageID)?.revisionID, local.revisionID)
+            XCTAssertEqual(LocalInkCache.readInkBundle(pageID: pageID), newBundle)
+            try await queue.markInkUploaded(pageID: pageID, contentHash: oldBundle.contentHash)
+            XCTAssertFalse(LocalInkCache.isInkUploaded(pageID: pageID, contentHash: newBundle.contentHash))
+        }
+    }
+
+    func testQueuedRemoteInstallRestoresAnUnchangedUploadedRevision() async throws {
+        let pageID = UUID()
+        defer { LocalInkCache.remove(pageID: pageID) }
+        let old = makeBundle(pageID: pageID, marker: "old")
+        let metadata = try await InkCommitQueue.shared.commit(pageID: pageID, pkDrawingData: old.nativeDrawing!.data, bundle: old)
+        try await InkCommitQueue.shared.markInkUploaded(pageID: pageID, contentHash: old.contentHash)
+        let remote = makeRestorableBundle(pageID: pageID)
+        let revision = makeRevision(remote)
+        let installed = try await InkCommitQueue.shared.installRemoteBundle(
+            remote, revision: revision, expectedLocalRevisionID: metadata.revisionID, expectedLocalContentHash: old.contentHash
+        )
+        XCTAssertEqual(installed?.revisionID, revision.bundleID)
+        XCTAssertEqual(LocalInkCache.readPKDrawing(pageID: pageID), remote.nativeDrawing?.data)
+    }
+
+    private func makeRevision(_ bundle: InkBundle) -> InkBundleRevision {
+        InkBundleRevision(
+            bundleID: UUID(), pageID: bundle.pageID, contentHash: bundle.contentHash,
+            schemaName: bundle.schema, schemaVersion: bundle.schemaVersion,
+            strokeCount: bundle.strokes.count, pointCount: 2, assetID: UUID(),
+            createdAt: Date(), revisionNumber: 2, active: true, uploadState: "complete"
+        )
+    }
+
     func testRemoteRevisionRestoresExactNativePairWithoutOverwritingPendingLocalInk() throws {
         let pageID = UUID()
         let localBundle = makeBundle(pageID: pageID, marker: "old-local")

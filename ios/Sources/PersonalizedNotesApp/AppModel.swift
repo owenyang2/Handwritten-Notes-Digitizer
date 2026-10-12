@@ -828,7 +828,8 @@ final class AppModel: ObservableObject {
                     drawing: drawing,
                     pageID: pageID,
                     width: max(width, 1),
-                    height: max(height, 1)
+                    height: max(height, 1),
+                    nativeDrawingData: pkDrawingData
                 )
                 #else
                 let bundle = InkBundle(
@@ -1529,7 +1530,7 @@ final class AppModel: ObservableObject {
                 } else if alreadyUploaded {
                     continue
                 }
-                let idempotencyKey = try LocalInkCache.resumableUploadIdempotencyKey(
+                let idempotencyKey = try await InkCommitQueue.shared.resumableUploadIdempotencyKey(
                     pageID: page.pageID,
                     contentHash: bundle.contentHash
                 )
@@ -1539,7 +1540,7 @@ final class AppModel: ObservableObject {
                         bundle: bundle,
                         idempotencyKey: idempotencyKey
                     )
-                    try LocalInkCache.markInkUploaded(pageID: page.pageID, contentHash: bundle.contentHash)
+                    try await InkCommitQueue.shared.markInkUploaded(pageID: page.pageID, contentHash: bundle.contentHash)
                     if let metadata {
                         try await store.markPageRevisionUploaded(
                             revisionID: metadata.revisionID,
@@ -1615,13 +1616,14 @@ final class AppModel: ObservableObject {
         for document in allDocuments.values {
             for page in document.pages {
                 let localBundle = LocalInkCache.readInkBundle(pageID: page.pageID)
+                let localRevisionID = LocalInkCache.revisionMetadata(pageID: page.pageID)?.revisionID
                 let manifest = try await client.inkBundleManifest(pageID: page.pageID)
                 guard let activeID = manifest.activeBundleID,
                       let activeRevision = manifest.revisions.first(where: { $0.bundleID == activeID }) else {
                     continue
                 }
                 if localBundle?.contentHash == activeRevision.contentHash {
-                    try LocalInkCache.markInkUploaded(
+                    try await InkCommitQueue.shared.markInkUploaded(
                         pageID: page.pageID,
                         contentHash: activeRevision.contentHash
                     )
@@ -1641,10 +1643,12 @@ final class AppModel: ObservableObject {
                     pageID: page.pageID,
                     bundleID: activeRevision.bundleID
                 )
-                let metadata = try LocalInkCache.installRemoteBundle(
+                guard let metadata = try await InkCommitQueue.shared.installRemoteBundle(
                     remoteBundle,
-                    revision: activeRevision
-                )
+                    revision: activeRevision,
+                    expectedLocalRevisionID: localRevisionID,
+                    expectedLocalContentHash: localBundle?.contentHash
+                ) else { continue }
                 let restoredAt = Date()
                 let transfer = LocalTransferJob(
                     transferID: activeRevision.bundleID,
@@ -1916,8 +1920,34 @@ final class AppModel: ObservableObject {
     }
 }
 
-private actor InkCommitQueue {
+actor InkCommitQueue {
     static let shared = InkCommitQueue()
+
+    func installRemoteBundle(
+        _ bundle: InkBundle,
+        revision: InkBundleRevision,
+        expectedLocalRevisionID: UUID?,
+        expectedLocalContentHash: String?
+    ) throws -> LocalInkRevisionMetadata? {
+        // Recheck after the download, inside the same queue as Pencil commits.
+        // This also protects a page whose first local drawing arrived in flight.
+        let currentBundle = LocalInkCache.readInkBundle(pageID: bundle.pageID)
+        guard LocalInkCache.revisionMetadata(pageID: bundle.pageID)?.revisionID == expectedLocalRevisionID,
+              currentBundle?.contentHash == expectedLocalContentHash,
+              LocalInkCache.shouldRestoreRemoteRevision(
+                pageID: bundle.pageID, localBundle: currentBundle, activeRevision: revision
+              ) else { return nil }
+        return try LocalInkCache.installRemoteBundle(bundle, revision: revision)
+    }
+
+    func markInkUploaded(pageID: UUID, contentHash: String) throws {
+        guard LocalInkCache.readInkBundle(pageID: pageID)?.contentHash == contentHash else { return }
+        try LocalInkCache.markInkUploaded(pageID: pageID, contentHash: contentHash)
+    }
+
+    func resumableUploadIdempotencyKey(pageID: UUID, contentHash: String) throws -> UUID {
+        try LocalInkCache.resumableUploadIdempotencyKey(pageID: pageID, contentHash: contentHash)
+    }
 
     func commit(pageID: UUID, pkDrawingData: Data, bundle: InkBundle) throws -> LocalInkRevisionMetadata {
         // Serializing commits prevents a slower earlier drawing snapshot from

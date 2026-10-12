@@ -1735,6 +1735,16 @@ public actor SQLiteLocalStore {
         to document: inout DocumentRecord
     ) {
         switch change.operationType {
+        case "document.metadata":
+            if let title = jsonString(change.payload["title"]) { document.title = title }
+            if let archived = jsonBool(change.payload["archived"]) {
+                document.archivedAt = archived ? change.createdAt : nil
+            }
+            if let favorite = jsonBool(change.payload["is_favorite"]) { document.isFavorite = favorite }
+            if let language = jsonString(change.payload["default_language"]) { document.defaultLanguage = language }
+            if change.payload["course_context"] != nil {
+                document.courseContext = jsonString(change.payload["course_context"])
+            }
         case "document.rename":
             if case let .string(title)? = change.payload["title"] {
                 document.title = title

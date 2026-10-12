@@ -695,6 +695,7 @@ struct NotebookEditorView: View {
             PencilCanvasRepresentable(
                 pageID: page.pageID,
                 initialDrawingData: LocalInkCache.readPKDrawing(pageID: page.pageID),
+                drawingRevisionID: LocalInkCache.revisionMetadata(pageID: page.pageID)?.revisionID,
                 canvasSize: CGSize(
                     width: CGFloat(max(page.width, 1)),
                     height: CGFloat(max(page.height, 1))

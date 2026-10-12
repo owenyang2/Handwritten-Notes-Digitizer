@@ -26,6 +26,7 @@ import PDFKit
 struct PencilCanvasRepresentable: UIViewRepresentable {
     var pageID: UUID
     var initialDrawingData: Data?
+    var drawingRevisionID: UUID?
     var canvasSize: CGSize
     var allowsFingerDrawing: Bool
     var backgroundSourceURL: URL?
@@ -61,11 +62,9 @@ struct PencilCanvasRepresentable: UIViewRepresentable {
             paperTemplate: paperTemplate,
             size: canvasSize
         )
-        if let initialDrawingData, let drawing = try? PKDrawing(data: initialDrawingData) {
-            context.coordinator.isApplyingExternalDrawing = true
-            canvas.drawing = drawing
-            context.coordinator.isApplyingExternalDrawing = false
-        }
+        context.coordinator.updateDrawing(
+            on: canvas, pageID: pageID, data: initialDrawingData, revisionID: drawingRevisionID
+        )
         if #available(iOS 17.5, *) {
             let pencilInteraction = UIPencilInteraction(delegate: context.coordinator)
             canvas.addInteraction(pencilInteraction)
@@ -80,15 +79,9 @@ struct PencilCanvasRepresentable: UIViewRepresentable {
             context.coordinator.lastCommandID = command.id
             context.coordinator.pendingCommand = command
         }
-        if context.coordinator.pageID != pageID {
-            context.coordinator.flush(canvas)
-            context.coordinator.pageID = pageID
-            context.coordinator.isApplyingExternalDrawing = true
-            canvas.drawing = initialDrawingData.flatMap { try? PKDrawing(data: $0) } ?? PKDrawing()
-            context.coordinator.isApplyingExternalDrawing = false
-            canvas.setZoomScale(1, animated: false)
-            canvas.setContentOffset(.zero, animated: false)
-        }
+        context.coordinator.updateDrawing(
+            on: canvas, pageID: pageID, data: initialDrawingData, revisionID: drawingRevisionID
+        )
         canvas.drawingPolicy = allowsFingerDrawing ? .anyInput : .pencilOnly
         context.coordinator.updateBackground(
             on: canvas,
@@ -138,6 +131,10 @@ struct PencilCanvasRepresentable: UIViewRepresentable {
         var pencilInteraction: UIPencilInteraction?
         var isApplyingExternalDrawing = false
         private var commitTask: Task<Void, Never>?
+        private var drawingRevisionID: UUID?
+        private var appliedDrawing: PKDrawing?
+        private var pendingDrawingData: Data?
+        private var submittedDrawing: PKDrawing?
         var lastCommandID: UUID?
         private var previousTool: PKTool?
 
@@ -153,15 +150,44 @@ struct PencilCanvasRepresentable: UIViewRepresentable {
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
             guard !isApplyingExternalDrawing else { return }
             let data = canvasView.drawing.dataRepresentation()
+            guard data != pendingDrawingData else { return }
+            if pendingDrawingData == nil, canvasView.drawing == (submittedDrawing ?? appliedDrawing) { return }
+            pendingDrawingData = data
             commitTask?.cancel()
-            let commit = onDrawingCommit
-            let pageID = pageID
             // Snapshot now, persist later. Do not call the backend here.
-            commitTask = Task { @MainActor in
+            commitTask = Task { @MainActor [weak self, weak canvasView] in
                 try? await Task.sleep(for: .milliseconds(50))
-                guard !Task.isCancelled else { return }
-                commit(pageID, data)
+                guard !Task.isCancelled, let self, let canvasView else { return }
+                self.flush(canvasView)
             }
+        }
+
+        func updateDrawing(on canvas: PKCanvasView, pageID: UUID, data: Data?, revisionID: UUID?) {
+            if self.pageID != pageID {
+                flush(canvas)
+                self.pageID = pageID
+                appliedDrawing = nil
+                submittedDrawing = nil
+                drawingRevisionID = nil
+                canvas.setZoomScale(1, animated: false)
+                canvas.setContentOffset(.zero, animated: false)
+            }
+            guard appliedDrawing == nil || drawingRevisionID != revisionID else { return }
+            let drawing = data.flatMap { try? PKDrawing(data: $0) } ?? PKDrawing()
+            if drawing == canvas.drawing {
+                appliedDrawing = canvas.drawing
+                drawingRevisionID = revisionID
+                submittedDrawing = nil
+                return
+            }
+            // A submitted save can still be committing on the background queue.
+            // Neither it nor an unsubmitted Pencil snapshot may be replaced.
+            guard pendingDrawingData == nil, submittedDrawing == nil else { return }
+            isApplyingExternalDrawing = true
+            canvas.drawing = drawing
+            isApplyingExternalDrawing = false
+            appliedDrawing = canvas.drawing
+            drawingRevisionID = revisionID
         }
 
         func installBackground(
@@ -264,8 +290,10 @@ struct PencilCanvasRepresentable: UIViewRepresentable {
 
         func flush(_ canvas: PKCanvasView) {
             commitTask?.cancel()
-            let data = canvas.drawing.dataRepresentation()
-            let pageID = pageID
+            commitTask = nil
+            guard let data = pendingDrawingData else { return }
+            pendingDrawingData = nil
+            submittedDrawing = canvas.drawing
             onDrawingCommit(pageID, data)
         }
 

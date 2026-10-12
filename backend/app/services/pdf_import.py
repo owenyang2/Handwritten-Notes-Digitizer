@@ -540,7 +540,6 @@ async def attach_document_source(
             raster_path = store.put_page_raster(
                 str(user.user_id),
                 prepared_page.png_bytes,
-                name=page.page_id.hex,
                 suffix=".png",
             )
             stored_paths.append(raster_path)
@@ -553,7 +552,6 @@ async def attach_document_source(
             image_path = store.put_image_bytes(
                 str(user.user_id),
                 image_payload,
-                name=page.page_id.hex,
                 suffix=image_suffix,
             )
             stored_paths.append(image_path)
@@ -591,6 +589,13 @@ async def attach_document_source(
                 else "normalized-raster-v1"
             )
             page.transforms = prepared.transforms[prepared_page.index]
+            # A different source invalidates queued conversions and predictions.
+            # Keep immutable run crops and review history for the old source.
+            page.page_revision += 1
+            for region in repos.document_regions.list_for_page(user.user_id, page.page_id):
+                region.page_revision += 1
+                region.crop_sha256 = None
+                region.source_crop_path = None
 
         repos.session.commit()
     except PdfImportError as exc:

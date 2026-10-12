@@ -389,6 +389,7 @@ enum LocalInkCache {
         contentHash: String
     ) throws -> UUID {
         let fallback = Self.stableUploadKey(pageID: pageID, contentHash: contentHash)
+        guard readInkBundle(pageID: pageID)?.contentHash == contentHash else { return fallback }
         let directory = try Self.directory()
         let manifestURL = directory.appendingPathComponent("\(pageID.uuidString).manifest.json")
         guard let data = try? Data(contentsOf: manifestURL),

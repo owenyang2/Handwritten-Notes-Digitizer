@@ -9,7 +9,8 @@ enum PencilKitInkAdapter {
         drawing: PKDrawing,
         pageID: UUID,
         width: Double,
-        height: Double
+        height: Double,
+        nativeDrawingData: Data? = nil
     ) throws -> InkBundle {
         var hasPressure = false
         var hasAzimuth = false
@@ -77,9 +78,10 @@ enum PencilKitInkAdapter {
             )
         }
 
-        let nativeDrawing = drawing.dataRepresentation().isEmpty
+        let nativeData = nativeDrawingData ?? drawing.dataRepresentation()
+        let nativeDrawing = nativeData.isEmpty
             ? nil
-            : NativeDrawing(data: drawing.dataRepresentation())
+            : NativeDrawing(data: nativeData)
         return InkBundle(
             pageID: pageID,
             coordinateSpace: InkCoordinateSpace(width: width, height: height),

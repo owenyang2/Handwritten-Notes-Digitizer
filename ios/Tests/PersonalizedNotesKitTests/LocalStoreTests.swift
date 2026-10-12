@@ -3,6 +3,44 @@ import XCTest
 import SQLite3
 
 final class LocalStoreTests: XCTestCase {
+    func testWebsiteMetadataAndTrashChangesUpdateExistingLocalCopy() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("rest-sync-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try SQLiteLocalStore(databaseURL: directory.appendingPathComponent("notes.sqlite3"))
+        let documentID = UUID()
+        try await store.upsertDocuments([DocumentRecord(documentID: documentID, title: "Old", courseContext: "Old context")])
+        let payload: JSONDocument = [
+            "title": .string("Website title"), "archived": .bool(true), "is_favorite": .bool(true),
+            "default_language": .string("fr"), "course_context": .null,
+        ]
+        try await store.applyRemoteChange(SyncChange(
+            serverSequence: 1, operationID: UUID(), documentID: documentID, clientID: "server:documents",
+            clientOperationID: UUID(), baseSyncVersion: 0, syncVersion: 1, entityType: "document",
+            entityID: documentID.uuidString, operationType: "document.metadata", payload: payload,
+            createdAt: Date(), isTombstone: false
+        ))
+        let updated = try await store.document(id: documentID)
+        XCTAssertEqual(updated?.title, "Website title")
+        XCTAssertNotNil(updated?.archivedAt)
+        XCTAssertEqual(updated?.isFavorite, true)
+        XCTAssertEqual(updated?.defaultLanguage, "fr")
+        XCTAssertNil(updated?.courseContext)
+        for (index, operation) in ["document.trash", "document.restore"].enumerated() {
+            try await store.applyRemoteChange(SyncChange(
+                serverSequence: index + 2, operationID: UUID(), documentID: documentID, clientID: "server:documents",
+                clientOperationID: UUID(), baseSyncVersion: index + 1, syncVersion: index + 2, entityType: "document",
+                entityID: documentID.uuidString, operationType: operation, payload: [:], createdAt: Date(), isTombstone: false
+            ))
+            let document = try await store.document(id: documentID)
+            XCTAssertEqual(document?.trashedAt != nil, index == 0)
+        }
+        let next = try await store.enqueueDocumentMutation(
+            documentID: documentID, clientID: "ipad", operationType: "document.rename",
+            payload: ["title": .string("Next title")], entityID: nil
+        )
+        XCTAssertEqual(next.baseSyncVersion, 3)
+    }
+
     func testSchemaMigrationBackfillsNormalizedPagesAndUsesThemAfterReopen() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("legacy-local-store-\(UUID().uuidString)", isDirectory: true)

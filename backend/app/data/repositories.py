@@ -309,8 +309,31 @@ class DocumentRepository(_ScopedRepository):
             document.course_context = course_context
         document.sync_version += 1
         document.updated_at = utcnow()
+        self._record_sync_operation(document, "document.metadata", {
+            "title": document.title,
+            "archived": document.archived_at is not None,
+            "is_favorite": document.is_favorite,
+            "default_language": document.default_language,
+            "course_context": document.course_context,
+        })
         self._session.flush()
         return document
+
+    def _record_sync_operation(self, document: Document, operation_type: str, payload: dict) -> None:
+        """Publish REST mutations in the same transaction as the canonical state."""
+        self._session.add(DocumentOperation(
+            user_id=document.user_id,
+            document_id=document.document_id,
+            client_id="server:documents",
+            client_operation_id=uuid.uuid4(),
+            base_sync_version=document.sync_version - 1,
+            document_sync_version=document.sync_version,
+            entity_type="document",
+            entity_id=str(document.document_id),
+            operation_type=operation_type,
+            payload=payload,
+            created_at=document.updated_at,
+        ))
 
     def touch(
         self,
@@ -339,6 +362,7 @@ class DocumentRepository(_ScopedRepository):
             document.trashed_at = utcnow()
             document.sync_version += 1
             document.updated_at = utcnow()
+            self._record_sync_operation(document, "document.trash", {})
             self._session.flush()
         return document
 
@@ -352,6 +376,7 @@ class DocumentRepository(_ScopedRepository):
             document.trashed_at = None
             document.sync_version += 1
             document.updated_at = utcnow()
+            self._record_sync_operation(document, "document.restore", {})
             self._session.flush()
         return document
 
