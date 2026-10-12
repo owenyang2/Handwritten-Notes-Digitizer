@@ -3,7 +3,7 @@
 An iPad and web app for turning handwritten notes and PDFs into reviewed text
 and editable LaTeX while preserving the original source.
 
-**Local alpha** · SwiftUI / PencilKit · TypeScript / Vite · FastAPI / PyTorch
+SwiftUI / PencilKit · TypeScript / Vite · FastAPI / PyTorch
 
 [Demo details](demos/README.md) · [Engineering case study](docs/CASE_STUDY.md) ·
 [Run locally](docs/GETTING_STARTED.md)
