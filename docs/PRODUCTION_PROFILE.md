@@ -1,12 +1,22 @@
 # Production Compose profile
 
-This repository's default path is still a one-command local/demo stack:
+**Deployment acceptance is incomplete.** Fresh PostgreSQL migrations fail on
+merged main; a fix is prepared and tested locally but remains uncommitted in
+this workspace. S3/MinIO verification was blocked by registry downloads.
+See the [feature matrix](FEATURE_STATUS_MATRIX.md) and
+[active deployment checklist](../TODO-2026-10-11.md#6-before-a-staging-or-beta-release).
+
+This repository's default path is the SQLite local/demo web/API stack:
 
 ```bash
-docker compose up
+HND_ENVIRONMENT=development FRONTEND_PORT=8080 make docker-up
 ```
 
-That uses `docker-compose.yml` with SQLite (`HND_DATABASE_URL=sqlite:///./var/hnd.db`) and the filesystem object store. Do not replace that file with this profile.
+That uses `docker-compose.yml` with SQLite (`HND_DATABASE_URL=sqlite:///./var/hnd.db`)
+and the filesystem object store. The local website is at `http://localhost:8080/`.
+Recognition requires separately installed models and a compatible runtime;
+follow [getting started](GETTING_STARTED.md). Do not replace that file with this
+profile.
 
 `docker-compose.prod.yml` is the optional production-shaped layout: PostgreSQL 16, Redis 7, MinIO (S3-compatible), the API, and the nginx frontend.
 
@@ -76,7 +86,9 @@ Unset `HND_REDIS_URL` and the API falls back to in-process rate limits. Unset th
 | backend | `GET /health` |
 | frontend | `wget http://127.0.0.1/` |
 
-The backend waits for Postgres, Redis, and successful MinIO bucket creation before it starts. Alembic migrations run automatically the first time the API process opens a database session (`upgrade_database` in `app.services.auth_api`). You can also run them explicitly:
+The backend waits for Postgres, Redis, and successful MinIO bucket creation before
+it starts. API startup applies Alembic migrations before serving requests.
+You can also run them explicitly:
 
 ```bash
 docker compose -f docker-compose.prod.yml exec backend python -c "from app.data.migrations import upgrade_database; from app.config import get_settings; upgrade_database(get_settings().database_url)"

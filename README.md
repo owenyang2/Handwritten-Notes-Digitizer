@@ -1,233 +1,129 @@
 # Handwriting Notes Digitizer
 
-**Remaining work:** [Dated TODO checklist — October 11, 2026](TODO-2026-10-11.md).
+An iPad and web app for turning handwritten notes and PDFs into reviewed text
+and editable LaTeX while preserving the original source.
 
-A local web app for importing handwritten PDFs or images, reviewing formula crops as editable LaTeX, and exporting a versioned document containing prose, mathematics, and retained figures.
+**Local alpha** · SwiftUI / PencilKit · TypeScript / Vite · FastAPI / PyTorch
 
-The project is built around a FastAPI backend, a Vite/TypeScript frontend, durable recognition jobs, and pluggable formula engines. The original CRNN/CTC prose recognizer remains available for legacy line workflows; formula recognition uses a real, artifact-backed UniMERNet-small adapter or the native compact PyTorch image-to-LaTeX model. No missing or untrained model is presented as a successful recognition capability.
+**[Watch the 82-second demo](demos/end-to-end-demo.mp4)** ·
+[Demo details](demos/README.md) · [Engineering case study](docs/CASE_STUDY.md) ·
+[Run locally](docs/GETTING_STARTED.md)
 
-## What It Does
+<table>
+  <tr><th>iPad: notes and conversion</th><th>Web: source and saved correction</th></tr>
+  <tr>
+    <td><a href="demos/demo-preview.png"><img src="demos/demo-preview.png" width="210" alt="iPad simulator showing a source page after formula conversion"></a></td>
+    <td><a href="demos/website-formula-review.png"><img src="demos/website-formula-review.png" width="245" alt="Website showing the original formula crop beside its saved editable LaTeX"></a></td>
+  </tr>
+</table>
 
-- Import multipage PDF, PNG, or JPEG notes while retaining the original asset and a normalized page raster.
-- Select complete formula crops manually, or run deterministic page-layout detection as a reviewable starting point.
-- Run recognition through a durable, owner-scoped job and keep raw output, alternatives, truncation, score, and model provenance.
-- Review the original crop beside editable LaTeX and a rendered preview; corrections are immutable, version-checked revisions.
-- Reorder, split, merge, exclude, and mark unresolved regions without losing the source crop.
-- Export the active reviewed revision as Markdown, LaTeX, HTML, or a controlled PDF.
-- Explicitly opt reviewed crops into the personal training dataset; no review is silently used for training.
+The screenshots use a printed formula smoke fixture to demonstrate the workflow.
 
-## Quick Start
+## The workflow
 
-The recommended path is Docker.
+1. **Capture or import.** Create notebooks in the iPad client or import PDF,
+   PNG, and JPEG notes. Retain the original files and page ink.
+2. **Recognize and review.** Select prose or formula regions, run recognition,
+   and compare predictions with their source. Correct text or LaTeX, reorder
+   regions, and mark uncertain results for review.
+3. **Save and export.** Reopen saved corrections and export the reviewed
+   document as Markdown, LaTeX, or HTML. The web export pipeline also supports
+   a controlled PDF.
 
-```bash
-make docker-up
+The native client is currently named **Personalized Notes** in the app and
+Xcode targets. It is the iPad interface to this same project.
+
+## Engineering highlights
+
+- **Preserving notes through sync:** SQLite stores native edits locally, pending
+  operations survive relaunch, and remote ink downloads recheck the local
+  revision before installation so a new drawing is protected.
+- **Review tied to its source:** database-backed recognition jobs use frozen
+  crops and model provenance. Version-checked, immutable review revisions keep
+  saved corrections and exports consistent.
+- **Shared native and web boundaries:** OpenAPI, error-code, and ink contracts
+  connect Swift and TypeScript clients to owner-scoped FastAPI services.
+  Property, integration, and simulator tests cover recovery and isolation.
+
+The project implements the application, synchronization, review/export pipeline,
+model adapters, and training/evaluation tooling. The demonstrated recognition
+uses pretrained **UniMERNet-small** for formulas and **TrOCR** for prose. The
+custom compact formula model and legacy CRNN personalization are additional
+research paths; their quality has not been established on representative notes.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    iPad["iPad · SwiftUI / PencilKit"] --> local["Local SQLite + ink files"]
+    local <-->|"pending operations / ink revisions"| api["FastAPI"]
+    web["Web · TypeScript / Vite"] -->|"HTTP API"| api
+    api --> db["SQLite · documents, jobs, revisions"]
+    api --> store["Filesystem object store · originals, crops, ink"]
+    api --> worker["Recognition worker · process-local"]
+    worker --> db
+    worker --> store
+    worker --> models["UniMERNet / TrOCR · external weights"]
 ```
 
-Then open:
+PostgreSQL, Redis-backed rate limits, and S3-compatible storage have an optional
+[deployment profile](docs/PRODUCTION_PROFILE.md). Deployment validation remains
+incomplete; the current recognition worker runs inside the API process.
 
-```text
-http://localhost/
-```
+## Current status
 
-`make docker-up` runs `docker compose up --build`, so it builds the app and leaves container logs attached in the terminal. Stop it with `Ctrl-C`, then cleanly shut containers down with:
+Evidence reviewed October 12, 2026; workflow recordings and application test
+results are dated October 11.
 
-```bash
-make docker-down
-```
+| Area | Evidence and remaining limits |
+| --- | --- |
+| Web and iPad simulator conversion | Real-model recognition → source-linked review → save → reopen → Markdown export demonstrated locally |
+| Offline storage and sync | Automated recovery, conflict, and exact-ink restoration coverage; complete live two-client interruption/conflict testing remains |
+| Handwriting quality | Representative accuracy evaluation remains; the demo prose prediction needs human correction |
+| Physical iPad / Apple Pencil | Hardware behavior, signing, accessibility, battery, and thermal testing remain |
+| Personalization | Training/consent infrastructure exists; no demonstrated accuracy improvement |
+| Deployment | Local SQLite workflow verified; PostgreSQL migration fix prepared locally, S3/MinIO and production acceptance incomplete |
 
-Useful Docker commands:
+See the [maintained feature matrix](docs/FEATURE_STATUS_MATRIX.md),
+[dated validation report](docs/release-evidence/REVIEW_FIXES_2026-10-11.md), and
+[remaining work](TODO-2026-10-11.md). Automated test results establish behavior
+at their recorded source revision; they do not measure handwriting accuracy.
 
-```bash
-make docker-logs
-make docker-smoke
-docker compose ps
-```
+## Run locally
 
-## Diagnostics
-
-Run the project health check with:
-
-```bash
-make doctor
-```
-
-The doctor script checks the local model artifact, migrations for the active
-runtime (the Compose database when Docker is running), backend health,
-frontend/API proxy health, common `.env` path mistakes, model loading, and
-Docker model visibility. It returns a non-zero exit code for failed checks;
-unavailable optional local endpoints are warnings.
-
-`make docker-smoke` builds the Compose stack, waits for its health checks, then
-runs the same diagnostic.
-
-## Local Development
-
-Install backend dependencies if needed:
-
-```bash
-python3 -m venv backend/.venv
-backend/.venv/bin/pip install -r backend/requirements.txt
-```
-
-Install frontend dependencies if needed:
-
-```bash
-cd frontend
-npm install
-```
-
-Start the backend:
-
-```bash
-make dev-backend
-```
-
-Start the frontend in another terminal:
-
-```bash
-make dev-frontend
-```
-
-Local dev URLs:
-
-```text
-Frontend: http://127.0.0.1:5173/
-Backend:  http://127.0.0.1:8000/health
-Proxy:    http://127.0.0.1:5173/api/health
-```
-
-For local backend commands, run from the repo root through the Make targets or from `backend/` directly. The Docker `.env` uses `/app/var/objectstore`, while local backend defaults expect `backend/var/objectstore`.
-
-## Database Migrations
-
-Application startup upgrades the configured database to the checked-in Alembic
-head revision before serving requests. To inspect migration drift directly:
-
-```bash
-cd backend
-.venv/bin/alembic check
-```
-
-For an explicit upgrade outside application startup:
-
-```bash
-cd backend
-.venv/bin/alembic upgrade head
-```
-
-## Testing
-
-Run both suites:
-
-```bash
-make test
-```
-
-Run one side at a time:
-
-```bash
-make test-frontend
-make test-backend
-```
-
-Frontend-specific commands:
-
-```bash
-cd frontend
-npm run typecheck
-npm run build
-npm test
-```
-
-Backend-specific commands:
-
-```bash
-cd backend
-PYTHONPATH=.. .venv/bin/python3 -m pytest -q
-```
-
-## How Recognition Works
-
-1. The backend stores the unmodified upload and creates ordered page records. PDF pages are rasterized; photos are orientation-normalized and transparency is flattened while the original is retained.
-2. A reviewer selects a complete expression, or starts with the bounded page-layout heuristic. Coordinates identify the page-raster version used for the crop.
-3. A durable worker sends each crop to the configured formula engine. A missing, corrupt, incompatible, or truncated model result stays visibly unavailable or unresolved.
-4. The review UI keeps the original crop, editable LaTeX, rendered preview, raw prediction, and alternatives together.
-5. Saving creates an immutable review revision. Exports assemble the same active revision, so edits and exclusions cannot disappear between preview and download.
-
-The compact model is trained with `training/cli.py`; UniMERNet-small is downloaded separately with `scripts/download_unimernet.py`. The repository intentionally contains no licensed handwriting corpus or pretrained weights, so health reports formula recognition as unavailable until a verified artifact is installed.
-
-## Training Data Workflow
-
-Reviewed crops become `TrainingExample` records only when the reviewer explicitly gives consent. The existing prose personalization worker can train a per-user adapter after enough eligible examples are collected; compact formula training is an offline, manifest-driven run through `training/cli.py`.
-
-Important behavior:
-
-- Editing LaTeX changes only the next saved review revision; a version conflict is reported instead of overwriting another edit.
-- A crop enters the formula dataset only after explicit consent, with its crop hash, exact review revision, source page, and split/provenance recorded.
-- Dataset loading rejects missing images, unsupported labels, duplicate IDs, and source documents crossing train/dev/test splits.
-- The training checkpoint includes model/tokenizer configuration, optimizer/scheduler/scaler, RNG state, epoch and data position, manifest path, and dataset digest.
-- Adapter/model promotion remains evidence-gated; unavailable evaluation data never becomes a synthetic accuracy claim.
-
-## Project Layout
-
-```text
-backend/
-  app/                 FastAPI app, services, data models, ML pipeline
-  tests/               Backend unit, integration, and property tests
-  var/objectstore/     Local model artifacts and stored runtime data
-
-frontend/
-  src/                 Vite/TypeScript frontend modules
-  README.md            Frontend-specific setup and module notes
-
-docs/
-  AI_MODEL_AND_DOCKER.md
-  MATH_NOTES_IMPLEMENTATION_PLAN.md
-  MATH_NOTES_MODEL_CARD.md
-  MATH_NOTES_DATA_CARD.md
-  MATH_NOTES_RUNBOOK.md
-
-training/              Native PyTorch formula dataset, model training, and profiling
-benchmarks/            Verified-manifest metrics and report runner
-notebooks/             Thin Colab/Kaggle launchers
-
-scripts/
-  doctor.py            Runtime and wiring diagnostic script
-
-docker-compose.yml     Backend/frontend container orchestration (SQLite local/demo)
-docker-compose.prod.yml  Optional Postgres/Redis/MinIO profile (see docs/PRODUCTION_PROFILE.md)
-Makefile               Common local, test, Docker, and diagnostic commands
-```
-
-## Configuration
-
-Start with:
+For the web/API stack, install Docker with Compose and run from the repo root:
 
 ```bash
 cp .env.example .env
+HND_ENVIRONMENT=development FRONTEND_PORT=8080 make docker-up
 ```
 
-Most settings have safe defaults. Common knobs:
+Open **<http://localhost:8080/>**. Stop the attached logs with `Ctrl-C`, then run
+`make docker-down` to shut down the services. Use these development settings
+only for a local machine; browser sessions on a deployed service require HTTPS.
 
-- `FRONTEND_PORT`: host port for the nginx frontend, default `80`.
-- `VITE_API_BASE_URL`: leave empty for same-origin `/api` proxying.
-- `HND_OBJECT_STORE_PATH`: object-store root for images, crops, adapters, and models.
-- `HND_RECOGNITION_TIMEOUT_SECONDS`: recognition job deadline.
-- `HND_PERSONALIZATION_TRIGGER_THRESHOLD`: unused training-pair count needed to trigger personalization.
-- `HND_FORMULA_ENGINE`: `unimernet`, `compact`, or `auto` formula backend selection.
+**A clean checkout contains no model weights.** The stack can start without
+recognition models; model availability is shown by `/api/health`. Reproducing
+the recorded inference requires separate model downloads and a compatible
+runtime. The demonstrated setup uses macOS arm64 and an isolated Python 3.12
+model environment; that environment is not bundled in the Linux Docker image.
 
-## More Documentation
+[First-time setup and diagnostics](docs/GETTING_STARTED.md) ·
+[Reproduce recognition / run the iPad app](docs/MODEL_AND_IPAD_SETUP.md) ·
+[Testing guide](PROPERTY_TESTING.md)
 
-- [AI model and Docker wiring](docs/AI_MODEL_AND_DOCKER.md)
-- [Production Compose profile](docs/PRODUCTION_PROFILE.md)
-- [Math-notes implementation plan](docs/MATH_NOTES_IMPLEMENTATION_PLAN.md)
-- [Personalized notes platform implementation plan](docs/PERSONALIZED_NOTES_PLATFORM_IMPLEMENTATION_PLAN.md)
-- [Math-notes setup and operations guide](docs/MATH_NOTES_SETUP_GUIDE.md)
-- [Math-notes model card](docs/MATH_NOTES_MODEL_CARD.md)
-- [Math-notes data card](docs/MATH_NOTES_DATA_CARD.md)
-- [Math-notes runbook](docs/MATH_NOTES_RUNBOOK.md)
-- [Benchmark runner](benchmarks/README.md)
-- [Implementation history and runbook](IMPLEMENTATION_HISTORY_AND_RUNBOOK.md)
-- [Frontend README](frontend/README.md)
-- [Property testing notes](PROPERTY_TESTING.md)
+## Repository map
+
+| Directory | Responsibility |
+| --- | --- |
+| [`ios/`](ios/README.md) | SwiftUI/PencilKit app, SQLite store, sync client, share extension |
+| [`frontend/`](frontend/README.md) | TypeScript review workspace, source previews, import and sync UI |
+| `backend/` | FastAPI services, persistence, recognition jobs, model adapters, tests |
+| `contracts/` | OpenAPI, error codes, canonical ink fixtures |
+| `training/`, [`benchmarks/`](benchmarks/README.md) | Compact-model experiments and verified-prediction metrics |
+| [`demos/`](demos/README.md) | Finished video and actual application screenshots |
+| [`docs/`](docs/README.md) | Case study, setup, current status, evidence, and archived design history |
+| `scripts/` | Diagnostics, model downloads, and contract checks |
+
+[Documentation index](docs/README.md) · [MIT license](LICENSE) ·
+[Third-party notices](THIRD_PARTY_NOTICES.md)

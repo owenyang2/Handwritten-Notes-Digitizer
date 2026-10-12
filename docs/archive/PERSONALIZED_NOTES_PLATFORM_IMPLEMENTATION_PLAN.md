@@ -1,5 +1,11 @@
 # Personalized handwriting conversion platform: implementation plan
 
+> **Historical document.** Retained for design rationale and development history.
+> Its checkboxes, machine paths, and capability statements describe an earlier
+> stage; use the [current status](../FEATURE_STATUS_MATRIX.md),
+> [active remaining work](../../TODO-2026-10-11.md), and
+> [setup guide](../GETTING_STARTED.md) for the maintained project state.
+
 Prepared September 11, 2026 from a repository audit, successful local test runs, runtime diagnostics, and primary-source product and technical research. This is a decision and execution document, not a claim that uninstalled models have been tested. Model quality, latency, storage cost, and user comfort must be measured on representative notes before launch.
 
 ## 1. Executive decision

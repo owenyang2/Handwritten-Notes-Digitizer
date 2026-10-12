@@ -1,8 +1,14 @@
-# AI Model and Docker Wiring
+# Legacy prose recognition and Docker wiring
+
+This document describes the original CRNN line/word workflow. The current
+document-conversion demo uses separate UniMERNet formula and TrOCR prose
+adapters. Start with [getting started](GETTING_STARTED.md),
+[current model setup](MODEL_AND_IPAD_SETUP.md), and
+[feature status](FEATURE_STATUS_MATRIX.md) for the maintained product state.
 
 ## Runtime Path
 
-The app is a FastAPI backend plus a Vite/nginx frontend.
+The legacy web workflow uses the shared FastAPI backend and Vite/nginx frontend.
 
 1. The frontend uploads an image with `POST /api/images`.
 2. nginx or the Vite dev server strips `/api` and forwards the request to the backend.

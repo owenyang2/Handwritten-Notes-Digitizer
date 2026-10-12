@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Web frontend for the Handwriting Notes Digitizer (upload UI, Editor, Calibration UI, Before/After view).",
+  "description": "Web client for Handwriting Notes Digitizer: import, source-linked prose/formula review, sync, and export.",
+  "license": "MIT",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

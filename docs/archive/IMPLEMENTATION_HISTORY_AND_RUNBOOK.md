@@ -1,5 +1,11 @@
 # Handwriting Notes Digitizer: Implementation History and Runbook
 
+> **Historical document.** Retained for design rationale and development history.
+> Its checkboxes, machine paths, and capability statements describe an earlier
+> stage; use the [current status](../FEATURE_STATUS_MATRIX.md),
+> [active remaining work](../../TODO-2026-10-11.md), and
+> [setup guide](../GETTING_STARTED.md) for the maintained project state.
+
 This document logs the major debugging, fixes, and operational decisions made during the end-to-end bring-up of this project. It is intended as a future reference for both users and agents.
 
 ## 1) What was fixed (chronological highlights)

@@ -1,9 +1,13 @@
 # Local model and iPad setup
 
-**Next steps:** [Remaining work checklist — October 11, 2026](../TODO-2026-10-11.md).
+**Start here:** [First-time application setup](GETTING_STARTED.md) ·
+[Current feature status](FEATURE_STATUS_MATRIX.md) ·
+[Remaining work](../TODO-2026-10-11.md).
 
-Updated: 2026-10-11. This records the setup completed on this Mac and the inputs
-still needed for physical-device and quality testing. The complete acceptance
+Setup evidence: 2026-10-11. Documentation clarified: 2026-10-12. This records
+the setup completed on the test Mac and the inputs still needed for
+physical-device and quality testing. These installed artifacts and running
+services are not included in a clean checkout. The complete acceptance
 sequence is in [the end-to-end plan](plans/END_TO_END_TESTING_PLAN.md).
 
 ## Ready now
@@ -35,8 +39,9 @@ passed 901 backend tests, 175 website tests, 29 Swift package tests, 27 native
 app tests, and a fresh signed simulator build. Two service integration checks
 remain skipped.
 
-The local services were left running at setup completion. They must be restarted
-after stopping the processes or restarting the Mac. Open the simulator app and
+The local services were left running at the recorded setup completion; those
+historical addresses do not establish that they are running now. Start them
+with the instructions below. Open the simulator app and
 choose **Continue Offline** to try local note creation without an account. For
 sync, use an account on the local backend; the simulator's default backend is
 `http://127.0.0.1:8000`.
@@ -62,8 +67,9 @@ separate cached worker, strictly loads the checkpoint, probes real inference,
 and forwards token/beam limits and truncation. Failed probes and timeouts return
 unavailable results.
 
-To reproduce this setup on a Mac with the existing Python 3.12 backend environment,
-run from the repository root:
+First install the Python 3.12 API environment using
+[local development setup](GETTING_STARTED.md#local-development). To reproduce
+this setup on macOS arm64, run from the repository root:
 
 ```sh
 backend/.venv/bin/python scripts/download_unimernet.py \
