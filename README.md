@@ -5,7 +5,6 @@ and editable LaTeX while preserving the original source.
 
 **Local alpha** · SwiftUI / PencilKit · TypeScript / Vite · FastAPI / PyTorch
 
-**[Watch the 82-second demo](demos/end-to-end-demo.mp4)** ·
 [Demo details](demos/README.md) · [Engineering case study](docs/CASE_STUDY.md) ·
 [Run locally](docs/GETTING_STARTED.md)
 
@@ -71,9 +70,6 @@ PostgreSQL, Redis-backed rate limits, and S3-compatible storage have an optional
 incomplete; the current recognition worker runs inside the API process.
 
 ## Current status
-
-Evidence reviewed October 12, 2026; workflow recordings and application test
-results are dated October 11.
 
 | Area | Evidence and remaining limits |
 | --- | --- |
