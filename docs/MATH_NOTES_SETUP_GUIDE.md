@@ -1,9 +1,15 @@
 # Math Notes setup and operations guide
 
+For first-time application setup, start with [getting started](GETTING_STARTED.md).
+This document is the deeper formula/training operations reference. Its local
+model-installation entries describe the recorded Mac setup, not a clean clone.
+The [feature matrix](FEATURE_STATUS_MATRIX.md) is the maintained evidence summary.
+
 This guide answers two separate questions:
 
-1. Is the implementation complete? The application and experiment plumbing for
-   the plan is implemented and tested.
+1. Is the implementation complete? The local review pipeline and experiment
+   tooling exist with automated coverage; device, quality, and deployment
+   acceptance remain incomplete.
 2. Is the repository self-contained for useful recognition? No. Model weights,
    licensed handwriting data, and production infrastructure are intentionally
    external to this repository.
@@ -517,7 +523,7 @@ Normal docker compose down preserves the database and object store.
 
 ## Related files
 
-- [Implementation plan](MATH_NOTES_IMPLEMENTATION_PLAN.md)
+- [Implementation plan](archive/MATH_NOTES_IMPLEMENTATION_PLAN.md)
 - [Existing runbook](MATH_NOTES_RUNBOOK.md)
 - [Data card](MATH_NOTES_DATA_CARD.md)
 - [Model card](MATH_NOTES_MODEL_CARD.md)

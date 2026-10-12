@@ -1,5 +1,11 @@
 # Handwritten Notes Digitizer — Comprehensive Analysis & Next Steps
 
+> **Historical document.** Retained for design rationale and development history.
+> Its checkboxes, machine paths, and capability statements describe an earlier
+> stage; use the [current status](../FEATURE_STATUS_MATRIX.md),
+> [active remaining work](../../TODO-2026-10-11.md), and
+> [setup guide](../GETTING_STARTED.md) for the maintained project state.
+
 ## Executive Summary
 
 This is a well-structured proof-of-concept for digitizing handwritten notes using a custom CRNN/CTC model with per-user adapter fine-tuning. The architecture is solid — FastAPI backend, Vite/TypeScript frontend, Docker deployment, 69 backend tests — but it has significant gaps between "works as a demo" and "something a user would actually rely on daily." Below is a deep analysis organized into **major issues**, **security vulnerabilities**, **AI/ML efficacy improvements**, **UI/UX overhaul**, and **user flow redesign**, followed by a phased implementation plan.
@@ -13,27 +19,27 @@ This is a well-structured proof-of-concept for digitizing handwritten notes usin
 > [!CAUTION]
 > The system silently falls back to a **randomly initialized, untrained model** when no trained artifact exists at `backend/var/objectstore/models/base_model/base_model.pt`. This means a fresh deploy produces garbage text with zero warning to the user.
 
-- [get_base_model()](file:///home/oweny/Projects/MLTraining/backend/app/ml/recognition.py#L162-L222) logs a warning but the frontend never surfaces it
+- [get_base_model()](../../backend/app/ml/recognition.py) logs a warning but the frontend never surfaces it
 - The README tells users to run `python -m app.ml.train_base` but there is no automation, no CI step, no Docker entrypoint that does this
 - The base model is trained on IAM handwriting samples (English, specific writing styles) — no real-world generalization testing documented
 
 ### 1.2 — Projection-Profile Segmentation is Fragile
 
-The segmenter in [segmentation.py](file:///home/oweny/Projects/MLTraining/backend/app/ml/segmentation.py) uses classic projection profiles:
+The segmenter in [segmentation.py](../../backend/app/ml/segmentation.py) uses classic projection profiles:
 - **Breaks on**: skewed text, multi-column layouts, doodles/diagrams mixed with text, colored pens, graph paper, non-white backgrounds
 - **No confidence scores** on segmentation quality — bad line splits produce bad crops that silently poison training data
 - No handling for bullet points, numbering, tables, or indented text
 
 ### 1.3 — SQLite in Production
 
-[docker-compose.yml](file:///home/oweny/Projects/MLTraining/docker-compose.yml#L49) defaults to `sqlite:///./var/hnd.db`:
+[docker-compose.yml](../../docker-compose.yml) defaults to `sqlite:///./var/hnd.db`:
 - SQLite doesn't handle concurrent writes well — the training worker thread and API requests will cause `database is locked` under moderate load
 - Named volume `db_data` mounts to `/app/var` which overlaps with `objectstore:/app/var/objectstore` — potential for data conflicts
 - No database migrations (no Alembic) — schema changes require manual intervention
 
 ### 1.4 — In-Memory Session Store
 
-[SessionStore](file:///home/oweny/Projects/MLTraining/backend/app/services/auth.py#L132-L171) is entirely in-memory:
+[SessionStore](../../backend/app/services/auth.py) is entirely in-memory:
 - All sessions lost on restart — users get silently logged out every deploy
 - No session expiry/TTL — sessions live forever until the process dies
 - No CSRF protection on the session tokens
@@ -51,7 +57,7 @@ The segmenter in [segmentation.py](file:///home/oweny/Projects/MLTraining/backen
 - No validation that corrected text actually matches the visual content of a region crop
 - A user could accidentally save empty strings or garbage as training labels
 - No deduplication — the same handwriting sample can produce many near-identical training pairs
-- 20-pair threshold ([TRAINING_THRESHOLD](file:///home/oweny/Projects/MLTraining/backend/app/services/personalization_service.py#L83)) is arbitrary and not user-adjustable
+- 20-pair threshold ([TRAINING_THRESHOLD](../../backend/app/services/personalization_service.py)) is arbitrary and not user-adjustable
 
 ---
 
@@ -60,7 +66,7 @@ The segmenter in [segmentation.py](file:///home/oweny/Projects/MLTraining/backen
 ### 2.1 — `.env` File Committed to Git
 
 > [!WARNING]
-> The [.env](file:///home/oweny/Projects/MLTraining/.env) file is present in the repository. This file should **never** be committed — only `.env.example` should exist in version control.
+> The .env (ignored local configuration) file is present in the repository. This file should **never** be committed — only `.env.example` should exist in version control.
 
 ### 2.2 — No Rate Limiting
 
@@ -71,19 +77,19 @@ The segmenter in [segmentation.py](file:///home/oweny/Projects/MLTraining/backen
 ### 2.3 — Insecure Cookie Handling
 
 The auth system uses bearer tokens in request headers but:
-- No `httpOnly` or `Secure` flags on session cookies (looking at [auth_api.py](file:///home/oweny/Projects/MLTraining/backend/app/services/auth_api.py))
+- No `httpOnly` or `Secure` flags on session cookies (looking at [auth_api.py](../../backend/app/services/auth_api.py))
 - No `SameSite` attribute
 - Tokens are opaque `secrets.token_urlsafe(32)` strings but transmitted without encryption on port 80 (no TLS)
 
 ### 2.4 — Pickle/Torch Deserialization Attacks
 
-[apply_adapter()](file:///home/oweny/Projects/MLTraining/backend/app/ml/recognition.py#L230-L297) uses `torch.load(buf, weights_only=True)` — good that `weights_only=True` is set, but:
+[apply_adapter()](../../backend/app/ml/recognition.py) uses `torch.load(buf, weights_only=True)` — good that `weights_only=True` is set, but:
 - Adapter weight files are stored on the filesystem and referenced by path — if an attacker controls the path (path traversal), they could load arbitrary files
 - No integrity checks (checksums/signatures) on stored adapter weights
 
 ### 2.5 — No Input Sanitization on Exported Text
 
-[export_service.py](file:///home/oweny/Projects/MLTraining/backend/app/services/export_service.py) assembles text from user-corrected content and exports it as plain text or Markdown:
+[export_service.py](../../backend/app/services/export_service.py) assembles text from user-corrected content and exports it as plain text or Markdown:
 - If exported Markdown is rendered in another app, injected scripts or links could be a vector
 - No validation length limits on corrected text beyond the DB column (Text type = unlimited)
 
@@ -117,14 +123,14 @@ Backend is bound to localhost, which is correct, but the comment says "uncomment
 
 ### 3.3 — Implement Beam Search Decoding with a Language Model
 
-Current [greedy_ctc_decode()](file:///home/oweny/Projects/MLTraining/backend/app/ml/recognition.py#L383-L466) takes the argmax at each timestep:
+Current [greedy_ctc_decode()](../../backend/app/ml/recognition.py) takes the argmax at each timestep:
 - Misses common words where a slightly less-likely character would form a valid English word
 - Adding a character-level language model (or even a dictionary-based word list) for beam search would dramatically improve accuracy
 - Libraries like `pyctcdecode` make this straightforward
 
 ### 3.4 — Data Augmentation for Adapter Training
 
-The adapter trainer in [adapter_trainer.py](file:///home/oweny/Projects/MLTraining/backend/app/ml/adapter_trainer.py) has **no data augmentation** during fine-tuning:
+The adapter trainer in [adapter_trainer.py](../../backend/app/ml/adapter_trainer.py) has **no data augmentation** during fine-tuning:
 - With only 20+ samples, augmentation (rotation, elastic deformation, noise injection) is critical to avoid overfitting
 - The base model training config _has_ augmentation settings but they're not applied to adapter training
 
@@ -152,7 +158,7 @@ The current UI is functional but has critical UX problems:
 
 | Problem | Impact |
 |---------|--------|
-| 632-line monolithic [main.ts](file:///home/oweny/Projects/MLTraining/frontend/src/main.ts) with imperative DOM manipulation | Unmaintainable, no component reuse, no state management |
+| 632-line monolithic [main.ts](../../frontend/src/main.ts) with imperative DOM manipulation | Unmaintainable, no component reuse, no state management |
 | No loading states, progress indicators, or skeleton screens | User has no idea if the system is working |
 | No responsive/mobile design beyond basic CSS media queries | Unusable on phones/tablets where note-taking actually happens |
 | No dark mode | Poor for evening use |
@@ -182,7 +188,7 @@ The editor's region overlay system should be upgraded to:
 ### 5.1 — Current Flow (Problematic)
 
 ```
-Login → Upload single image → Wait for recognition → Review every line/word manually → 
+Login → Upload single image → Wait for recognition → Review every line/word manually →
 Correct text → Save corrections for training → Eventually export text
 ```
 
@@ -191,7 +197,7 @@ Correct text → Save corrections for training → Eventually export text
 ### 5.2 — Proposed Flow (Streamlined)
 
 ```
-Open app → Camera/upload → Auto-recognize → Quick-scan review (swipe through lines) → 
+Open app → Camera/upload → Auto-recognize → Quick-scan review (swipe through lines) →
 Tap to correct only wrong words → Auto-export to Notes/Docs → Background training improves over time
 ```
 
@@ -212,17 +218,17 @@ Tap to correct only wrong words → Auto-export to Notes/Docs → Background tra
 ### Phase 1: Foundation & Critical Fixes (Week 1-2)
 
 #### Backend Stability
-- [MODIFY] [settings.py](file:///home/oweny/Projects/MLTraining/backend/app/config/settings.py) — Add database migration support (Alembic), add rate limiting config
+- [MODIFY] [settings.py](../../backend/app/config/settings.py) — Add database migration support (Alembic), add rate limiting config
 - [NEW] `backend/alembic/` — Database migration infrastructure
-- [MODIFY] [auth.py](file:///home/oweny/Projects/MLTraining/backend/app/services/auth.py) — Add session TTL (24h default), add CSRF token generation
-- [MODIFY] [docker-compose.yml](file:///home/oweny/Projects/MLTraining/docker-compose.yml) — Switch default to PostgreSQL, add Redis for sessions
-- [DELETE] [.env](file:///home/oweny/Projects/MLTraining/.env) — Remove from repo, add to .gitignore
+- [MODIFY] [auth.py](../../backend/app/services/auth.py) — Add session TTL (24h default), add CSRF token generation
+- [MODIFY] [docker-compose.yml](../../docker-compose.yml) — Switch default to PostgreSQL, add Redis for sessions
+- [DELETE] .env (ignored local configuration) — Remove from repo, add to .gitignore
 - [NEW] `backend/app/middleware/rate_limiter.py` — Rate limiting on auth, upload, and recognition endpoints
 
 #### Security Fixes
-- [MODIFY] [auth_api.py](file:///home/oweny/Projects/MLTraining/backend/app/services/auth_api.py) — Secure cookie flags, CSRF protection
-- [MODIFY] [nginx.conf](file:///home/oweny/Projects/MLTraining/nginx.conf) — Add security headers (HSTS, CSP, X-Frame-Options)
-- [MODIFY] [.gitignore](file:///home/oweny/Projects/MLTraining/.gitignore) — Add `.env`, `*.db`, `*.pt` model files
+- [MODIFY] [auth_api.py](../../backend/app/services/auth_api.py) — Secure cookie flags, CSRF protection
+- [MODIFY] [nginx.conf](../../nginx.conf) — Add security headers (HSTS, CSP, X-Frame-Options)
+- [MODIFY] [.gitignore](../../.gitignore) — Add `.env`, `*.db`, `*.pt` model files
 
 ---
 
@@ -230,14 +236,14 @@ Tap to correct only wrong words → Auto-export to Notes/Docs → Background tra
 
 #### Better Base Recognition
 - [NEW] `backend/app/ml/trocr_recognition.py` — TrOCR-based recognition as primary engine
-- [MODIFY] [recognition.py](file:///home/oweny/Projects/MLTraining/backend/app/ml/recognition.py) — Add beam search decoding with `pyctcdecode`, add engine abstraction layer
-- [MODIFY] [segmentation.py](file:///home/oweny/Projects/MLTraining/backend/app/ml/segmentation.py) — Replace projection profiles with DocTR or YOLO-based line detector
-- [MODIFY] [preprocessing.py](file:///home/oweny/Projects/MLTraining/backend/app/ml/preprocessing.py) — Add adaptive thresholding, contrast enhancement, noise reduction
+- [MODIFY] [recognition.py](../../backend/app/ml/recognition.py) — Add beam search decoding with `pyctcdecode`, add engine abstraction layer
+- [MODIFY] [segmentation.py](../../backend/app/ml/segmentation.py) — Replace projection profiles with DocTR or YOLO-based line detector
+- [MODIFY] [preprocessing.py](../../backend/app/ml/preprocessing.py) — Add adaptive thresholding, contrast enhancement, noise reduction
 
 #### Better Adapter Training
-- [MODIFY] [adapter_trainer.py](file:///home/oweny/Projects/MLTraining/backend/app/ml/adapter_trainer.py) — Add data augmentation, implement LoRA adapters, add learning rate scheduling
+- [MODIFY] [adapter_trainer.py](../../backend/app/ml/adapter_trainer.py) — Add data augmentation, implement LoRA adapters, add learning rate scheduling
 - [NEW] `backend/app/ml/active_learning.py` — Uncertainty sampling to prioritize which corrections are most valuable
-- [MODIFY] [personalization_service.py](file:///home/oweny/Projects/MLTraining/backend/app/services/personalization_service.py) — Configurable training threshold, smart trigger based on error patterns
+- [MODIFY] [personalization_service.py](../../backend/app/services/personalization_service.py) — Configurable training threshold, smart trigger based on error patterns
 
 ---
 
@@ -253,7 +259,7 @@ Tap to correct only wrong words → Auto-export to Notes/Docs → Background tra
   - `ExportPanel.tsx` — One-click export to multiple formats
   - `TrainingProgress.tsx` — Visual personalization progress dashboard
 - [NEW] `frontend/src/store/` — State management (Zustand)
-- [MODIFY] [styles.css](file:///home/oweny/Projects/MLTraining/frontend/src/styles.css) — Complete redesign with dark mode, design tokens, responsive mobile-first layout
+- [MODIFY] [styles.css](../../frontend/src/styles.css) — Complete redesign with dark mode, design tokens, responsive mobile-first layout
 
 #### Key UX Features
 - [NEW] `frontend/src/components/CameraCapture.tsx` — MediaStream API integration
@@ -275,7 +281,7 @@ Tap to correct only wrong words → Auto-export to Notes/Docs → Background tra
   - `notion.py` — Notion API integration
   - `obsidian.py` — Obsidian-compatible Markdown export
   - `email.py` — Email-to-self export
-- [MODIFY] [export_service.py](file:///home/oweny/Projects/MLTraining/backend/app/services/export_service.py) — Add PDF export, structured data export (JSON), clipboard API
+- [MODIFY] [export_service.py](../../backend/app/services/export_service.py) — Add PDF export, structured data export (JSON), clipboard API
 
 #### Mobile / PWA
 - [NEW] `frontend/public/manifest.json` — PWA manifest
