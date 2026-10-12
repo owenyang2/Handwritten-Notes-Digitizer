@@ -8,7 +8,7 @@ Audited branch: `platform-sync-uploads`
 
 Audited baseline: `67150d9`
 
-Related roadmap: [`PERSONALIZED_NOTES_PLATFORM_REMAINING_TASKS.md`](PERSONALIZED_NOTES_PLATFORM_REMAINING_TASKS.md)
+Related roadmap: [`PERSONALIZED_NOTES_PLATFORM_REMAINING_TASKS.md`](../archive/PERSONALIZED_NOTES_PLATFORM_REMAINING_TASKS.md)
 
 ## 1. Executive decision
 

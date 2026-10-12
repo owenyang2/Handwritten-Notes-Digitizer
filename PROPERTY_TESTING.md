@@ -1,4 +1,36 @@
-# Property-Based Testing Conventions
+# Testing
+
+Run web and backend tests from the repository root after installing their
+dependencies:
+
+```bash
+make test
+```
+
+`make test` covers those two suites. Native tests and shared-contract checks
+are separate:
+
+| Check | Command from the repository root | Boundary |
+| --- | --- | --- |
+| Backend | `make test-backend` | Unit, integration, and Hypothesis properties; real PostgreSQL/S3 checks are opt-in |
+| Website | `make test-frontend` | Vitest and fast-check |
+| Website build | `cd frontend && npm run typecheck && npm run build` | TypeScript and production assets |
+| Swift package | `cd ios && swift test --filter PersonalizedNotesKitTests` | Shared store, ink, and sync logic; no physical Pencil testing |
+| Contract drift | `backend/.venv/bin/python scripts/check_generated_contracts.py` | Checked-in OpenAPI, ink fixture, and error codes match regeneration |
+| Swift wire boundary | `backend/.venv/bin/python scripts/check_swift_api_models.py` | Swift DTO compatibility with OpenAPI |
+
+For UIKit/PencilKit app tests and UI tests, generate the project described in
+the [iPad guide](ios/README.md) and use its Xcode test targets. The opt-in
+real-model simulator journey also needs installed models and disposable demo
+credentials; normal CI does not supply those. Simulator checks do not establish
+physical Apple Pencil behavior.
+
+The checked-in [CI workflow](.github/workflows/ci.yml) runs frontend, backend,
+and Swift package jobs. Local test counts and recorded workflows are listed in
+[dated evidence](docs/README.md#dated-evidence); those reports do not certify the
+current remote CI or model accuracy.
+
+## Property-based testing conventions
 
 This project uses property-based testing on both stacks:
 
