@@ -28,12 +28,14 @@ export interface HealthResponse {
   capabilities: Record<CapabilityName, CapabilityStatus>;
   /**
    * Whether the base HTR model is trained.
-   * - "trained"   — a real trained artifact is present; recognition is reliable
-   * - "untrained" — no model file found; recognition output will be garbage
-   * - "loading"   — model file exists but has not been loaded yet
-   * - "unknown"   — status could not be determined
+   * - "loaded"     — a trained artifact loaded and passed its inference check
+   * - "unavailable"— missing, corrupt, or failed probe; recognition is gated
+   * - "trained"    — legacy alias for loaded
+   * - "untrained"  — legacy alias for unavailable
+   * - "loading"    — model file exists but has not been loaded yet
+   * - "unknown"    — status could not be determined
    */
-  model_status?: "trained" | "untrained" | "loading" | "unknown";
+  model_status?: "loaded" | "unavailable" | "trained" | "untrained" | "loading" | "unknown";
 }
 
 // ---------------------------------------------------------------------------
@@ -68,6 +70,8 @@ export interface RecognizedLineDto {
   text?: string;
   alignment_status?: "aligned" | "uncertain";
   alignment_reason?: string | null;
+  excluded?: boolean;
+  reviewed?: boolean;
   words: RecognizedWordDto[];
 }
 
@@ -78,6 +82,37 @@ export interface RecognitionResultDto {
   image_height?: number;
   status: "ok" | "no_text" | "timeout" | "error";
   message?: string;
+}
+
+// ---------------------------------------------------------------------------
+// PDF/math recognition jobs and reviewed regions
+// ---------------------------------------------------------------------------
+
+export type RecognitionJobState =
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "no_text"
+  | "failed"
+  | "timeout"
+  | "cancelled";
+
+export interface RecognitionJobDto {
+  job_id: string;
+  state: RecognitionJobState;
+  document_id: string | null;
+  page_id: string | null;
+  image_id: string | null;
+  region_ids: string[];
+  progress_current: number;
+  progress_total: number;
+  attempt: number;
+  max_attempts: number;
+  error_message: string | null;
+  result_ids: string[];
+  created_at?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
 }
 
 // ---------------------------------------------------------------------------

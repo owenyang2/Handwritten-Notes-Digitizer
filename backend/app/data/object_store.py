@@ -50,6 +50,11 @@ class ObjectKind(str, Enum):
     IMAGE = "images"
     CROP = "crops"
     ADAPTER = "adapters"
+    DOCUMENT = "documents"
+    PAGE = "pages"
+    UPLOAD = "uploads"
+    INK = "ink"
+    ASSET = "assets"
 
 
 # A reference is a POSIX-style relative path of the form
@@ -80,6 +85,40 @@ def _validate_segment(segment: str, *, field: str) -> str:
     if segment in (".", ".."):
         raise InvalidReferenceError(f"Invalid {field!r} segment: {segment!r}.")
     return segment
+
+
+def validate_reference(reference: str) -> str:
+    """Reject absolute paths, backslashes, empty segments, and ``..`` traversal."""
+    if not reference or reference.startswith("/") or "\\" in reference:
+        raise InvalidReferenceError(f"Invalid reference: {reference!r}.")
+
+    parts = reference.split("/")
+    for part in parts:
+        if part in ("", ".", ".."):
+            raise InvalidReferenceError(f"Invalid reference: {reference!r}.")
+    return reference
+
+
+def build_object_store(settings=None) -> ObjectStore:
+    """Return the configured object-store implementation.
+
+    Local/demo defaults stay on :class:`FilesystemObjectStore`. The S3 backend
+    is constructed only when ``object_store_backend=s3``.
+    """
+    if settings is None:
+        settings = get_settings()
+    if settings.object_store_backend == "s3":
+        from app.data.s3_object_store import S3CompatibleObjectStore
+
+        return S3CompatibleObjectStore(
+            bucket=settings.s3_bucket,
+            endpoint_url=settings.s3_endpoint_url,
+            region=settings.s3_region,
+            access_key=settings.s3_access_key,
+            secret_key=settings.s3_secret_key,
+            prefix=settings.s3_prefix,
+        )
+    return FilesystemObjectStore(root=settings.object_store_path)
 
 
 class ObjectStore(ABC):
@@ -141,6 +180,49 @@ class ObjectStore(ABC):
         )
         return self.put(reference, data)
 
+    def put_document_bytes(
+        self, user_id: str, data: bytes, *, name: str | None = None, suffix: str = ".pdf"
+    ) -> str:
+        """Store an original imported document (typically a PDF)."""
+        reference = self.build_reference(
+            ObjectKind.DOCUMENT, user_id, name, suffix=suffix
+        )
+        return self.put(reference, data)
+
+    def put_page_raster(
+        self, user_id: str, data: bytes, *, name: str | None = None, suffix: str = ".png"
+    ) -> str:
+        """Store a rasterized document page."""
+        reference = self.build_reference(
+            ObjectKind.PAGE, user_id, name, suffix=suffix
+        )
+        return self.put(reference, data)
+
+    def put_upload_part(
+        self, user_id: str, data: bytes, *, name: str | None = None, suffix: str = ".part"
+    ) -> str:
+        """Store one resumable-upload part for a user; return the reference."""
+        reference = self.build_reference(
+            ObjectKind.UPLOAD, user_id, name, suffix=suffix
+        )
+        return self.put(reference, data)
+
+    def put_ink_bundle(
+        self, user_id: str, data: bytes, *, name: str | None = None, suffix: str = ".json"
+    ) -> str:
+        """Store a canonical ink_v1 bundle for a user; return the reference."""
+        reference = self.build_reference(ObjectKind.INK, user_id, name, suffix=suffix)
+        return self.put(reference, data)
+
+    def put_asset_bytes(
+        self, user_id: str, data: bytes, *, name: str | None = None, suffix: str = ""
+    ) -> str:
+        """Store a generic owner-scoped binary asset."""
+        reference = self.build_reference(
+            ObjectKind.ASSET, user_id, name, suffix=suffix
+        )
+        return self.put(reference, data)
+
     # --- Core storage operations (implemented by subclasses) ----------------
 
     @abstractmethod
@@ -199,14 +281,7 @@ class FilesystemObjectStore(ObjectStore):
         Guards against absolute paths and ``..`` traversal so a malformed or
         hostile reference can never escape the store root.
         """
-        if not reference or reference.startswith("/") or "\\" in reference:
-            raise InvalidReferenceError(f"Invalid reference: {reference!r}.")
-
-        parts = reference.split("/")
-        for part in parts:
-            if part in ("", ".", ".."):
-                raise InvalidReferenceError(f"Invalid reference: {reference!r}.")
-
+        parts = validate_reference(reference).split("/")
         candidate = (self._root / Path(*parts)).resolve()
         # Ensure the resolved path stays within the root.
         if candidate != self._root and self._root not in candidate.parents:
@@ -276,4 +351,6 @@ __all__ = [
     "ObjectStoreError",
     "ObjectNotFoundError",
     "InvalidReferenceError",
+    "validate_reference",
+    "build_object_store",
 ]

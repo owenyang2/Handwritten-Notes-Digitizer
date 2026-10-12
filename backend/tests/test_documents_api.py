@@ -72,6 +72,22 @@ def test_create_list_and_fetch_document_are_scoped_to_the_current_user(client):
     document = create.json()
     assert document["title"] == "Physics notes"
     assert document["image_ids"] == []
+    assert document["is_favorite"] is False
+
+    favorited = test_client.patch(
+        f"/documents/{document['document_id']}",
+        json={"is_favorite": True},
+        headers=auth(alice_token),
+    )
+    assert favorited.status_code == 200, favorited.text
+    assert favorited.json()["is_favorite"] is True
+
+    favorites = test_client.get(
+        "/documents?view=favorites",
+        headers=auth(alice_token),
+    )
+    assert favorites.status_code == 200
+    assert [item["document_id"] for item in favorites.json()] == [document["document_id"]]
 
     listed = test_client.get("/documents", headers=auth(alice_token))
     assert listed.status_code == 200

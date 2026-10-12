@@ -28,6 +28,23 @@ if config.config_file_name is not None:
 # for 'autogenerate' support
 target_metadata = Base.metadata
 
+
+def _compare_type(context, inspected_column, metadata_column, inspected_type, metadata_type):
+    """Treat SQLite's VARCHAR representation of portable enums as equivalent.
+
+    The application deliberately uses ``native_enum=False`` for the new job
+    and training-example states.  SQLite reflects those columns as VARCHAR,
+    while SQLAlchemy's metadata retains the Enum vocabulary for validation.
+    Comparing the two representations would make every clean migration look
+    dirty without changing the stored schema.
+    """
+    if (
+        metadata_column.table.name in {"recognition_jobs", "training_examples"}
+        and metadata_column.name in {"state", "split"}
+    ):
+        return False
+    return None
+
 def get_url() -> str:
     """Use an explicit programmatic URL when supplied, else application settings."""
     configured_url = config.get_main_option("sqlalchemy.url")
@@ -54,6 +71,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         render_as_batch=True,
+        compare_type=_compare_type,
     )
 
     with context.begin_transaction():
@@ -77,7 +95,10 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata, render_as_batch=True
+            connection=connection,
+            target_metadata=target_metadata,
+            render_as_batch=True,
+            compare_type=_compare_type,
         )
 
         with context.begin_transaction():

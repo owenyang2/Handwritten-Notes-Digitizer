@@ -1,0 +1,11 @@
+# Production extras for PostgreSQL, Redis rate limiting, and S3-compatible storage.
+# The lean CI/runtime image stays on requirements.txt; install this file for the
+# compose production profile:
+#
+#   pip install -r backend/requirements-prod.txt
+#
+# Dockerfile.backend.prod layers these on top of the lean backend image.
+
+redis==5.2.1
+boto3==1.35.76
+psycopg[binary]==3.2.4

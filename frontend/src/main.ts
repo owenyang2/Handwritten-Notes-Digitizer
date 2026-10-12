@@ -13,6 +13,11 @@ import { CalibrationUI } from "./modules/calibrationUI.js";
 import { BeforeAfterView } from "./modules/beforeAfterView.js";
 import { AuthGate } from "./modules/authGate.js";
 import { GalleryUI } from "./modules/galleryUI.js";
+import { MathNotesWorkspace } from "./modules/mathNotes.js";
+import { BatchImportUI } from "./modules/batchImportUI.js";
+import { SyncCoordinator } from "./modules/syncOrchestrator.js";
+import { SyncUI } from "./modules/syncUI.js";
+import { ConsentUI } from "./modules/consentUI.js";
 import { registerServiceWorker } from "./serviceWorker.js";
 import "./styles.css";
 import {
@@ -20,6 +25,9 @@ import {
   recognizeImage,
   submitCorrection,
   exportText,
+  exportPdf,
+  saveImageReviews,
+  importDocument,
   startCalibrationSession,
   submitCalibrationSample,
   getCurrentUser,
@@ -54,6 +62,8 @@ function mapLine(dto: RecognizedLineDto): RecognizedLine {
     text: dto.text,
     alignmentStatus: dto.alignment_status,
     alignmentReason: dto.alignment_reason ?? undefined,
+    excluded: dto.excluded,
+    reviewed: dto.reviewed,
     words: dto.words.map(mapWord),
   };
 }
@@ -84,7 +94,7 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
   // ------------------------------------------------------------------
   // 2. Build the page layout
   // ------------------------------------------------------------------
-  root.innerHTML = "";
+  root.replaceChildren();
 
   const shell = document.createElement("div");
   shell.className = "app-shell";
@@ -179,7 +189,7 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
   utilityPanels.className = "utility-tab-panels";
   sideColumn.appendChild(utilityPanels);
 
-  type UtilityTabId = "calibration" | "training" | "export" | "history";
+  type UtilityTabId = "calibration" | "training" | "export" | "history" | "import" | "sync" | "privacy";
   const utilityTabs = new Map<UtilityTabId, { button: HTMLButtonElement; panel: HTMLElement }>();
   let activeUtilityTab: UtilityTabId = "calibration";
 
@@ -232,6 +242,9 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
   const trainingPanel = addUtilityTab("training", "Training");
   const exportPanel = addUtilityTab("export", "Export");
   const historyPanel = addUtilityTab("history", "History");
+  const importPanel = addUtilityTab("import", "Batch import");
+  const syncPanel = addUtilityTab("sync", "Sync");
+  const privacyPanel = addUtilityTab("privacy", "Privacy");
 
   // --- Personalization guide + status (visible when capability is available) ---
   const personalizationSection = document.createElement("section");
@@ -254,6 +267,13 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
   editorSection.setAttribute("aria-label", "Recognized text editor");
   editorSection.style.display = "none";
   reviewColumn.appendChild(editorSection);
+
+  const mathNotesSection = document.createElement("section");
+  mathNotesSection.className = "app-section app-section--math panel";
+  mathNotesSection.setAttribute("data-testid", "math-notes-section");
+  mathNotesSection.setAttribute("aria-label", "Formula crop review");
+  mathNotesSection.style.display = "none";
+  reviewColumn.appendChild(mathNotesSection);
 
   // --- Export section (hidden until editor is populated) ---
   const exportSection = document.createElement("section");
@@ -302,20 +322,44 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
   let currentImageUrl: string | null = null;
   let currentDocumentId: string | null = null;
 
+  const openMathNotes = (
+    documentId: string,
+    pages: Array<{
+      page_id: string;
+      page_index: number;
+      image_id: string | null;
+      width: number;
+      height: number;
+      dpi: number;
+      coordinate_space: string;
+    }>,
+  ): void => {
+    if (pages.length === 0) {
+      mathNotesSection.style.display = "none";
+      return;
+    }
+    mathNotesSection.style.display = "";
+    new MathNotesWorkspace({ mount: mathNotesSection, documentId, pages });
+  };
+
   const renderRecognition = (imageId: string, recognitionDto: RecognitionResultDto): void => {
     const recognitionResult = mapResult(recognitionDto);
     currentImageId = imageId;
     currentImageUrl = getProcessedImageUrl(imageId);
+    // A normal image review and the PDF formula workspace are mutually
+    // exclusive views. Hide any stale PDF workspace when switching back to an
+    // image, so exports and controls cannot appear to target the wrong input.
+    mathNotesSection.style.display = "none";
 
     editor.setOnCorrection(async (wordIndex, lineIndex, originalText, correctedText) => {
-      if (!currentImageId || !isAvailable("correction")) return;
+      if (!isAvailable("correction")) return;
 
       const line = recognitionResult.lines.find((candidate) => candidate.index === lineIndex);
       const word = line?.words.find((candidate) => candidate.index === wordIndex);
       if (!word) return;
 
       try {
-        await submitCorrection(currentImageId, {
+        await submitCorrection(imageId, {
           word_index: wordIndex,
           line_index: lineIndex,
           region: word.region,
@@ -329,8 +373,8 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
     });
 
     editor.setOnLineCorrection(async (lineIndex, region, originalText, correctedText) => {
-      if (!currentImageId || !isAvailable("correction")) return;
-      await submitCorrection(currentImageId, {
+      if (!isAvailable("correction")) return;
+      await submitCorrection(imageId, {
         line_index: lineIndex,
         region,
         recognized_text: originalText,
@@ -338,6 +382,10 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
         store_if_unchanged: true,
       });
       refreshPersonalization();
+    });
+
+    editor.setOnReviewChange(async (review) => {
+      await saveImageReviews(imageId, [review]);
     });
 
     editor.render(recognitionResult, currentImageUrl);
@@ -349,7 +397,19 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
   const gallery = new GalleryUI("document-history", (documentId) => {
     void (async () => {
       currentDocumentId = documentId;
+      // Imported PDF/image documents use the math-notes workflow. Do not run
+      // the legacy line recognizer while reopening them from history: there
+      // may be no legacy result yet, and that failure would hide the review
+      // workspace before it can load the durable page regions.
       const document = await getDocument(documentId);
+      if (document.pages && document.pages.length > 0) {
+        currentImageId = document.pages.find((page) => page.image_id)?.image_id ?? null;
+        editorSection.style.display = "none";
+        exportSection.style.display = "none";
+        openMathNotes(documentId, document.pages);
+        uploadUI.updateStatus(`Opened ${document.title}.`, "success");
+        return;
+      }
       const imageId = document.image_ids.at(-1);
       if (!imageId) {
         uploadUI.updateStatus(`Selected ${document.title}. Add an image to begin review.`, "info");
@@ -372,15 +432,45 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
       throw new Error("Upload capability is currently unavailable.");
     }
 
-    if (!currentDocumentId) {
+    currentImageId = null;
+
+    const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+    let importedPdf = false;
+    if (isPdf) {
+      const title = file.name.replace(/\.[^.]+$/, "").trim() || "Untitled Note";
+      const imported = await importDocument(file, title);
+      currentDocumentId = imported.document_id;
+      const firstImageId = imported.pages.find((page) => page.image_id)?.image_id;
+      if (!firstImageId) {
+        throw new Error("The PDF was imported but no page rasters were created.");
+      }
+      currentImageId = firstImageId;
+      openMathNotes(imported.document_id, imported.pages);
+      editorSection.style.display = "none";
+      exportSection.style.display = "none";
+      importedPdf = true;
+    } else if (!currentDocumentId) {
       const title = file.name.replace(/\.[^.]+$/, "").trim() || "Untitled Note";
       const document = await createDocument(title);
       currentDocumentId = document.document_id;
     }
 
-    // Step 1: Upload the image into the selected document group.
-    const { image_id: imageId } = await uploadImage(file, currentDocumentId);
-    currentImageId = imageId;
+    if (!currentImageId) {
+      const { image_id: uploadedId } = await uploadImage(file, currentDocumentId);
+      currentImageId = uploadedId;
+    }
+    const imageId = currentImageId;
+    if (!imageId) {
+      throw new Error("Upload did not produce an image id.");
+    }
+    if (importedPdf) {
+      uploadUI.updateStatus(
+        "PDF imported. Select a formula crop to begin review.",
+        "success",
+      );
+      void gallery.render();
+      return;
+    }
     // Create an object URL for the image preview. URL.createObjectURL may not
     // be available in all environments (e.g., SSR/test); fall back gracefully.
     try {
@@ -393,8 +483,10 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
     if (!isAvailable("recognition")) {
       // Show the editor with a degraded-mode notice.
       editorSection.style.display = "";
-      editorSection.innerHTML =
-        "<p>Recognition is currently unavailable. Your image was uploaded.</p>";
+      editorSection.replaceChildren();
+      const unavailableMessage = document.createElement("p");
+      unavailableMessage.textContent = "Recognition is currently unavailable. Your image was uploaded.";
+      editorSection.appendChild(unavailableMessage);
       return;
     }
 
@@ -407,8 +499,10 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
     } catch (err) {
       if (err instanceof ApiError && err.status === 503) {
         editorSection.style.display = "";
-        editorSection.innerHTML =
-          "<p>Recognition is currently unavailable. Your image was uploaded.</p>";
+        editorSection.replaceChildren();
+        const unavailableMessage = document.createElement("p");
+        unavailableMessage.textContent = "Recognition is currently unavailable. Your image was uploaded.";
+        editorSection.appendChild(unavailableMessage);
         return;
       }
       throw err;
@@ -420,6 +514,117 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
 
   uploadUI.render();
   void gallery.render();
+
+  const batchImportSection = document.createElement("section");
+  batchImportSection.className = "app-section app-section--batch-import panel";
+  batchImportSection.setAttribute("data-testid", "batch-import-section");
+  batchImportSection.setAttribute("aria-label", "Batch import");
+  importPanel.appendChild(batchImportSection);
+
+  const batchImport = new BatchImportUI({
+    mount: batchImportSection,
+    processor: async ({ file, signal, update }) => {
+      if (!isAvailable("upload")) {
+        throw new Error("Upload capability is currently unavailable.");
+      }
+      await update({ phase: "uploading", progress: 0.15 });
+      if (file.name.toLowerCase().endsWith(".pdf") || file.type === "application/pdf") {
+        const title = file.name.replace(/\.pdf$/i, "") || "Imported PDF";
+        const imported = await importDocument(file, title, signal);
+        await update({
+          phase: "imported",
+          progress: 0.9,
+          documentId: imported.document_id,
+          pageCount: imported.pages?.length ?? 0,
+        });
+        void gallery.render();
+        return {
+          kind: "pdf" as const,
+          documentId: imported.document_id,
+          pageCount: imported.pages?.length ?? 0,
+        };
+      }
+      const document = await createDocument(
+        file.name.replace(/\.[^.]+$/, "") || "Imported image",
+        signal,
+      );
+      const uploaded = await uploadImage(file, document.document_id, signal);
+      await update({
+        phase: "recognizing",
+        progress: 0.55,
+        documentId: document.document_id,
+        imageId: uploaded.image_id,
+      });
+      if (isAvailable("recognition")) {
+        try {
+          await recognizeImage(uploaded.image_id, undefined, signal);
+        } catch (err) {
+          if (!(err instanceof ApiError && err.status === 503)) throw err;
+        }
+      }
+      await update({
+        phase: "complete",
+        progress: 1,
+        documentId: document.document_id,
+        imageId: uploaded.image_id,
+        pageCount: 1,
+      });
+      void gallery.render();
+      return {
+        kind: "image" as const,
+        documentId: document.document_id,
+        imageId: uploaded.image_id,
+        pageCount: 1,
+      };
+    },
+    onCompleted: () => {
+      void gallery.render();
+    },
+  });
+  void batchImport.render();
+
+  const syncSection = document.createElement("section");
+  syncSection.className = "app-section app-section--sync panel";
+  syncSection.setAttribute("data-testid", "sync-section");
+  syncSection.setAttribute("aria-label", "Cross-device sync");
+  syncPanel.appendChild(syncSection);
+
+  const privacySection = document.createElement("section");
+  privacySection.className = "app-section app-section--privacy panel";
+  privacySection.setAttribute("data-testid", "privacy-section");
+  privacySection.setAttribute("aria-label", "Personal training consent");
+  privacyPanel.appendChild(privacySection);
+  void new ConsentUI(privacySection).render();
+
+  void (async () => {
+    let currentUser: Awaited<ReturnType<typeof getCurrentUser>> = null;
+    try {
+      currentUser = await Promise.resolve(getCurrentUser());
+    } catch {
+      currentUser = null;
+    }
+    if (!currentUser) return;
+    const coordinator = new SyncCoordinator({
+      userId: currentUser.user_id,
+      onDocumentsChanged: () => {
+        void gallery.render();
+      },
+    });
+    const syncUI = new SyncUI({
+      mount: syncSection,
+      coordinator,
+      onDocumentsChanged: () => {
+        void gallery.render();
+      },
+    });
+    syncUI.render();
+    try {
+      await coordinator.load();
+      coordinator.startAutoSync();
+    } catch {
+      // Local sync durability may be unavailable in private browsing.
+    }
+  })();
 
   // ------------------------------------------------------------------
   // 5. Wire the calibration flow (optional, Req 9)
@@ -477,7 +682,7 @@ function buildExportSection(
   imageId: string,
   editor: Editor,
 ): void {
-  section.innerHTML = "";
+  section.replaceChildren();
 
   const heading = document.createElement("h2");
   heading.textContent = "Export current review";
@@ -496,14 +701,19 @@ function buildExportSection(
   statusEl.setAttribute("aria-live", "polite");
   section.appendChild(statusEl);
 
+  const persistReviews = async (): Promise<void> => {
+    await editor.flushReviewSaves();
+    await saveImageReviews(imageId, editor.getReviewPayload());
+  };
+
   const fetchText = async (format: "plain" | "markdown" | "pdf"): Promise<string> => {
     if (!isAvailable("export")) {
       throw new Error("Export capability is currently unavailable.");
     }
-    if (editor.hasLocalLineEdits()) {
-      const text = editor.getExportText(format);
-      if (text.trim() === "") throw new Error("There is no text to export.");
-      return text;
+    await persistReviews();
+    if (format === "pdf") {
+      const blob = await exportPdf(imageId);
+      return URL.createObjectURL(blob);
     }
     const resp = await exportText({ image_id: imageId, format });
     if (resp.status === "success") return resp.text;
@@ -518,6 +728,14 @@ function buildExportSection(
     if (format === "pdf") {
       mime = "application/pdf";
       extension = "pdf";
+      if (text.startsWith("blob:")) {
+        const anchor = document.createElement("a");
+        anchor.href = text;
+        anchor.download = `notes.${extension}`;
+        anchor.click();
+        URL.revokeObjectURL(text);
+        return;
+      }
       const byteCharacters = atob(text);
       const byteNumbers = new Array(byteCharacters.length);
       for (let i = 0; i < byteCharacters.length; i++) byteNumbers[i] = byteCharacters.charCodeAt(i);
@@ -595,7 +813,7 @@ function buildCalibrationSection(
   refreshPersonalization: () => void,
 ): void {
   // Render a "Start calibration" button first; prompts load on demand.
-  section.innerHTML = "";
+  section.replaceChildren();
 
   const heading = document.createElement("h2");
   heading.textContent = "Calibration samples";
@@ -680,7 +898,7 @@ export async function start(root: HTMLElement): Promise<void> {
   }
 
   if (!user) {
-    root.innerHTML = "";
+    root.replaceChildren();
     const title = document.createElement("h1");
     title.className = "app-title";
     title.textContent = "Handwriting Notes Digitizer";

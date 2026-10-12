@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - run: PYTHONPATH=.. python -m pytest -q
+      - run: python -m alembic upgrade head
+      - run: python -m alembic check
+      - run: PYTHONPATH=. python ../scripts/generate_ink_v1_golden.py
+      - run: PYTHONPATH=. python ../scripts/export_openapi.py
+      - run: PYTHONPATH=. python ../scripts/check_generated_contracts.py
+      - name: Check generated contract drift
+        run: >-
+          git -C .. diff --exit-code --
+          contracts/ink_v1/simple_stroke.json
+          contracts/ink_v1/simple_stroke.sha256
+          contracts/openapi-v1.json
+          contracts/error_codes.json
+      - name: Check OpenAPI compatibility
+        run: |
+          if git -C .. cat-file -e HEAD^:contracts/openapi-v1.json 2>/dev/null; then
+            git -C .. show HEAD^:contracts/openapi-v1.json > "$RUNNER_TEMP/openapi-v1-baseline.json"
+            python ../scripts/check_openapi_compatibility.py \
+              --baseline "$RUNNER_TEMP/openapi-v1-baseline.json" \
+              --candidate ../contracts/openapi-v1.json
+          else
+            python ../scripts/check_openapi_compatibility.py \
+              --candidate ../contracts/openapi-v1.json \
+              --allow-missing-baseline
+          fi
+
+  ios:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: ios
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift test --filter PersonalizedNotesKitTests

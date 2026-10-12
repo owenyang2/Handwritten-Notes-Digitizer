@@ -21,9 +21,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BACKEND = ROOT / "backend"
-HOST_MODEL_DIR = BACKEND / "var" / "objectstore" / "models" / "base_model"
+HOST_MODEL_ROOT = BACKEND / "var" / "objectstore" / "models"
+HOST_MODEL_DIR = HOST_MODEL_ROOT / "base_model"
 HOST_WEIGHTS = HOST_MODEL_DIR / "base_model.pt"
 HOST_META = HOST_MODEL_DIR / "base_model.meta.json"
+HOST_UNIMERNET_DIR = HOST_MODEL_ROOT / "unimernet_small"
+HOST_COMPACT_CHECKPOINT = HOST_MODEL_ROOT / "compact_math" / "checkpoint.pt"
 failures = 0
 
 
@@ -74,12 +77,14 @@ def fetch_json(url: str, *, timeout: float = 2.0) -> tuple[bool, str]:
 
 
 def check_host_model() -> None:
-    print("\nHost model artifact")
+    print("\nHost model artifacts")
+    found = False
     if HOST_WEIGHTS.is_file():
+        found = True
         size_mb = HOST_WEIGHTS.stat().st_size / (1024 * 1024)
         ok(f"{HOST_WEIGHTS.relative_to(ROOT)} exists ({size_mb:.1f} MiB)")
     else:
-        fail(f"missing {HOST_WEIGHTS.relative_to(ROOT)}")
+        warn(f"legacy prose artifact not installed: {HOST_WEIGHTS.relative_to(ROOT)}")
 
     if HOST_META.is_file():
         try:
@@ -93,7 +98,25 @@ def check_host_model() -> None:
         except Exception as exc:
             warn(f"could not parse model metadata: {exc}")
     else:
-        fail(f"missing {HOST_META.relative_to(ROOT)}")
+        warn(f"legacy prose metadata not installed: {HOST_META.relative_to(ROOT)}")
+
+    if HOST_UNIMERNET_DIR.is_dir() and (
+        (HOST_UNIMERNET_DIR / "model_artifact.json").is_file()
+        or (HOST_UNIMERNET_DIR / "config.json").is_file()
+    ):
+        found = True
+        ok(f"UniMERNet snapshot directory exists: {HOST_UNIMERNET_DIR.relative_to(ROOT)}")
+    else:
+        warn(f"UniMERNet-small snapshot not installed: {HOST_UNIMERNET_DIR.relative_to(ROOT)}")
+
+    if HOST_COMPACT_CHECKPOINT.is_file():
+        found = True
+        ok(f"compact math checkpoint exists: {HOST_COMPACT_CHECKPOINT.relative_to(ROOT)}")
+    else:
+        warn(f"compact math checkpoint not installed: {HOST_COMPACT_CHECKPOINT.relative_to(ROOT)}")
+
+    if not found:
+        warn("No loadable recognition artifact is installed; /health will report recognition as unavailable.")
 
 
 def check_env() -> None:
@@ -139,13 +162,19 @@ def check_python_model_smoke() -> None:
     previous_cwd = Path.cwd()
     try:
         os.chdir(BACKEND)
-        from app.ml.recognition import get_base_model
+        from app.ml.recognition import get_loaded_model_status
+        from app.services.math_regions_api import get_formula_engine_status
 
-        model = get_base_model(force_reload=True)
-        ok(
-            "loaded base model through app.ml.recognition "
-            f"(height={model.config.image_height}, classes={model.config.num_classes})"
-        )
+        prose = get_loaded_model_status(force_reload=True)
+        formula = get_formula_engine_status()
+        if prose.loaded and prose.probe_ok:
+            ok(f"loaded prose model through app.ml.recognition ({prose.artifact_path})")
+        else:
+            warn(f"prose recognition unavailable: {prose.reason or 'artifact not installed'}")
+        if formula.get("loaded"):
+            ok(f"loaded formula backend: {formula.get('backend')}")
+        else:
+            warn(f"formula recognition unavailable: {formula.get('reason') or 'artifact not installed'}")
     except Exception as exc:
         fail(f"could not load base model through backend code: {exc}")
     finally:
@@ -207,15 +236,16 @@ def check_docker() -> None:
             "-c",
             (
                 "from pathlib import Path; "
-                "p=Path('/app/var/objectstore/models/base_model/base_model.pt'); "
-                "print(p.exists(), p.stat().st_size if p.exists() else 0)"
+                "root=Path('/app/var/objectstore/models'); "
+                "paths=[root/'base_model'/'base_model.pt', root/'unimernet_small'/'model_artifact.json', root/'compact_math'/'checkpoint.pt']; "
+                "print([(str(p), p.exists(), p.stat().st_size if p.exists() else 0) for p in paths])"
             ),
         ]
     )
-    if code == 0 and output.startswith("True"):
+    if code == 0 and output and "True" in output:
         ok(f"backend container sees model artifact: {output}")
     else:
-        fail(f"backend container cannot see model artifact: {output}")
+        warn(f"backend container has no recognition artifact mounted: {output}")
 
 
 def main() -> int:

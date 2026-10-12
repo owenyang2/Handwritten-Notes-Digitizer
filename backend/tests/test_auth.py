@@ -12,12 +12,14 @@ Covers:
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from typing import Iterator
 
 import pytest
 from fastapi import Depends, FastAPI, status
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
@@ -127,7 +129,11 @@ def test_session_store_rejects_and_removes_expired_tokens(db_session) -> None:
     token = store.create(uuid.uuid4())
 
     assert store.resolve(token) is None
-    assert db_session.get(UserSession, token) is None
+    assert db_session.scalar(
+        select(UserSession).where(
+            UserSession.token_hash == hashlib.sha256(token.encode()).hexdigest()
+        )
+    ) is None
 
 
 def test_session_store_tokens_are_unique(db_session) -> None:
@@ -135,6 +141,15 @@ def test_session_store_tokens_are_unique(db_session) -> None:
     uid = uuid.uuid4()
     tokens = {store.create(uid) for _ in range(50)}
     assert len(tokens) == 50
+
+
+def test_session_store_never_persists_the_usable_token(db_session) -> None:
+    store = SessionStore(db_session)
+    token = store.create(uuid.uuid4())
+    row = db_session.scalar(select(UserSession))
+    assert row is not None
+    assert row.token_hash == hashlib.sha256(token.encode()).hexdigest()
+    assert not hasattr(row, "token")
 
 
 # --------------------------------------------------------------------------- #
@@ -372,6 +387,19 @@ def test_register_rejects_duplicate_username(client) -> None:
         json={"username": "dave", "email": "dave2@example.com", "password": "other"},
     )
     assert resp.status_code == status.HTTP_409_CONFLICT
+
+
+def test_register_rejects_duplicate_email(client) -> None:
+    c, store, factory = client
+    with factory() as s:
+        _make_user(s, "dave", "pw12345")
+
+    resp = c.post(
+        "/auth/register",
+        json={"username": "dave-other", "email": "dave@example.com", "password": "other"},
+    )
+    assert resp.status_code == status.HTTP_409_CONFLICT
+    assert "email" in resp.json()["detail"].lower()
 
 
 def test_login_sets_session_cookie_that_authenticates(client) -> None:

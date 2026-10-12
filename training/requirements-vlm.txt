@@ -1,0 +1,8 @@
+# Optional VLM experiment environment. Keep it separate from the CPU web app
+# and the CUDA compact-model environment until the upstream model is tested.
+transformers==4.47.1
+accelerate==1.2.1
+safetensors==0.4.5
+sentencepiece==0.2.0
+huggingface_hub==0.27.1
+peft==0.13.2

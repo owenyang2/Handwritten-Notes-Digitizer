@@ -13,7 +13,8 @@ The app is a FastAPI backend plus a Vite/nginx frontend.
 
 ## Model Artifact
 
-The trained base model lives at:
+When an operator supplies a verified trained base model, the runtime expects it
+at:
 
 ```text
 backend/var/objectstore/models/base_model/base_model.pt
@@ -42,7 +43,10 @@ The UI used to collapse every non-successful recognition response into `recogniz
 - `timeout`: recognition exceeded the backend time budget.
 - `error`: storage/model/engine failure.
 
-That distinction matters because a missing or mis-mounted model artifact can otherwise look like a handwriting problem.
+That distinction matters because a missing or mis-mounted model artifact can
+otherwise look like a handwriting problem. A clean checkout intentionally has
+no model weights; `/health` and the doctor script must report recognition as
+unavailable until an artifact is installed and probed.
 
 ## Line/Word Alignment
 

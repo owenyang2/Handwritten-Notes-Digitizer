@@ -27,6 +27,7 @@ from typing import Iterator, Optional
 
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Response, status
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.data.db import create_db_engine, create_session_factory
@@ -42,6 +43,8 @@ from .auth import AuthService, InvalidCredentials, SessionStore
 AUTH_REQUIRED_MESSAGE = "Authentication is required"
 INVALID_CREDENTIALS_MESSAGE = "Invalid username or password"
 USERNAME_TAKEN_MESSAGE = "That username is already taken"
+EMAIL_TAKEN_MESSAGE = "That email is already registered"
+ACCOUNT_CONFLICT_MESSAGE = "That account already exists"
 
 # Name of the cookie that carries the opaque session token. ``get_current_user``
 # reads this cookie (see below), so login/register set it and logout clears it.
@@ -222,6 +225,7 @@ def register(
     automatically.
     """
     username = payload.username.strip()
+    email = payload.email.strip()
     if not username or not payload.password:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -232,9 +236,30 @@ def register(
             status_code=status.HTTP_409_CONFLICT,
             detail=USERNAME_TAKEN_MESSAGE,
         )
-    user = auth.register(username, payload.email.strip(), payload.password)
-    # Repositories flush but leave the commit to the caller; persist the user.
-    session.commit()
+    if repos.users.get_by_email(email) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=EMAIL_TAKEN_MESSAGE,
+        )
+    try:
+        user = auth.register(username, email, payload.password)
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        if repos.users.get_by_email(email) is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=EMAIL_TAKEN_MESSAGE,
+            )
+        if repos.users.get_by_username(username) is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=USERNAME_TAKEN_MESSAGE,
+            )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=ACCOUNT_CONFLICT_MESSAGE,
+        )
     token, _ = auth.login(username, payload.password)
     _set_session_cookie(response, token)
     return LoginResponse(access_token=token, user_id=user.user_id)
@@ -293,6 +318,8 @@ __all__ = [
     "AUTH_REQUIRED_MESSAGE",
     "INVALID_CREDENTIALS_MESSAGE",
     "USERNAME_TAKEN_MESSAGE",
+    "EMAIL_TAKEN_MESSAGE",
+    "ACCOUNT_CONFLICT_MESSAGE",
     "SESSION_COOKIE_NAME",
     "get_current_user",
     "get_session_store",

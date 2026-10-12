@@ -39,7 +39,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import List, Literal, Optional, Sequence, Union
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Response, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -272,6 +272,7 @@ class ExportErrorResponse(BaseModel):
 @router.post(
     "/export",
     status_code=status.HTTP_200_OK,
+    response_model=None,
     responses={
         status.HTTP_200_OK: {
             "description": "Export succeeded, is empty, or failed with an error message"
@@ -292,7 +293,7 @@ def export_text(
     _guard: None = Depends(require_capability("export")),
     user: User = Depends(get_current_user),
     repos: RepositoryFactory = Depends(get_repositories),
-) -> ExportSuccessResponse | ExportEmptyResponse | ExportErrorResponse:
+) -> ExportSuccessResponse | ExportEmptyResponse | ExportErrorResponse | Response:
     """POST /export — export text for an image (Req 8.1–8.6).
 
     Scoped to the authenticated user: returns 404 for images owned by others
@@ -306,20 +307,34 @@ def export_text(
     # repository guarantees this order.  These words already reflect all
     # confirmed corrections stored at the time of the request (Req 8.3, 8.4).
     word_rows = repos.recognized_words.list_for_image(user.user_id, image.image_id)
+    reviews = {
+        review.line_index: review
+        for review in repos.line_reviews.list_for_image(user.user_id, image.image_id)
+    }
 
-    # Group into lines.
     lines_by_index: dict[int, list[str]] = {}
     for row in word_rows:
         lines_by_index.setdefault(row.line_index, []).append(row.text)
 
-    line_inputs: list[LineInput] = [
-        LineInput(words=lines_by_index[idx])
-        for idx in sorted(lines_by_index)
-    ]
+    line_inputs: list[LineInput] = []
+    for idx in sorted(set(lines_by_index) | set(reviews)):
+        review = reviews.get(idx)
+        if review is not None and review.excluded:
+            continue
+        if review is not None:
+            text = review.reviewed_text.strip()
+            line_inputs.append(LineInput(words=[text] if text else []))
+        else:
+            line_inputs.append(LineInput(words=lines_by_index.get(idx, [])))
 
     result = export(line_inputs, format=body.format)
 
     if isinstance(result, ExportSuccess):
+        if result.format == "pdf":
+            import base64
+
+            pdf_bytes = base64.b64decode(result.text)
+            return Response(content=pdf_bytes, media_type="application/pdf")
         return ExportSuccessResponse(format=result.format, text=result.text)
     if isinstance(result, ExportEmpty):
         return ExportEmptyResponse(message=result.message)

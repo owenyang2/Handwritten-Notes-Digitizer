@@ -30,7 +30,7 @@ export class AuthGate {
   }
 
   render(): void {
-    this.mount.innerHTML = "";
+    this.mount.replaceChildren();
 
     const card = document.createElement("div");
     card.className = "auth-card";

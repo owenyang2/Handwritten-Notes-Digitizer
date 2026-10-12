@@ -8,7 +8,7 @@
 // Task 19.1 — full implementation of upload → recognize flow.
 
 /** Formats the upload UI accepts; the backend remains the source of truth. */
-export const ACCEPTED_IMAGE_TYPES = ["image/png", "image/jpeg"] as const;
+export const ACCEPTED_IMAGE_TYPES = ["image/png", "image/jpeg", "application/pdf"] as const;
 
 /** Maximum accepted upload size in bytes (10 MB), per Req 1.3. */
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
@@ -49,7 +49,7 @@ export class UploadUI {
 
   /** Render the upload control into the mount element. */
   render(): void {
-    this.mount.innerHTML = "";
+    this.mount.replaceChildren();
 
     const wrapper = document.createElement("div");
     wrapper.className = "upload-wrapper";
@@ -63,10 +63,10 @@ export class UploadUI {
     this.dropZone.setAttribute("tabindex", "0");
     this.dropZone.setAttribute(
       "aria-label",
-      "Upload a handwriting image. Click or drag a PNG/JPEG here.",
+      "Upload a handwriting image or PDF. Click or drag a PNG, JPEG, or PDF here.",
     );
     this.dropZone.textContent =
-      "Drag a PNG / JPEG image here, or click to browse";
+      "Drag a PNG / JPEG / PDF here, or click to browse";
 
     // Hidden file input triggered by drop zone click / Enter.
     this.fileInput = document.createElement("input");
@@ -211,10 +211,11 @@ export class UploadUI {
   }
 
   private handleFileSelected(file: File): void {
-    // Client-side hints only (backend is the source of truth for rejection).
-    if (!ACCEPTED_IMAGE_TYPES.includes(file.type as (typeof ACCEPTED_IMAGE_TYPES)[number])) {
+    const acceptedType = (ACCEPTED_IMAGE_TYPES as readonly string[]).includes(file.type);
+    const acceptedPdf = file.name.toLowerCase().endsWith(".pdf");
+    if (!acceptedType && !acceptedPdf) {
       this.updateStatus(
-        `⚠ "${file.name}" is not a PNG or JPEG. Please choose a different file.`,
+        `⚠ "${file.name}" is not a PNG, JPEG, or PDF. Please choose a different file.`,
         "error",
       );
       this.selectedFile = null;
@@ -270,9 +271,9 @@ export class UploadUI {
     this.statusEl.className = `upload-status upload-status--${type}`;
     this.dropZone.textContent =
       type === "error"
-        ? "Drag a PNG / JPEG image here, or click to browse"
+        ? "Drag a PNG / JPEG / PDF here, or click to browse"
         : this.selectedFile
           ? `Selected: ${this.selectedFile.name}`
-          : "Drag a PNG / JPEG image here, or click to browse";
+          : "Drag a PNG / JPEG / PDF here, or click to browse";
   }
 }

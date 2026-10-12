@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 import torch
 
 from app.config.settings import Settings
@@ -25,6 +26,7 @@ from app.ml.train_base import (
     IAM_DATASET_VERSION,
     LabeledSample,
     SplitSpec,
+    UnsupportedLabelError,
     default_model_dir,
     encode_text,
     load_base_model,
@@ -66,8 +68,8 @@ def test_encode_text_maps_to_ctc_label_space():
     indices = encode_text("abc")
     assert all(1 <= idx <= len(ALPHABET) for idx in indices)
     assert 0 not in indices
-    # Characters outside the alphabet are dropped (no crash, no blank emitted).
-    assert encode_text("a\tb") == encode_text("ab")
+    with pytest.raises(UnsupportedLabelError):
+        encode_text("a\tb")
     assert encode_text("") == []
 
 

@@ -8,6 +8,12 @@
 
 # Web framework / API
 fastapi==0.115.6
+# FastAPI's supported Starlette range and its AnyIO dependency are pinned as a
+# pair. Starlette 0.41.3's TestClient still references AnyIO's deprecated
+# compatibility alias; keep this warning reproducible until the FastAPI stack
+# can be upgraded together to a Starlette release that removes that reference.
+starlette==0.41.3
+anyio==4.15.1
 uvicorn==0.34.0
 python-multipart==0.0.32
 
@@ -16,17 +22,23 @@ pydantic==2.10.4
 pydantic-settings==2.7.0
 
 # Machine learning runtime (HTR_Engine, training)
-# Keep these CPU wheels aligned.  The standard torchvision wheel can lack the
-# compiled operators expected by the CPU-only torch package in Docker.
-torch==2.5.1+cpu
-torchaudio==2.5.1+cpu
-torchvision==0.20.1+cpu
+# Keep these wheels aligned. PyTorch publishes the explicit ``+cpu`` builds for
+# Linux x86_64 on the CPU index, but Linux ARM64 (including Docker Desktop on
+# Apple Silicon) uses the CPU wheel without that local-version suffix.
+# The markers keep x86_64 containers on the intended CPU build while allowing
+# the same pinned requirements file to install on ARM64 and macOS.
+torch==2.5.1+cpu; platform_system == "Linux" and platform_machine == "x86_64"
+torchvision==0.20.1+cpu; platform_system == "Linux" and platform_machine == "x86_64"
+torch==2.5.1; platform_system == "Darwin" or platform_system == "Windows" or platform_machine == "arm64" or platform_machine == "aarch64"
+torchvision==0.20.1; platform_system == "Darwin" or platform_system == "Windows" or platform_machine == "arm64" or platform_machine == "aarch64"
 transformers==4.47.1
 numpy==1.26.4
 pyctcdecode==0.5.0
 pygtrie==2.5.0
 # Image handling
 pillow==11.0.0
+pypdfium2==4.30.0
+huggingface_hub==0.27.1
 
 # Persistence / ORM
 SQLAlchemy==2.0.36

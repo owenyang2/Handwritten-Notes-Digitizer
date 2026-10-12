@@ -185,9 +185,53 @@ def validate_image(
     return _accept(image_format, size_bytes)
 
 
+def normalize_image_for_model(
+    file_bytes: bytes,
+    *,
+    rotation: int = 0,
+    max_pixels: int = 40_000_000,
+) -> tuple[bytes, dict[str, object]]:
+    """Normalize EXIF orientation/transparency without mutating the original.
+
+    Returns an RGB PNG plus a transform record that can be stored beside page
+    coordinates.  This helper is intentionally separate from validation so the
+    original upload remains available for audit/export.
+    """
+    from io import BytesIO
+    from PIL import Image, ImageOps
+
+    if max_pixels <= 0:
+        raise ValueError("max_pixels must be positive")
+    with Image.open(BytesIO(file_bytes)) as source:
+        if source.width * source.height > max_pixels:
+            raise ValueError("decoded image exceeds the pixel limit")
+        image = ImageOps.exif_transpose(source)
+        orientation = int(source.getexif().get(274, 1) or 1)
+        exif_applied = image.size != source.size or orientation not in (1,)
+        if rotation % 360:
+            image = image.rotate(-rotation % 360, expand=True)
+        if image.mode in ("RGBA", "LA") or "transparency" in image.info:
+            rgba = image.convert("RGBA")
+            background = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
+            image = Image.alpha_composite(background, rgba)
+            flattened = True
+        else:
+            flattened = False
+        image = image.convert("RGB")
+        output = BytesIO()
+        image.save(output, format="PNG")
+    return output.getvalue(), {
+        "exif_orientation_applied": exif_applied,
+        "rotation_degrees": rotation % 360,
+        "flattened_transparency": flattened,
+        "coordinate_space": "normalized-raster-v1",
+    }
+
+
 __all__ = [
     "ImageFormat",
     "ImageValidationResult",
     "RejectionReason",
     "validate_image",
+    "normalize_image_for_model",
 ]

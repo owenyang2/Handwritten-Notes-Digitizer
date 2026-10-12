@@ -17,6 +17,8 @@ import random
 from functools import lru_cache
 from pathlib import Path
 
+from typing import Literal
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -76,6 +78,56 @@ class Settings(BaseSettings):
         default="./var/objectstore",
         description="Filesystem root for image bytes, region crops, and adapter weights.",
     )
+    object_store_backend: Literal["filesystem", "s3"] = Field(
+        default="filesystem",
+        description=(
+            "Object-store implementation. Local/demo stays on the filesystem; "
+            "set to 's3' only for an S3-compatible production profile."
+        ),
+    )
+    redis_url: str | None = Field(
+        default=None,
+        description="Optional Redis URL for shared rate-limit buckets. Unset keeps in-memory limiting.",
+    )
+    s3_endpoint_url: str | None = Field(
+        default=None,
+        description="Optional S3-compatible API endpoint (e.g. http://minio:9000).",
+    )
+    s3_region: str | None = Field(
+        default=None,
+        description="Optional S3 region name. MinIO accepts any placeholder region.",
+    )
+    s3_bucket: str | None = Field(
+        default=None,
+        description="Bucket used when object_store_backend=s3.",
+    )
+    s3_access_key: str | None = Field(
+        default=None,
+        description="Access key for the S3-compatible endpoint.",
+    )
+    s3_secret_key: str | None = Field(
+        default=None,
+        description="Secret key for the S3-compatible endpoint.",
+    )
+    s3_prefix: str | None = Field(
+        default=None,
+        description="Optional key prefix inside the bucket (no leading slash required).",
+    )
+
+    # --- Observability --------------------------------------------------------
+    otel_exporter_otlp_endpoint: str | None = Field(
+        default=None,
+        description="Optional OTLP collector endpoint. Unset disables OpenTelemetry export.",
+    )
+    enable_metrics: bool = Field(
+        default=False,
+        description="Expose /metrics and JSON request logs even when environment is not production.",
+    )
+    max_account_bytes: int = Field(
+        default=5 * 1024 * 1024 * 1024,
+        description="Per-account object-storage quota used by upload completion.",
+    )
+    consent_policy_version: str = Field(default="personal-training-v1")
 
     # --- Recognition / upload limits -----------------------------------------
     max_upload_bytes: int = Field(
@@ -85,6 +137,28 @@ class Settings(BaseSettings):
     recognition_timeout_seconds: float = Field(
         default=10.0,
         description="Recognition time budget in seconds (Req 2.3, 2.6).",
+    )
+    pdf_raster_dpi: int = Field(
+        default=200,
+        description="Initial PDF page rasterization DPI (200–300 recommended).",
+    )
+    pdf_max_pages: int = Field(
+        default=50,
+        description="Maximum pages accepted in a single PDF import.",
+    )
+    pdf_max_pixels: int = Field(
+        default=40_000_000,
+        description="Maximum decoded pixels per PDF page after rasterization.",
+    )
+
+    # --- Formula recognition -------------------------------------------------
+    formula_engine: Literal["auto", "unimernet", "compact"] = Field(
+        default="auto",
+        description=(
+            "Formula backend selection. 'auto' prefers UniMERNet and falls back "
+            "to the compact native PyTorch engine; explicit modes never silently "
+            "switch to another backend."
+        ),
     )
 
     # --- Personalization ------------------------------------------------------
@@ -103,6 +177,14 @@ class Settings(BaseSettings):
     max_training_epochs: int = Field(
         default=50,
         description="Hard cap on adapter training epochs (Req 6.5).",
+    )
+    allow_synthetic_eval: bool = Field(
+        default=False,
+        description=(
+            "When true, adapter promotion may use synthetic noise fixtures for "
+            "the general evaluation set. Production must leave this false so "
+            "missing verified image-label pairs prevent promotion."
+        ),
     )
 
 

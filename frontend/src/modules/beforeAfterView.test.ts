@@ -7,7 +7,7 @@
 //   - Unavailable states show "unavailable" text
 //   - formatMetric and formatDelta helpers
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   BeforeAfterView,
   formatMetric,
@@ -16,6 +16,7 @@ import {
 } from "./beforeAfterView.js";
 import type { BeforeAfterReport } from "../types.js";
 import type {
+  ModelAssignmentSummaryResponse,
   PersonalizationStatusResponse,
   EvaluationApiResponse,
 } from "./beforeAfterView.js";
@@ -498,6 +499,61 @@ describe("BeforeAfterView.renderFull() — status section (Req 5.6, 5.7)", () =>
   });
 });
 
+describe("BeforeAfterView.renderFull() — model routing evidence", () => {
+  it("shows safe active and retired assignment metadata", () => {
+    const mount = document.createElement("div");
+    const view = new BeforeAfterView({ mount });
+    const report: BeforeAfterReport = {
+      availability: "unavailable",
+      beforeCer: null,
+      beforeWer: null,
+      afterCer: null,
+      afterWer: null,
+      deltaCer: null,
+      deltaWer: null,
+    };
+    const assignments: ModelAssignmentSummaryResponse[] = [
+      {
+        assignment_id: "assignment-1",
+        task: "math_raster",
+        base_model_version: "formula-engine:1.2:model_id=small",
+        adapter_version: "base",
+        personalized: false,
+        active: true,
+        activation_reason: "base_default",
+        created_at: "2026-09-11T12:00:00Z",
+        retired_at: null,
+      },
+      {
+        assignment_id: "assignment-2",
+        task: "prose_raster",
+        base_model_version: "htr:1.0",
+        adapter_version: "adapter-2",
+        personalized: true,
+        active: false,
+        activation_reason: "personal_adapter",
+        created_at: "2026-09-10T12:00:00Z",
+        retired_at: "2026-09-11T12:00:00Z",
+      },
+    ];
+
+    view.renderFull(
+      makeStatus(),
+      report,
+      [],
+      null,
+      assignments,
+    );
+
+    expect(mount.querySelector("[data-testid='personalization-assignments-table']")).not.toBeNull();
+    expect(mount.querySelectorAll("[data-testid='personalization-assignment']")).toHaveLength(2);
+    expect(mount.textContent).toContain("math raster");
+    expect(mount.textContent).toContain("Base only");
+    expect(mount.textContent).toContain("Personal adapter (adapter-2)");
+    expect(mount.textContent).toContain("Retired");
+  });
+});
+
 // --------------------------------------------------------------------------- //
 // renderFull() — pipeline guide (Req 5.1 clarity)
 // --------------------------------------------------------------------------- //
@@ -765,5 +821,25 @@ describe("BeforeAfterView.setAuthToken", () => {
     const view = new BeforeAfterView({ mount });
     // Should not throw.
     expect(() => view.setAuthToken("test-token-abc")).not.toThrow();
+  });
+
+  it("preserves the custom API origin, updated token, optional assignments, and empty deletes", async () => {
+    const view = new BeforeAfterView({ mount: document.createElement("div"), apiBase: "https://notes.example/api" });
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify(makeStatus()), { status: 200 }))
+      .mockResolvedValueOnce(new Response("Not found", { status: 404 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    try {
+      view.setAuthToken("updated-token");
+      expect(await view.fetchStatus()).toEqual(makeStatus());
+      expect(fetchMock).toHaveBeenNthCalledWith(1, "https://notes.example/api/personalization/status", expect.objectContaining({
+        credentials: "include",
+        headers: expect.objectContaining({ Authorization: "Bearer updated-token" }),
+      }));
+      expect(await view.fetchAssignments()).toEqual([]);
+      await expect(view.deleteTrainingPair("pair-1")).resolves.toBeUndefined();
+    } finally {
+      fetchMock.mockRestore();
+    }
   });
 });

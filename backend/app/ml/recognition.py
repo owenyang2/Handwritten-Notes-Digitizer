@@ -56,12 +56,13 @@ import io
 import logging
 import threading
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 import numpy as np
 import torch
 
-from app.ml.htr_config import ALPHABET, BLANK_INDEX, DEFAULT_HTR_CONFIG, HTRModelConfig
+from app.ml.decode import _prepare_crop, greedy_ctc_decode
+from app.ml.htr_config import DEFAULT_HTR_CONFIG, HTRModelConfig
 from app.ml.htr_model import CRNN, build_model
 from app.ml.preprocessing import PreprocessedImage, preprocess
 from app.ml.segmentation import (
@@ -155,8 +156,86 @@ class RecognitionResult:
 # requests" — Architectural Style, Frozen base + pluggable adapter)
 # ---------------------------------------------------------------------------
 
-_base_model_lock = threading.Lock()
+_base_model_lock = threading.RLock()
 _base_model_cache: CRNN | None = None
+_loaded_model_status: "LoadedModelStatus | None" = None
+
+
+class ModelUnavailableError(RuntimeError):
+    """Raised when a trained, probed base-model artifact cannot be used."""
+
+
+@dataclass(frozen=True)
+class LoadedModelStatus:
+    """Runtime identity of the model actually loaded for inference."""
+
+    loaded: bool
+    backend: str = "crnn-ctc"
+    artifact_path: str | None = None
+    reason: str | None = None
+    probe_ok: bool = False
+
+    @property
+    def health_label(self) -> str:
+        return "loaded" if self.loaded and self.probe_ok else "unavailable"
+
+
+def _probe_crnn(model: CRNN) -> bool:
+    """Run a tiny forward pass so a corrupt checkpoint cannot look healthy."""
+    model.eval()
+    height = model.config.image_height
+    dummy = torch.zeros(1, model.config.input_channels, height, max(32, height))
+    with torch.no_grad():
+        output = model(dummy)
+    return (
+        output.ndim == 3
+        and output.size(1) == 1
+        and output.size(-1) == model.config.num_classes
+        and torch.isfinite(output).all().item()
+    )
+
+
+def reset_base_model_runtime() -> None:
+    """Drop the process-wide model cache. Used by tests and after failed loads."""
+    global _base_model_cache, _loaded_model_status
+    with _base_model_lock:
+        _base_model_cache = None
+        _loaded_model_status = None
+
+
+def get_loaded_model_status(*, force_reload: bool = False) -> LoadedModelStatus:
+    """Return the cached load/probe result without raising."""
+    global _loaded_model_status, _base_model_cache
+
+    if _loaded_model_status is not None and not force_reload:
+        return _loaded_model_status
+
+    with _base_model_lock:
+        if _loaded_model_status is not None and not force_reload:
+            return _loaded_model_status
+        try:
+            get_base_model(force_reload=True)
+        except ModelUnavailableError as exc:
+            # ``get_base_model`` records the precise artifact path and failure
+            # stage before raising. Preserve that identity in health output;
+            # replacing it with a generic status would make a missing/corrupt
+            # model look indistinguishable from an unconfigured backend.
+            if _loaded_model_status is None:
+                _loaded_model_status = LoadedModelStatus(
+                    loaded=False,
+                    reason=str(exc),
+                    probe_ok=False,
+                )
+        return _loaded_model_status or LoadedModelStatus(
+            loaded=False,
+            reason="Base model status has not been determined.",
+            probe_ok=False,
+        )
+
+
+def is_base_model_ready() -> bool:
+    status = get_loaded_model_status()
+    return status.loaded and status.probe_ok
 
 
 def get_base_model(*, force_reload: bool = False) -> CRNN:
@@ -168,21 +247,11 @@ def get_base_model(*, force_reload: bool = False) -> CRNN:
     (and the personalization worker) composes adapters on top of the exact
     same weights rather than a freshly random-initialised model per call.
 
-    When no trained artifact exists yet (e.g. a clean checkout before the
-    documented training procedure has been run), falls back to a freshly
-    built, frozen model with the pinned default configuration so recognition
-    remains functional — just without any learned weights — rather than
-    failing outright. This fallback is itself cached, so all calls within the
-    process still share one consistent (if untrained) model.
-
-    Parameters
-    ----------
-    force_reload:
-        When ``True``, bypasses the cache and reloads from disk. Primarily
-        useful for tests/tools that (re)train a base model artifact within a
-        long-lived process.
+    Missing, corrupt, or incompatible artifacts raise
+    :class:`ModelUnavailableError`. Recognition never silently falls back to
+    random weights.
     """
-    global _base_model_cache
+    global _base_model_cache, _loaded_model_status
 
     if _base_model_cache is not None and not force_reload:
         return _base_model_cache
@@ -191,34 +260,66 @@ def get_base_model(*, force_reload: bool = False) -> CRNN:
         if _base_model_cache is not None and not force_reload:
             return _base_model_cache
 
-        # Imported lazily to avoid a circular import (train_base imports
-        # htr_model, not recognition).
         from app.ml.train_base import default_model_dir, load_base_model
 
         model_dir = default_model_dir()
         weights_path = model_dir / "base_model.pt"
+        path_str = str(weights_path)
 
-        if weights_path.exists():
-            try:
-                _base_model_cache = load_base_model(model_dir)
-                logger.info("Loaded shared base model artifact from %s", weights_path)
-                return _base_model_cache
-            except Exception:
-                logger.exception(
-                    "Failed to load base model artifact at %s; falling back to "
-                    "a freshly initialised model.",
-                    weights_path,
-                )
+        if not weights_path.exists():
+            _base_model_cache = None
+            _loaded_model_status = LoadedModelStatus(
+                loaded=False,
+                artifact_path=path_str,
+                reason=f"No trained base model artifact found at {path_str}.",
+                probe_ok=False,
+            )
+            raise ModelUnavailableError(_loaded_model_status.reason)
 
-        from app.ml.train_base import freeze_base_model
+        try:
+            model = load_base_model(model_dir)
+        except Exception as exc:
+            logger.exception("Failed to load base model artifact at %s.", weights_path)
+            _base_model_cache = None
+            _loaded_model_status = LoadedModelStatus(
+                loaded=False,
+                artifact_path=path_str,
+                reason=f"Base model artifact at {path_str} could not be loaded: {exc}",
+                probe_ok=False,
+            )
+            raise ModelUnavailableError(_loaded_model_status.reason) from exc
 
-        _base_model_cache = freeze_base_model(build_model(DEFAULT_HTR_CONFIG))
-        logger.warning(
-            "No trained base model artifact found at %s; using an "
-            "untrained (randomly initialised) frozen model. Run "
-            "`python -m app.ml.train_base` to produce a real artifact.",
-            weights_path,
+        try:
+            probe_ok = _probe_crnn(model)
+        except Exception as exc:
+            logger.exception("Base model probe failed for %s.", weights_path)
+            _base_model_cache = None
+            _loaded_model_status = LoadedModelStatus(
+                loaded=False,
+                artifact_path=path_str,
+                reason=f"Base model artifact at {path_str} failed its inference check: {exc}",
+                probe_ok=False,
+            )
+            raise ModelUnavailableError(_loaded_model_status.reason) from exc
+
+        if not probe_ok:
+            _base_model_cache = None
+            _loaded_model_status = LoadedModelStatus(
+                loaded=False,
+                artifact_path=path_str,
+                reason=f"Base model artifact at {path_str} failed its inference check.",
+                probe_ok=False,
+            )
+            raise ModelUnavailableError(_loaded_model_status.reason)
+
+        _base_model_cache = model
+        _loaded_model_status = LoadedModelStatus(
+            loaded=True,
+            artifact_path=path_str,
+            reason=None,
+            probe_ok=True,
         )
+        logger.info("Loaded shared base model artifact from %s", weights_path)
         return _base_model_cache
 
 
@@ -332,138 +433,6 @@ def _compose_model(base_model: CRNN, adapter: object | None) -> CRNN:
         ) from exc
 
     return apply_adapter(base_model, adapter_bytes)
-
-
-# ---------------------------------------------------------------------------
-# Crop preprocessing for the model
-# ---------------------------------------------------------------------------
-
-
-def _prepare_crop(
-    crop: np.ndarray,
-    target_height: int,
-) -> torch.Tensor:
-    """Resize a word crop to ``target_height`` and return a model-ready tensor.
-
-    The crop is expected to be a float32 array in ``[0, 1]`` of shape
-    ``(H, W)``.  It is resized to ``(target_height, W')`` while preserving
-    the aspect ratio, then converted to a ``(1, 1, target_height, W')``
-    tensor suitable for :class:`~app.ml.htr_model.CRNN`.
-
-    If the resulting width would be zero (tiny crop), a minimal 1-pixel-wide
-    tensor is returned so the model still produces a prediction rather than
-    crashing.
-    """
-    from PIL import Image  # local import; Pillow is a listed dependency
-
-    h, w = crop.shape[:2]
-    if h == 0 or w == 0:
-        # Degenerate crop: return a blank tensor at minimum size.
-        return torch.zeros(1, 1, target_height, max(w, 1), dtype=torch.float32)
-
-    # Scale width proportionally.
-    scale = target_height / h
-    new_w = max(1, int(round(w * scale)))
-
-    # Pillow expects uint8; we work in float32 [0,1] so convert both ways.
-    uint8_crop = (crop * 255).clip(0, 255).astype(np.uint8)
-    pil_img = Image.fromarray(uint8_crop, mode="L")
-    pil_resized = pil_img.resize((new_w, target_height), Image.BILINEAR)
-    resized = np.asarray(pil_resized, dtype=np.float32) / 255.0
-
-    # Shape: (1, 1, H, W) — batch=1, channel=1, height, width.
-    return torch.from_numpy(resized).unsqueeze(0).unsqueeze(0)
-
-
-# ---------------------------------------------------------------------------
-# Greedy CTC decoder
-# ---------------------------------------------------------------------------
-
-
-def greedy_ctc_decode(
-    log_probs: torch.Tensor,
-    blank_index: int = BLANK_INDEX,
-) -> tuple[str, float]:
-    """Greedy CTC decode a single sequence of log-probabilities.
-
-    Parameters
-    ----------
-    log_probs:
-        Tensor of shape ``(T, C)`` — CTC log-probabilities for one sample
-        (time steps × classes). The class dimension must be
-        ``len(ALPHABET) + 1``, with class 0 reserved for the blank token.
-    blank_index:
-        Index of the CTC blank class (default ``0`` per ``BLANK_INDEX``).
-
-    Returns
-    -------
-    text:
-        Decoded string (may be empty if all timesteps decode to blank).
-    confidence:
-        Mean probability mass at the chosen (argmax) class across *non-blank*
-        timesteps that survived collapsing. Returns 0.0 if the decoded text is
-        empty.
-
-    Algorithm
-    ---------
-    1. Argmax across the class dimension at every timestep.
-    2. Collapse consecutive identical indices to a single occurrence.
-    3. Remove blank tokens.
-    4. Map remaining indices to characters via ``ALPHABET`` (offset by 1
-       because blank occupies index 0: character ``ALPHABET[i-1]`` for
-       class index ``i``).
-    """
-    # log_probs: (T, C)
-    if log_probs.dim() == 3:
-        # Passed (T, N=1, C) shape — squeeze the batch dimension.
-        if log_probs.size(1) != 1:
-            raise ValueError(
-                "greedy_ctc_decode expects a single sequence; "
-                f"got batch size {log_probs.size(1)}"
-            )
-        log_probs = log_probs.squeeze(1)  # -> (T, C)
-
-    best_indices = torch.argmax(log_probs, dim=1)  # (T,)
-    best_log_probs = log_probs[torch.arange(len(best_indices)), best_indices]  # (T,)
-
-    # Step 1: collapse consecutive duplicates.
-    collapsed_indices: list[int] = []
-    collapsed_log_probs: list[float] = []
-    prev: int | None = None
-    for idx, lp in zip(best_indices.tolist(), best_log_probs.tolist()):
-        if idx != prev:
-            collapsed_indices.append(int(idx))
-            collapsed_log_probs.append(float(lp))
-            prev = int(idx)
-
-    # Step 2: remove blank tokens.
-    char_indices: list[int] = []
-    char_log_probs: list[float] = []
-    for idx, lp in zip(collapsed_indices, collapsed_log_probs):
-        if idx != blank_index:
-            char_indices.append(idx)
-            char_log_probs.append(lp)
-
-    # Step 3: map indices to characters.
-    # Class 0 = blank, class 1 = ALPHABET[0], class k = ALPHABET[k-1].
-    chars: list[str] = []
-    for idx in char_indices:
-        alphabet_pos = idx - 1  # shift off the blank slot
-        if 0 <= alphabet_pos < len(ALPHABET):
-            chars.append(ALPHABET[alphabet_pos])
-        # Out-of-range indices are silently skipped (should not occur in
-        # practice with a well-formed model output).
-
-    text = "".join(chars)
-
-    # Step 4: compute confidence as mean probability at chosen steps.
-    if char_log_probs:
-        mean_log_prob = sum(char_log_probs) / len(char_log_probs)
-        confidence = float(np.exp(mean_log_prob))
-    else:
-        confidence = 0.0
-
-    return text, confidence
 
 
 # ---------------------------------------------------------------------------
@@ -649,9 +618,8 @@ def recognize(
 
     if model is None:
         # No explicit model/config override: use the shared, process-wide
-        # frozen Base_Model so repeated calls are consistent (Req: base model
-        # is loaded once and shared across all requests). Callers that pass an
-        # explicit ``config`` are asking for a specific (e.g. tiny test)
+        # frozen Base_Model so repeated calls are consistent. Callers that pass
+        # an explicit ``config`` are asking for a specific (e.g. tiny test)
         # architecture, so honour that instead of the singleton.
         model = get_base_model() if config is None else build_model(config)
 
@@ -725,10 +693,15 @@ __all__ = [
     "RecognizedWord",
     "RecognizedLine",
     "RecognitionResult",
+    "ModelUnavailableError",
+    "LoadedModelStatus",
     "greedy_ctc_decode",
     "assemble_result",
     "apply_adapter",
     "get_base_model",
+    "get_loaded_model_status",
+    "reset_base_model_runtime",
+    "is_base_model_ready",
     "recognize",
     "recognize_bytes",
     "recognize_crop",

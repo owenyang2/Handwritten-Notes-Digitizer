@@ -2,9 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../api/client.js", () => ({
   getDocuments: vi.fn(),
+  restoreDocument: vi.fn(),
+  trashDocument: vi.fn(),
+  updateDocument: vi.fn(),
 }));
 
-import { getDocuments } from "../api/client.js";
+import { getDocuments, updateDocument } from "../api/client.js";
 import { GalleryUI } from "./galleryUI.js";
 
 describe("GalleryUI", () => {
@@ -50,5 +53,33 @@ describe("GalleryUI", () => {
 
     expect(mount.querySelector("strong")).toBeNull();
     expect(mount.textContent).toContain("<strong>Request failed</strong>");
+  });
+
+  it("shows lifecycle state and archives an active document through the API", async () => {
+    vi.mocked(getDocuments).mockResolvedValue([
+      {
+        document_id: "doc-1",
+        title: "Lecture notes",
+        created_at: "2026-07-01T12:00:00Z",
+        updated_at: "2026-07-02T12:00:00Z",
+        image_ids: ["image-1"],
+      },
+    ]);
+    vi.mocked(updateDocument).mockResolvedValue({
+      document_id: "doc-1",
+      title: "Lecture notes",
+      created_at: "2026-07-01T12:00:00Z",
+      image_ids: ["image-1"],
+      archived_at: "2026-07-03T12:00:00Z",
+    });
+    const gallery = new GalleryUI("gallery", vi.fn());
+
+    await gallery.render();
+
+    expect(mount.textContent).toContain("Active");
+    const archive = mount.querySelector<HTMLButtonElement>(".gallery-action")!;
+    expect(archive.textContent).toBe("Archive");
+    archive.click();
+    await vi.waitFor(() => expect(updateDocument).toHaveBeenCalledWith("doc-1", { archived: true }));
   });
 });

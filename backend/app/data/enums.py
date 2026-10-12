@@ -55,3 +55,45 @@ class EvaluationAvailability(str, enum.Enum):
 
     AVAILABLE = "available"
     UNAVAILABLE = "unavailable"
+
+
+class RecognitionJobState(str, enum.Enum):
+    """Durable state for page/image recognition work.
+
+    These values are intentionally independent of the legacy ``ImageStatus``
+    values: an image can remain accepted while a retry is queued, and a page
+    job can contain several independently persisted formula predictions.
+    """
+
+    QUEUED = "queued"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    NO_TEXT = "no_text"
+    FAILED = "failed"
+    TIMEOUT = "timeout"
+    CANCELLED = "cancelled"
+
+
+class TrainingExampleSplit(str, enum.Enum):
+    """Auditable split assignment for reviewed examples."""
+
+    TRAIN = "train"
+    DEV = "dev"
+    TEST = "test"
+    UNASSIGNED = "unassigned"
+
+
+class ModelTask(str, enum.Enum):
+    """Recognition task names used by the model-assignment registry.
+
+    These values are deliberately stored as ordinary strings in the registry
+    so adding a new task does not require a database enum migration.  The enum
+    still gives callers one canonical vocabulary at the application boundary.
+    """
+
+    PROSE_RASTER = "prose_raster"
+    MATH_RASTER = "math_raster"
+    MATH_INK = "math_ink"
+    RERANKER = "reranker"
+    MIXED_RASTER = "mixed_raster"
+    FIGURE = "figure"

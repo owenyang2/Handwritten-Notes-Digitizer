@@ -4,9 +4,9 @@ This module owns the recognition orchestration layer described in the design's
 Recognition_Service component. It:
 
 1. Wraps :func:`~app.ml.recognition.recognize_bytes` with a strict 10-second
-   wall-clock budget (Req 2.3, 2.6). A ``concurrent.futures.ThreadPoolExecutor``
-   is used so the blocking ML inference runs off the asyncio event loop while
-   remaining cancellable via ``Future.cancel()`` and the executor timeout.
+   wall-clock budget (Req 2.3, 2.6). A bounded
+   ``concurrent.futures.ThreadPoolExecutor`` keeps blocking ML inference off
+   the asyncio event loop and limits detached work after a timeout.
 2. On timeout: updates the image status to ``TIMEOUT``, commits, and returns a
    structured timeout-error result while **retaining the accepted image** (Req
    2.6).
@@ -36,6 +36,7 @@ from __future__ import annotations
 import concurrent.futures
 import os
 import tempfile
+import threading
 import uuid
 from enum import Enum
 from typing import Callable, List, Optional, Tuple, Iterator
@@ -43,15 +44,16 @@ from typing import Callable, List, Optional, Tuple, Iterator
 from fastapi import APIRouter, Depends, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 import queue
 import json
 
+from app.config.settings import get_settings
 from app.data.enums import ImageStatus
 from app.data.models import Image, RecognizedWord, User
 from app.data.object_store import ObjectStore
 from app.data.repositories import RepositoryFactory
-from app.ml.recognition import RecognitionResult, recognize_bytes
+from app.ml.recognition import ModelUnavailableError, RecognitionResult, recognize_bytes
 from app.services.auth_api import get_current_user, get_repositories
 from app.services.capability_guard import require_capability
 from app.services.image_validator import validate_image
@@ -62,6 +64,50 @@ from app.services.isolation import get_or_404
 # --------------------------------------------------------------------------- #
 
 RECOGNITION_TIMEOUT_SECONDS: float = 10.0
+MAX_INFLIGHT_RECOGNITION = 2
+_image_locks_guard = threading.Lock()
+_image_locks: dict[uuid.UUID, threading.Lock] = {}
+_image_generations: dict[uuid.UUID, int] = {}
+_recognition_executor = concurrent.futures.ThreadPoolExecutor(
+    max_workers=MAX_INFLIGHT_RECOGNITION,
+    thread_name_prefix="hnd-recognition",
+)
+_recognition_slots = threading.BoundedSemaphore(MAX_INFLIGHT_RECOGNITION)
+
+
+def recognition_timeout_seconds() -> float:
+    """Return the configured recognition budget (falls back to the module default)."""
+    try:
+        return float(get_settings().recognition_timeout_seconds)
+    except Exception:
+        return RECOGNITION_TIMEOUT_SECONDS
+
+
+def _lock_for_image(image_id: uuid.UUID) -> threading.Lock:
+    with _image_locks_guard:
+        lock = _image_locks.get(image_id)
+        if lock is None:
+            lock = threading.Lock()
+            _image_locks[image_id] = lock
+        return lock
+
+
+def _begin_recognition(image_id: uuid.UUID) -> int:
+    """Assign a monotonically increasing run id for an image.
+
+    A timed-out worker may continue in the background.  The generation check
+    prevents that stale worker from replacing a newer recognition result when
+    a retry completes first.
+    """
+    with _image_locks_guard:
+        generation = _image_generations.get(image_id, 0) + 1
+        _image_generations[image_id] = generation
+        return generation
+
+
+def _is_current_generation(image_id: uuid.UUID, generation: int) -> bool:
+    with _image_locks_guard:
+        return _image_generations.get(image_id) == generation
 
 # --------------------------------------------------------------------------- #
 # Service-layer result types
@@ -105,6 +151,8 @@ class RecognizedLineSchema(BaseModel):
     text: str = ""
     alignment_status: str = "aligned"
     alignment_reason: Optional[str] = None
+    excluded: bool = False
+    reviewed: bool = False
     words: List[RecognizedWordSchema]
 
 
@@ -122,6 +170,7 @@ class RecognitionServiceResult(BaseModel):
     image_width: Optional[int] = None
     image_height: Optional[int] = None
     error_message: Optional[str] = None
+    model_unavailable: bool = False
 
 
 # --------------------------------------------------------------------------- #
@@ -185,6 +234,35 @@ def _line_alignment_metadata(line_text: str, word_count: int) -> tuple[str, Opti
     )
 
 
+def _saved_word_corrections(
+    repos: RepositoryFactory,
+    user_id: uuid.UUID,
+    image_id: uuid.UUID,
+) -> dict[tuple[int, int, int, int], str]:
+    """Return durable corrections keyed by their source crop coordinates.
+
+    Recognition rows are replaceable predictions, while correction pairs are
+    the user's durable edits. Reapplying the latter prevents a retry from
+    silently reverting a word to a newer raw prediction.
+    """
+    prefix = f"{image_id}:"
+    corrections: dict[tuple[int, int, int, int], str] = {}
+    for pair in repos.training_pairs.list_for_image(user_id, image_id):
+        key = pair.source_region_key
+        if not key.startswith(prefix):
+            continue
+        parts = key[len(prefix) :].split(":")
+        if len(parts) != 4:
+            continue
+        try:
+            region = tuple(int(part) for part in parts)
+        except ValueError:
+            continue
+        if all(value >= 0 for value in region) and region[2] > 0 and region[3] > 0:
+            corrections[region] = pair.corrected_text
+    return corrections
+
+
 # --------------------------------------------------------------------------- #
 # Core orchestration function (testable without FastAPI)
 # --------------------------------------------------------------------------- #
@@ -195,7 +273,7 @@ def run_recognition(
     repos: RepositoryFactory,
     object_store: ObjectStore,
     adapter: object | None = None,
-    timeout: float = RECOGNITION_TIMEOUT_SECONDS,
+    timeout: float | None = None,
     progress_callback: Callable[[int, int], None] | None = None,
 ) -> RecognitionServiceResult:
     """Orchestrate HTR recognition for *image* with timeout and error handling.
@@ -229,6 +307,8 @@ def run_recognition(
         * ``FAILED``   — HTR engine raised; stored data unchanged (Req 2.7).
     """
     image_id = image.image_id
+    timeout_seconds = recognition_timeout_seconds() if timeout is None else timeout
+    image_lock = _lock_for_image(image_id)
 
     # Read the raw image bytes from the object store.
     try:
@@ -250,6 +330,7 @@ def run_recognition(
     # object store here — the two are not the same thing, and passing the
     # reference straight through fails with "No such file or directory".
     adapter_tmp_path: Optional[str] = None
+    adapter_cleanup_deferred = False
     try:
         try:
             resolved_adapter, adapter_tmp_path = _resolve_adapter_for_inference(
@@ -265,22 +346,57 @@ def run_recognition(
                 error_message=f"Failed to load adapter weights: {exc}",
             )
 
-        # Run the blocking HTR inference in a thread so we can enforce a
-        # wall-clock timeout without blocking the event loop.
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        future: concurrent.futures.Future[RecognitionResult] = executor.submit(
-            recognize_bytes,
-            image_bytes,
-            adapter=resolved_adapter,
-            progress_callback=progress_callback,
-        )
+        # Run blocking HTR inference in a process-wide bounded executor. A
+        # timed-out Python thread cannot be force-killed safely, so its slot is
+        # retained until the future really finishes instead of creating an
+        # unbounded number of detached workers on repeated requests.
+        if not _recognition_slots.acquire(blocking=False):
+            image.status = ImageStatus.TIMEOUT
+            repos.session.commit()
+            return RecognitionServiceResult(
+                outcome=RecognitionOutcome.TIMEOUT,
+                image_id=image_id,
+                error_message=(
+                    "Recognition capacity is busy; retry after the active job completes."
+                ),
+            )
+
+        generation = _begin_recognition(image_id)
+        slot_released = True
+        try:
+            future: concurrent.futures.Future[RecognitionResult] = _recognition_executor.submit(
+                recognize_bytes,
+                image_bytes,
+                adapter=resolved_adapter,
+                progress_callback=progress_callback,
+            )
+        except Exception as exc:
+            _recognition_slots.release()
+            return RecognitionServiceResult(
+                outcome=RecognitionOutcome.FAILED,
+                image_id=image_id,
+                error_message=f"Recognition could not be scheduled: {exc}",
+            )
 
         try:
-            result: RecognitionResult = future.result(timeout=timeout)
+            result: RecognitionResult = future.result(timeout=timeout_seconds)
         except concurrent.futures.TimeoutError:
-            # Cancel the inflight work and shut the thread down (best-effort).
+            # Future.cancel() does not stop inference already running in the
+            # worker thread. Release the bounded slot only when the future
+            # actually finishes, not when the request times out.
             future.cancel()
-            executor.shutdown(wait=False)
+            adapter_cleanup_deferred = True
+
+            def release_timeout_slot(_finished: concurrent.futures.Future[RecognitionResult]) -> None:
+                _recognition_slots.release()
+                if adapter_tmp_path is not None:
+                    try:
+                        os.unlink(adapter_tmp_path)
+                    except OSError:
+                        pass
+
+            future.add_done_callback(release_timeout_slot)
+            slot_released = False
 
             # Update status to TIMEOUT; retain the image (Req 2.6).
             image.status = ImageStatus.TIMEOUT
@@ -291,10 +407,15 @@ def run_recognition(
                 image_id=image_id,
                 error_message="Recognition did not complete within the time budget.",
             )
+        except ModelUnavailableError as exc:
+            return RecognitionServiceResult(
+                outcome=RecognitionOutcome.FAILED,
+                image_id=image_id,
+                error_message=str(exc),
+                model_unavailable=True,
+            )
         except Exception as exc:
             # HTR engine raised an unexpected error (Req 2.7).
-            executor.shutdown(wait=False)
-
             # Do NOT modify stored data — image stays at ACCEPTED.
             return RecognitionServiceResult(
                 outcome=RecognitionOutcome.FAILED,
@@ -302,106 +423,180 @@ def run_recognition(
                 error_message=f"Recognition engine failure: {exc}",
             )
         finally:
-            executor.shutdown(wait=False)
+            if slot_released:
+                _recognition_slots.release()
 
-        # ---- Successful engine run ----
-        if not result.recognized_any_text:
-            # Engine ran but found nothing (Req 2.5).
-            image.status = ImageStatus.NO_TEXT
-            repos.session.commit()
-
-            return RecognitionServiceResult(
-                outcome=RecognitionOutcome.NO_TEXT,
-                image_id=image_id,
-                image_width=result.image_width,
-                image_height=result.image_height,
-            )
-
-        # Persist recognized words and update status (Req 2.1, 2.2, 2.4).
-        word_rows: list[RecognizedWord] = []
-        line_schemas: list[RecognizedLineSchema] = []
-
-        for line in result.lines:
-            word_schemas: list[RecognizedWordSchema] = []
-            line_text = getattr(line, "text", "").strip()
-            if not line_text:
-                line_text = " ".join(word.text for word in line.words if word.text)
-            alignment_status, alignment_reason = _line_alignment_metadata(
-                line_text, len(line.words)
-            )
-
-            for word in line.words:
-                row = RecognizedWord(
+        with image_lock:
+            if not _is_current_generation(image_id, generation):
+                return RecognitionServiceResult(
+                    outcome=RecognitionOutcome.FAILED,
                     image_id=image_id,
-                    line_index=line.index,
-                    word_index=word.index,
-                    text=word.text,
-                    region_x=word.region.x,
-                    region_y=word.region.y,
-                    region_width=word.region.width,
-                    region_height=word.region.height,
-                    confidence=word.confidence,
+                    error_message="Recognition result was superseded by a newer retry.",
                 )
-                word_rows.append(row)
-                word_schemas.append(
-                    RecognizedWordSchema(
+            # ---- Successful engine run ----
+            saved_corrections = _saved_word_corrections(
+                repos, image.user_id, image_id
+            )
+            if not result.recognized_any_text:
+                # A later retry that detects nothing must not erase durable
+                # reviewer state. Keep the previous active result untouched
+                # and surface the retry as a failed replacement instead.
+                if saved_corrections or repos.line_reviews.list_for_image(
+                    image.user_id, image_id
+                ):
+                    return RecognitionServiceResult(
+                        outcome=RecognitionOutcome.FAILED,
+                        image_id=image_id,
+                        error_message=(
+                            "Recognition found no text; the previous reviewed "
+                            "content was kept."
+                        ),
+                    )
+                # Engine ran but found nothing (Req 2.5). Replace any prior
+                # active prediction rows so retries cannot duplicate content.
+                repos.recognized_words.replace_all_for_image(
+                    image.user_id, image_id, []
+                )
+                image.status = ImageStatus.NO_TEXT
+                repos.session.commit()
+
+                return RecognitionServiceResult(
+                    outcome=RecognitionOutcome.NO_TEXT,
+                    image_id=image_id,
+                    image_width=result.image_width,
+                    image_height=result.image_height,
+                )
+
+            # Persist recognized words and update status (Req 2.1, 2.2, 2.4).
+            word_rows: list[RecognizedWord] = []
+            line_schemas: list[RecognizedLineSchema] = []
+
+            for line in result.lines:
+                word_schemas: list[RecognizedWordSchema] = []
+                line_text = getattr(line, "text", "").strip()
+                if not line_text:
+                    line_text = " ".join(word.text for word in line.words if word.text)
+
+                for word in line.words:
+                    region_key = (
+                        word.region.x,
+                        word.region.y,
+                        word.region.width,
+                        word.region.height,
+                    )
+                    text = saved_corrections.get(region_key, word.text)
+                    row = RecognizedWord(
+                        image_id=image_id,
                         line_index=line.index,
                         word_index=word.index,
-                        text=word.text,
-                        region=RegionSchema(
-                            x=word.region.x,
-                            y=word.region.y,
-                            width=word.region.width,
-                            height=word.region.height,
-                        ),
+                        text=text,
+                        region_x=word.region.x,
+                        region_y=word.region.y,
+                        region_width=word.region.width,
+                        region_height=word.region.height,
                         confidence=word.confidence,
+                    )
+                    word_rows.append(row)
+                    word_schemas.append(
+                        RecognizedWordSchema(
+                            line_index=line.index,
+                            word_index=word.index,
+                            text=text,
+                            region=RegionSchema(
+                                x=word.region.x,
+                                y=word.region.y,
+                                width=word.region.width,
+                                height=word.region.height,
+                            ),
+                            confidence=word.confidence,
+                        )
+                    )
+
+                corrected_line_text = " ".join(
+                    word.text for word in word_schemas if word.text
+                ).strip()
+                if corrected_line_text:
+                    line_text = corrected_line_text
+                alignment_status, alignment_reason = _line_alignment_metadata(
+                    line_text, len(line.words)
+                )
+
+                line_schemas.append(
+                    RecognizedLineSchema(
+                        line_index=line.index,
+                        region=RegionSchema(
+                            x=line.region.x,
+                            y=line.region.y,
+                            width=line.region.width,
+                            height=line.region.height,
+                        ),
+                        text=line_text,
+                        alignment_status=alignment_status,
+                        alignment_reason=alignment_reason,
+                        words=word_schemas,
                     )
                 )
 
-            line_schemas.append(
-                RecognizedLineSchema(
-                    line_index=line.index,
-                    region=RegionSchema(
-                        x=line.region.x,
-                        y=line.region.y,
-                        width=line.region.width,
-                        height=line.region.height,
-                    ),
-                    text=line_text,
-                    alignment_status=alignment_status,
-                    alignment_reason=alignment_reason,
-                    words=word_schemas,
-                )
+            repos.recognized_words.replace_all_for_image(
+                image.user_id, image_id, word_rows
             )
+            image.status = ImageStatus.RECOGNIZED
+            repos.session.commit()
 
-        repos.recognized_words.add_all(word_rows)
-        image.status = ImageStatus.RECOGNIZED
-        repos.session.commit()
+            # Back-fill word_ids from the flushed rows.
+            for row, schema in zip(word_rows, [w for ls in line_schemas for w in ls.words]):
+                schema.word_id = row.word_id
 
-        # Back-fill word_ids from the flushed rows.
-        for row, schema in zip(word_rows, [w for ls in line_schemas for w in ls.words]):
-            schema.word_id = row.word_id
+            _apply_line_reviews(line_schemas, repos, image.user_id, image_id)
 
-        return RecognitionServiceResult(
-            outcome=RecognitionOutcome.SUCCESS,
-            image_id=image_id,
-            lines=line_schemas,
-            image_width=result.image_width,
-            image_height=result.image_height,
-        )
+            return RecognitionServiceResult(
+                outcome=RecognitionOutcome.SUCCESS,
+                image_id=image_id,
+                lines=line_schemas,
+                image_width=result.image_width,
+                image_height=result.image_height,
+            )
     finally:
         # Clean up the ephemeral adapter weights file (Req: no adapter bytes
         # left lying around outside the object store after the request ends).
-        if adapter_tmp_path is not None:
+        # A timed-out worker may still be opening/reading the adapter file, so
+        # its path is removed by the future callback once the detached task
+        # really exits.
+        if adapter_tmp_path is not None and not adapter_cleanup_deferred:
             try:
                 os.unlink(adapter_tmp_path)
             except OSError:
                 pass
 
 
-# --------------------------------------------------------------------------- #
-# FastAPI router
-# --------------------------------------------------------------------------- #
+def _apply_line_reviews(
+    lines: list[RecognizedLineSchema],
+    repos: RepositoryFactory,
+    user_id: uuid.UUID,
+    image_id: uuid.UUID,
+) -> None:
+    """Overlay persisted line reviews onto recognition output."""
+    reviews = {
+        review.line_index: review
+        for review in repos.line_reviews.list_for_image(user_id, image_id)
+    }
+    for line in lines:
+        review = reviews.get(line.line_index)
+        if review is None:
+            continue
+        line.reviewed = True
+        line.excluded = bool(review.excluded)
+        line.text = "" if review.excluded else review.reviewed_text
+        # Keep reviewer-adjusted crop coordinates stable across reloads. Older
+        # rows may have zero dimensions, so those continue to use the detected
+        # recognition region rather than replacing it with an unusable box.
+        if review.region_width > 0 and review.region_height > 0:
+            line.region = RegionSchema(
+                x=review.region_x,
+                y=review.region_y,
+                width=review.region_width,
+                height=review.region_height,
+            )
 
 router = APIRouter(tags=["recognition"])
 
@@ -455,7 +650,13 @@ def recognize_image(
     adapter = repos.adapters.get_active_for_user(user.user_id)
 
     if not stream:
-        svc_result = run_recognition(image, repos, store, adapter=adapter)
+        svc_result = run_recognition(
+            image,
+            repos,
+            store,
+            adapter=adapter,
+            timeout=recognition_timeout_seconds(),
+        )
         return RecognizeResponse(
             outcome=svc_result.outcome,
             image_id=svc_result.image_id,
@@ -472,7 +673,26 @@ def recognize_image(
 
     def worker() -> None:
         try:
-            svc_result = run_recognition(image, repos, store, adapter=adapter, progress_callback=on_progress)
+            # Never move the request-scoped ORM objects/session into a daemon
+            # thread.  The worker gets a fresh session bound to the same engine
+            # and reloads the owner-scoped rows before doing any work.
+            worker_factory = sessionmaker(
+                bind=repos.session.get_bind(), autoflush=False, expire_on_commit=False
+            )
+            with worker_factory() as worker_session:
+                worker_repos = RepositoryFactory(worker_session)
+                worker_image = worker_repos.images.get(user.user_id, image_id)
+                if worker_image is None:
+                    raise RuntimeError("Image disappeared before recognition started.")
+                worker_adapter = worker_repos.adapters.get_active_for_user(user.user_id)
+                svc_result = run_recognition(
+                    worker_image,
+                    worker_repos,
+                    store,
+                    adapter=worker_adapter,
+                    timeout=recognition_timeout_seconds(),
+                    progress_callback=on_progress,
+                )
             
             resp = RecognizeResponse(
                 outcome=svc_result.outcome,
@@ -596,6 +816,7 @@ def get_recognition_result(
         line.alignment_status, line.alignment_reason = _line_alignment_metadata(
             line.text, len(line.words)
         )
+    _apply_line_reviews(lines, repos, user.user_id, image_id)
     image_width, image_height = _processed_dimensions(image, store)
 
     return RecognitionResultResponse(
@@ -618,4 +839,5 @@ __all__ = [
     "RecognizeResponse",
     "RecognitionResultResponse",
     "RECOGNITION_TIMEOUT_SECONDS",
+    "recognition_timeout_seconds",
 ]

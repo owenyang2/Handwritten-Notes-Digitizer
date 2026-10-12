@@ -1,0 +1,11 @@
+# PyTorch CUDA training extra (do not use the CPU-only app lock for this).
+# Install the matching CUDA wheel index selected for the NVIDIA machine.
+# Example: pip install -r training/requirements-cuda.txt --index-url https://download.pytorch.org/whl/cu124
+torch==2.5.1
+torchvision==0.20.1
+numpy==2.1.3
+Pillow==11.0.0
+PyYAML==6.0.2
+# Optional pretrained/VLM experiments belong here, never in the CPU web app.
+# transformers==4.46.3
+# peft==0.13.2

@@ -160,3 +160,116 @@ describe("calibration request contract", () => {
     expect((init.body as FormData).get("promptIndex")).toBeNull();
   });
 });
+
+describe("document library contract", () => {
+  it("serializes lifecycle filters and pagination into the request", async () => {
+    const { getDocuments } = await import("./client.js");
+    const fetchMock = vi.fn().mockResolvedValue(new Response("[]", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getDocuments({
+      query: "linear algebra",
+      includeArchived: true,
+      includeTrashed: true,
+      view: "trash",
+      limit: 10,
+      offset: 20,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/documents?query=linear+algebra&include_archived=true&include_trashed=true&view=trash&limit=10&offset=20",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("uses the reversible lifecycle endpoints", async () => {
+    const { restoreDocument, trashDocument, updateDocument } = await import("./client.js");
+    const fetchMock = vi.fn().mockImplementation(
+      () =>
+        new Response(JSON.stringify({ document_id: "doc-1" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await updateDocument("doc-1", { archived: true });
+    await restoreDocument("doc-1");
+    await trashDocument("doc-1");
+
+    expect(fetchMock.mock.calls.map(([url, init]) => [url, init?.method])).toEqual([
+      ["/api/documents/doc-1", "PATCH"],
+      ["/api/documents/doc-1/restore", "POST"],
+      ["/api/documents/doc-1", "DELETE"],
+    ]);
+  });
+});
+
+describe("sync client contract", () => {
+  it("pushes a bounded operation batch with the expected wire shape", async () => {
+    const { pushSyncOperations } = await import("./client.js");
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({ accepted: [], conflicts: [], current_versions: {} }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const operation = {
+      client_id: "ipad-1",
+      client_operation_id: "op-1",
+      document_id: "doc-1",
+      base_sync_version: 0,
+      entity_type: "document",
+      entity_id: "doc-1",
+      operation_type: "document.rename",
+      payload: { title: "Updated" },
+    };
+    await pushSyncOperations([operation]);
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/sync/push");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({ operations: [operation] });
+  });
+
+  it("serializes pull cursors and conflict decisions", async () => {
+    const { listSyncConflicts, pullSyncOperations, resolveSyncConflict } =
+      await import("./client.js");
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ items: [], next_cursor: 12, has_more: false }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await pullSyncOperations(7, 20);
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/sync/pull?cursor=7&limit=20");
+
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    await listSyncConflicts(true);
+    expect(fetchMock.mock.calls[1][0]).toBe("/api/sync/conflicts?include_resolved=true");
+
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ conflict_id: "conflict-1" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    await resolveSyncConflict("conflict-1", "retry_as_new", { base: 12 });
+    const [url, init] = fetchMock.mock.calls[2] as [string, RequestInit];
+    expect(url).toBe("/api/sync/conflicts/conflict-1/resolve");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({
+      decision: "retry_as_new",
+      details: { base: 12 },
+    });
+  });
+});

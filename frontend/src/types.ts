@@ -25,6 +25,8 @@ export interface RecognizedLine {
   text?: string;
   alignmentStatus?: "aligned" | "uncertain";
   alignmentReason?: string;
+  excluded?: boolean;
+  reviewed?: boolean;
   words: RecognizedWord[];
 }
 
@@ -53,7 +55,7 @@ export interface BeforeAfterReport {
 }
 
 /** Supported export formats (Req 8). */
-export type ExportFormat = "plain" | "markdown";
+export type ExportFormat = "plain" | "markdown" | "pdf";
 
 /** A calibration prompt sentence the user is asked to handwrite (Req 9.2). */
 export interface CalibrationPrompt {

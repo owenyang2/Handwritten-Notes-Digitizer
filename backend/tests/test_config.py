@@ -18,6 +18,13 @@ def test_settings_have_deterministic_defaults():
     assert settings.cudnn_benchmark is False
     # Upload limit matches the 10 MB rule used by validation (Req 1.3).
     assert settings.max_upload_bytes == 10 * 1024 * 1024
+    # Production extras stay optional so local/demo SQLite + filesystem defaults hold.
+    assert settings.database_url == "sqlite:///./hnd.db"
+    assert settings.object_store_backend == "filesystem"
+    assert settings.redis_url is None
+    assert settings.s3_bucket is None
+    assert settings.otel_exporter_otlp_endpoint is None
+    assert settings.enable_metrics is False
 
 
 def test_settings_dotenv_path_is_anchored_to_backend_directory():

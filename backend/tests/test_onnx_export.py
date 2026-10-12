@@ -83,8 +83,8 @@ def test_export_produces_valid_onnx_file(tmp_path):
         assert verify_onnx_model(out) is False
 
 
-def test_export_handles_variable_width_inputs(tmp_path):
-    """The exported graph must accept widths other than the tracing width."""
+def test_export_matches_eager_model_across_widths_and_batch_sizes(tmp_path):
+    """The ONNX graph must preserve eager results across production shapes."""
     if not ONNXRUNTIME_AVAILABLE:
         pytest.skip("onnxruntime not installed; dynamic-axis runtime check skipped")
 
@@ -93,17 +93,18 @@ def test_export_handles_variable_width_inputs(tmp_path):
     out = tmp_path / "base_model.onnx"
     export_base_model_to_onnx(model, out, example_width=96)
 
-    # A width different from the tracing width exercises the dynamic axis.
-    image = torch.rand(1, config.input_channels, config.image_height, 160)
-    onnx_out = run_onnx_inference(out, image)
-    assert onnx_out is not None
+    for batch_size, width in ((1, 64), (1, 160), (2, 96), (2, 192)):
+        # The non-trace widths exercise the dynamic axis; batch size 2 catches
+        # accidental single-example assumptions in the exported graph.
+        image = torch.rand(batch_size, config.input_channels, config.image_height, width)
+        onnx_out = run_onnx_inference(out, image)
+        assert onnx_out is not None
 
-    with torch.no_grad():
-        torch_out = model(image)
+        with torch.no_grad():
+            torch_out = model(image)
 
-    # Same shape and numerically close to the PyTorch reference.
-    assert onnx_out.shape == torch_out.shape
-    assert torch.allclose(onnx_out, torch_out, atol=1e-4)
+        assert onnx_out.shape == torch_out.shape
+        assert torch.allclose(onnx_out, torch_out, atol=1e-4)
 
 
 def test_export_artifact_wrapper_exports_frozen_base(tmp_path):

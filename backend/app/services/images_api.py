@@ -18,9 +18,9 @@ described in the design's API Surface (Requirements 1.1, 1.6, 10.4):
 Object-store dependency injection
 ----------------------------------
 ``get_object_store`` is a FastAPI dependency that returns the process-wide
-:class:`~app.data.object_store.FilesystemObjectStore`. Tests override it via
-``app.dependency_overrides`` to inject an in-memory or tmp-backed store without
-touching the filesystem.
+:class:`~app.data.object_store.ObjectStore` (filesystem by default, S3 when
+configured). Tests override it via ``app.dependency_overrides`` to inject an
+in-memory or tmp-backed store without touching the filesystem.
 """
 
 from __future__ import annotations
@@ -30,18 +30,20 @@ import uuid
 from functools import lru_cache
 from typing import Annotated, Iterator, Optional
 
-from fastapi import APIRouter, Depends, File, Form, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.config.settings import get_settings
 from app.data.enums import ImageFormat, ImageStatus
 from app.data.models import Image
-from app.data.object_store import FilesystemObjectStore, ObjectStore
+from app.data.object_store import ObjectStore, build_object_store
 from app.data.repositories import RepositoryFactory
 from app.services.auth_api import get_current_user, get_db_session, get_repositories
 from app.services.image_validator import RejectionReason, validate_image
 from app.data.models import User
 from app.services.isolation import get_or_404
+from app.services.upload_limits import UploadTooLarge, read_upload_file_bounded
 
 router = APIRouter(tags=["images"])
 
@@ -54,7 +56,7 @@ router = APIRouter(tags=["images"])
 @lru_cache(maxsize=1)
 def _default_object_store() -> ObjectStore:
     """Process-wide default object store (overridable in tests)."""
-    return FilesystemObjectStore()
+    return build_object_store()
 
 
 def get_object_store() -> ObjectStore:
@@ -102,7 +104,7 @@ class ImageRejectedResponse(BaseModel):
         "Requires authentication (401 on missing/invalid credentials)."
     ),
 )
-def submit_image(
+async def submit_image(
     file: Annotated[UploadFile, File(description="PNG or JPEG image, ≤ 10 MB")],
     document_id: Annotated[Optional[uuid.UUID], Form()] = None,
     user: User = Depends(get_current_user),
@@ -114,15 +116,24 @@ def submit_image(
     The auth dependency runs before this handler, so unauthenticated requests
     are rejected with 401 before any I/O occurs (Req 1.5, 10.4).
     """
-    file_bytes = file.file.read()
+    max_upload_bytes = get_settings().max_upload_bytes
+    try:
+        file_bytes = await read_upload_file_bounded(file, max_upload_bytes)
+    except UploadTooLarge as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "status": "rejected",
+                "reason": RejectionReason.SIZE_LIMIT.value,
+                "message": "The image exceeds the configured upload size limit.",
+            },
+        ) from exc
 
-    result = validate_image(file_bytes)
+    result = validate_image(file_bytes, max_bytes=max_upload_bytes)
 
     if not result.accepted:
         # Validation failed: return 422 with the rejection reason and message.
         # Nothing is persisted (Req 1.5 — validation failure, no storage).
-        from fastapi import HTTPException
-
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={
@@ -139,8 +150,6 @@ def submit_image(
         # Check ownership before writing the image. Besides returning the same
         # non-disclosing 404 used elsewhere, this prevents orphaned objects
         # when a client supplies an unknown or another user's document id.
-        from fastapi import HTTPException
-
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Document not found",
@@ -171,6 +180,8 @@ def submit_image(
             status=ImageStatus.ACCEPTED,
         )
         image = repos.images.add(db_image)
+        if document_id is not None:
+            repos.documents.touch(user.user_id, document_id)
         repos.session.commit()
     except Exception:
         repos.session.rollback()

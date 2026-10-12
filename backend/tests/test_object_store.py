@@ -142,3 +142,13 @@ def test_default_root_uses_settings(monkeypatch, tmp_path):
     )
     s = FilesystemObjectStore()
     assert s.root == custom_root.resolve()
+
+
+def test_build_object_store_defaults_to_filesystem(tmp_path):
+    from app.config.settings import Settings
+    from app.data.object_store import build_object_store
+
+    settings = Settings(object_store_path=str(tmp_path / "objects"))
+    store = build_object_store(settings)
+    assert isinstance(store, FilesystemObjectStore)
+    assert store.root == (tmp_path / "objects").resolve()

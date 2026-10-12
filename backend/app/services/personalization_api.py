@@ -32,7 +32,7 @@ from app.data.repositories import RepositoryFactory
 from app.services.auth_api import get_current_user, get_repositories
 from app.services.images_api import get_object_store
 from app.services.isolation import get_or_404
-from app.services.personalization_service import maybe_enqueue_training
+from app.services.personalization_service import TrainingTriggerResult, maybe_enqueue_training
 
 router = APIRouter(prefix="/personalization", tags=["personalization"])
 
@@ -84,6 +84,23 @@ class PersonalizationStatusResponse(BaseModel):
     max_training_epochs: int
 
 
+class PersonalizationRunRequest(BaseModel):
+    """Request a run of the legacy prose-adapter personalization worker."""
+
+    mode: Literal["prose_adapter"] = "prose_adapter"
+
+
+class PersonalizationRunResponse(BaseModel):
+    """Durable result of requesting a personalization run."""
+
+    mode: Literal["prose_adapter"]
+    status: Literal["queued", "already_running", "below_threshold"]
+    run_id: uuid.UUID | None = None
+    unused_training_pairs: int
+    training_trigger_threshold: int
+    message: str
+
+
 class TrainingPairSummaryResponse(BaseModel):
     """Summary of one collected personalization training example."""
 
@@ -92,6 +109,20 @@ class TrainingPairSummaryResponse(BaseModel):
     corrected_text: str
     created_at: datetime
     used: bool
+
+
+class ModelAssignmentSummaryResponse(BaseModel):
+    """Safe model provenance for one user/task assignment."""
+
+    assignment_id: uuid.UUID
+    task: str
+    base_model_version: str
+    adapter_version: str
+    personalized: bool
+    active: bool
+    activation_reason: str
+    created_at: datetime
+    retired_at: datetime | None = None
 
 
 class TrainingPairListResponse(BaseModel):
@@ -161,6 +192,50 @@ _NOTIFICATION_MESSAGES = {
 # --------------------------------------------------------------------------- #
 # Endpoints
 # --------------------------------------------------------------------------- #
+
+
+@router.post(
+    "/runs",
+    response_model=PersonalizationRunResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Request a durable personalization run",
+    description=(
+        "Queues the reviewed prose-adapter worker when the configured unused-pair "
+        "threshold is met. Formula-model training is an offline dataset/CLI flow; "
+        "this endpoint does not silently train or promote a formula recognizer."
+    ),
+)
+def request_personalization_run(
+    body: PersonalizationRunRequest | None = None,
+    user: User = Depends(get_current_user),
+    repos: RepositoryFactory = Depends(get_repositories),
+) -> PersonalizationRunResponse:
+    mode = body.mode if body is not None else "prose_adapter"
+    settings = get_settings()
+    trigger = maybe_enqueue_training(user.user_id, repos)
+    repos.session.commit()
+    queued = repos.training_runs.get_queued_for_user(user.user_id)
+    running = repos.training_runs.get_running_for_user(user.user_id)
+    run = queued or running
+    status_map = {
+        TrainingTriggerResult.ENQUEUED: "queued",
+        TrainingTriggerResult.ALREADY_RUNNING: "already_running",
+        TrainingTriggerResult.BELOW_THRESHOLD: "below_threshold",
+    }
+    run_status = status_map[trigger]
+    messages = {
+        "queued": "Personalization training has been queued.",
+        "already_running": "Personalization training is already queued or running.",
+        "below_threshold": "More reviewed examples are needed before training can start.",
+    }
+    return PersonalizationRunResponse(
+        mode=mode,
+        status=run_status,  # type: ignore[arg-type]
+        run_id=run.run_id if run is not None else None,
+        unused_training_pairs=repos.training_pairs.count_unused(user.user_id),
+        training_trigger_threshold=settings.personalization_trigger_threshold,
+        message=messages[run_status],
+    )
 
 
 @router.get(
@@ -322,6 +397,38 @@ def get_evaluation(
 
 
 @router.get(
+    "/assignments",
+    response_model=list[ModelAssignmentSummaryResponse],
+    summary="List model assignments used for this account",
+    description=(
+        "Returns the versioned base/adapter assignments used by this user's "
+        "recognition requests. It contains no note content or raw checkpoint paths."
+    ),
+)
+def list_model_assignments(
+    include_inactive: bool = True,
+    user: User = Depends(get_current_user),
+    repos: RepositoryFactory = Depends(get_repositories),
+) -> list[ModelAssignmentSummaryResponse]:
+    return [
+        ModelAssignmentSummaryResponse(
+            assignment_id=assignment.assignment_id,
+            task=assignment.task,
+            base_model_version=assignment.base_model_version,
+            adapter_version=assignment.adapter_version,
+            personalized=assignment.adapter_id is not None,
+            active=assignment.active,
+            activation_reason=assignment.activation_reason,
+            created_at=assignment.created_at,
+            retired_at=assignment.retired_at,
+        )
+        for assignment in repos.model_assignments.list_for_user(
+            user.user_id, include_inactive=include_inactive
+        )
+    ]
+
+
+@router.get(
     "/training-pairs",
     response_model=TrainingPairListResponse,
     summary="List personalization training examples",
@@ -438,11 +545,14 @@ def delete_training_pair(
 __all__ = [
     "router",
     "PersonalizationStatusResponse",
+    "PersonalizationRunRequest",
+    "PersonalizationRunResponse",
     "EvaluationResponse",
     "TrainingPairSummaryResponse",
     "TrainingPairListResponse",
     "TrainingPairUpdateRequest",
     "get_personalization_status",
+    "request_personalization_run",
     "get_evaluation",
     "list_training_pairs",
     "get_training_pair_image",

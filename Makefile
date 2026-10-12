@@ -10,7 +10,7 @@ dev-frontend:
 	cd frontend && npm run dev -- --host 127.0.0.1 --port 5173
 
 test-backend:
-	cd backend && .venv/bin/python3 -m pytest -q
+	cd backend && PYTHONPATH=.. .venv/bin/python3 -m pytest -q
 
 test-frontend:
 	cd frontend && npm test

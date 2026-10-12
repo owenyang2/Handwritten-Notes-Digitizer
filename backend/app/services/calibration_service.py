@@ -438,6 +438,7 @@ from app.data.object_store import FilesystemObjectStore, ObjectStore  # noqa: E4
 from app.data.repositories import RepositoryFactory  # noqa: E402
 from app.services.auth_api import get_current_user, get_repositories  # noqa: E402
 from app.services.capability_guard import require_capability  # noqa: E402
+from app.services.upload_limits import UploadTooLarge, read_upload_file_bounded  # noqa: E402
 
 router = APIRouter(tags=["calibration"])
 
@@ -525,7 +526,7 @@ def create_session_endpoint(
         "Requires authentication."
     ),
 )
-def submit_sample_endpoint(
+async def submit_sample_endpoint(
     session_id: uuid.UUID,
     prompt_index: int = Form(..., description="0-based index of the prompt the user wrote"),
     file: UploadFile = File(..., description="Handwriting image file (PNG or JPEG)"),
@@ -538,7 +539,16 @@ def submit_sample_endpoint(
     Multipart body: ``file`` (image bytes) and ``prompt_index`` (int).
     Returns 201 with ``pair_id`` on success; 422 with reason on rejection.
     """
-    image_bytes = file.file.read()
+    try:
+        image_bytes = await read_upload_file_bounded(file, CALIBRATION_MAX_BYTES)
+    except UploadTooLarge as exc:
+        raise HTTPException(
+            status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "reason": CalibrationRejectReason.SIZE_LIMIT,
+                "message": "The submitted image exceeds the upload size limit.",
+            },
+        ) from exc
 
     result = submit_calibration_sample(
         user_id=user.user_id,

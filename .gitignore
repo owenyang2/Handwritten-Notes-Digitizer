@@ -41,6 +41,13 @@ backend/var/objectstore/models/
 frontend/dist/
 frontend/node_modules/
 
-# ── Docker / OS ───────────────────────────────────────────────────────────────
+# ── Swift / iOS ───────────────────────────────────────────────────────────────
+ios/.build/
+ios/PersonalizedNotes.xcodeproj/
+ios/Sources/PersonalizedNotesApp/Info.plist
+
+# ── iOS / SwiftPM -------------------------------------------------------------
+ios/.build/
+ios/.swiftpm/
 .DS_Store
 Thumbs.db

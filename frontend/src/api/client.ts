@@ -18,6 +18,7 @@ import type {
   ExportRequest,
   ExportResponse,
   CalibrationSessionResponse,
+  RecognitionJobDto,
 } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -98,11 +99,31 @@ function detailToMessage(detail: unknown): string | undefined {
   return undefined;
 }
 
-async function fetchJson<T>(
+export async function fetchJson<T>(
   path: string,
   init?: RequestInit,
+  baseUrl?: string,
 ): Promise<T> {
-  const url = `${getBaseUrl()}${path}`;
+  const { data } = await fetchJsonWithMeta<T>(path, init, baseUrl);
+  return data;
+}
+
+interface FetchJsonMeta<T> {
+  data: T;
+  headers: Headers;
+}
+
+/**
+ * Fetch JSON while preserving response headers used by paginated endpoints.
+ * Most callers only need the decoded value and should use fetchJson(); library
+ * screens use this variant to honor the server's exact pagination contract.
+ */
+async function fetchJsonWithMeta<T>(
+  path: string,
+  init?: RequestInit,
+  baseUrl = getBaseUrl(),
+): Promise<FetchJsonMeta<T>> {
+  const url = `${baseUrl}${path}`;
   const response = await fetch(url, {
     credentials: "include", // send session cookie
     ...init,
@@ -124,7 +145,10 @@ async function fetchJson<T>(
     throw new ApiError(response.status, message);
   }
 
-  return response.json() as Promise<T>;
+  return {
+    data: response.status === 204 ? undefined as T : (await response.json()) as T,
+    headers: response.headers,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -138,7 +162,7 @@ async function fetchJson<T>(
 interface RawHealthResponse {
   status: string;
   capabilities: Record<string, boolean>;
-  model_status?: "trained" | "untrained" | "loading" | "unknown";
+  model_status?: "loaded" | "unavailable" | "trained" | "untrained" | "loading" | "unknown";
 }
 
 /** Map backend capability keys → frontend CapabilityName. */
@@ -198,6 +222,8 @@ interface RawRecognizedLineWire {
   text?: string;
   alignment_status?: "aligned" | "uncertain";
   alignment_reason?: string | null;
+  excluded?: boolean;
+  reviewed?: boolean;
   words: RawRecognizedWordWire[];
 }
 
@@ -227,6 +253,8 @@ function mapWireLines(lines: RawRecognizedLineWire[]): RecognitionResultDto["lin
     text: line.text,
     alignment_status: line.alignment_status,
     alignment_reason: line.alignment_reason,
+    excluded: line.excluded,
+    reviewed: line.reviewed,
     words: line.words.map((word) => ({
       index: word.word_index,
       text: word.text,
@@ -350,7 +378,11 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
  * Upload a PNG/JPEG image.  Returns the new image_id.
  * Authentication is enforced by the backend (Req 1.5, 10.4).
  */
-export async function uploadImage(file: File, documentId?: string): Promise<UploadImageResponse> {
+export async function uploadImage(
+  file: File,
+  documentId?: string,
+  signal?: AbortSignal,
+): Promise<UploadImageResponse> {
   const formData = new FormData();
   formData.append("file", file);
   if (documentId) {
@@ -359,6 +391,7 @@ export async function uploadImage(file: File, documentId?: string): Promise<Uplo
   return fetchJson<UploadImageResponse>("/images", {
     method: "POST",
     body: formData,
+    signal,
     // Do NOT set Content-Type — browser sets multipart boundary automatically.
   });
 }
@@ -371,11 +404,13 @@ export async function uploadImage(file: File, documentId?: string): Promise<Uplo
 export async function recognizeImage(
   imageId: string,
   onProgress?: (current: number, total: number) => void,
+  signal?: AbortSignal,
 ): Promise<RecognitionResultDto> {
   const url = `${getBaseUrl()}/images/${imageId}/recognize?stream=true`;
   const response = await fetch(url, {
     method: "POST",
     credentials: "include",
+    signal,
   });
 
   if (!response.ok) {
@@ -492,11 +527,282 @@ export async function submitCorrection(
 export async function exportText(
   payload: ExportRequest,
 ): Promise<ExportResponse> {
+  if (payload.format === "pdf") {
+    const blob = await exportPdf(payload.image_id);
+    return { status: "success", format: "pdf", text: await blobToBase64(blob) };
+  }
   return fetchJson<ExportResponse>("/export", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
+}
+
+export async function exportPdf(imageId: string): Promise<Blob> {
+  const url = `${getBaseUrl()}/export`;
+  const response = await fetch(url, {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      Accept: "application/pdf, application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ image_id: imageId, format: "pdf" }),
+  });
+  if (!response.ok) {
+    let message = `HTTP ${response.status}`;
+    try {
+      const body = (await response.json()) as { detail?: unknown; message?: string };
+      message = detailToMessage(body?.detail) || body.message || message;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, message);
+  }
+  const contentType = response.headers.get("content-type") ?? "";
+  if (contentType.includes("application/pdf")) {
+    return response.blob();
+  }
+  const body = (await response.json()) as ExportResponse;
+  if (body.status !== "success") {
+    throw new ApiError(response.status, body.message || "Export failed.");
+  }
+  const binary = atob(body.text);
+  const bytes = Uint8Array.from(binary, (ch) => ch.charCodeAt(0));
+  return new Blob([bytes], { type: "application/pdf" });
+}
+
+async function blobToBase64(blob: Blob): Promise<string> {
+  const buffer = await blob.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+export interface LineReviewPayload {
+  line_index: number;
+  reviewed_text: string;
+  excluded: boolean;
+  region?: { x: number; y: number; width: number; height: number };
+}
+
+export async function saveImageReviews(
+  imageId: string,
+  lines: LineReviewPayload[],
+): Promise<void> {
+  await fetchJson(`/images/${encodeURIComponent(imageId)}/reviews`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ lines }),
+  });
+}
+
+export interface DocumentPageSummary {
+  page_id: string;
+  page_index: number;
+  image_id: string | null;
+  width: number;
+  height: number;
+  dpi: number;
+  coordinate_space: string;
+}
+
+export interface ImportDocumentResponse {
+  document_id: string;
+  title: string;
+  page_count: number;
+  pages: DocumentPageSummary[];
+}
+
+export async function importDocument(
+  file: File,
+  title: string,
+  signal?: AbortSignal,
+): Promise<ImportDocumentResponse> {
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("title", title);
+  return fetchJson<ImportDocumentResponse>("/documents/import", {
+    method: "POST",
+    body: fd,
+    signal,
+  });
+}
+
+export interface CreateRegionResponse {
+  region_id: string;
+  page_id: string;
+  content_type: string;
+  bbox: number[];
+  order_index: number;
+  coordinate_space?: string;
+  page_revision?: number;
+  crop_sha256?: string | null;
+}
+
+export async function createPageRegion(
+  pageId: string,
+  bbox: { x: number; y: number; width: number; height: number },
+  contentType = "math_display",
+  coordinateSpace?: string,
+): Promise<CreateRegionResponse> {
+  return fetchJson<CreateRegionResponse>(`/pages/${encodeURIComponent(pageId)}/regions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      bbox: [bbox.x, bbox.y, bbox.width, bbox.height],
+      content_type: contentType,
+      ...(coordinateSpace ? { coordinate_space: coordinateSpace } : {}),
+    }),
+  });
+}
+
+export interface RegionReviewResponse {
+  review_id: string;
+  region_id: string;
+  reviewed_text: string;
+  excluded: boolean;
+  version: number;
+  review_revision_id: string | null;
+  document_revision_id: string | null;
+  training_example_id: string | null;
+}
+
+export interface SaveRegionReviewOptions {
+  predictionId?: string | null;
+  expectedVersion?: number | null;
+  includeInTraining?: boolean;
+  split?: "train" | "dev" | "test" | "unassigned";
+}
+
+export async function saveRegionReview(
+  regionId: string,
+  reviewedText: string,
+  excluded = false,
+  predictionId?: string | null,
+  options: SaveRegionReviewOptions = {},
+): Promise<RegionReviewResponse> {
+  return fetchJson<RegionReviewResponse>(`/regions/${encodeURIComponent(regionId)}/review`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      reviewed_text: reviewedText,
+      excluded,
+      prediction_id: predictionId ?? null,
+      expected_version: options.expectedVersion ?? null,
+      include_in_training: options.includeInTraining ?? false,
+      split: options.split ?? "unassigned",
+    }),
+  });
+}
+
+export interface PageRegionDetail {
+  region_id: string;
+  page_id: string;
+  content_type: string;
+  bbox: number[];
+  order_index: number;
+  prediction_text: string | null;
+  reviewed_text: string | null;
+  excluded: boolean;
+  unresolved: boolean;
+  prediction_id?: string | null;
+  review_revision_id?: string | null;
+  review_version?: number | null;
+  crop_revision?: number;
+  score?: number | null;
+  truncated?: boolean;
+  crop_sha256?: string | null;
+}
+
+export async function listPageRegions(pageId: string): Promise<PageRegionDetail[]> {
+  return fetchJson<PageRegionDetail[]>(`/pages/${encodeURIComponent(pageId)}/regions`);
+}
+
+export interface CreateRecognitionJobRequest {
+  region_ids?: string[];
+  auto_layout?: boolean;
+  mode?: string;
+  max_attempts?: number;
+}
+
+export async function createRecognitionJob(
+  pageId: string,
+  payload: CreateRecognitionJobRequest = {},
+): Promise<RecognitionJobDto> {
+  return fetchJson<RecognitionJobDto>(
+    `/pages/${encodeURIComponent(pageId)}/recognition-jobs`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  );
+}
+
+export async function getRecognitionJob(jobId: string): Promise<RecognitionJobDto> {
+  return fetchJson<RecognitionJobDto>(`/jobs/${encodeURIComponent(jobId)}`);
+}
+
+const TERMINAL_RECOGNITION_JOB_STATES = new Set([
+  "succeeded",
+  "no_text",
+  "failed",
+  "timeout",
+  "cancelled",
+]);
+
+export async function waitForRecognitionJob(
+  jobId: string,
+  onProgress?: (job: RecognitionJobDto) => void,
+  maxWaitMs = 60_000,
+): Promise<RecognitionJobDto> {
+  const started = Date.now();
+  let delay = 150;
+  while (Date.now() - started <= maxWaitMs) {
+    const job = await getRecognitionJob(jobId);
+    onProgress?.(job);
+    if (TERMINAL_RECOGNITION_JOB_STATES.has(job.state)) return job;
+    await new Promise<void>((resolve) => window.setTimeout(resolve, delay));
+    delay = Math.min(1_000, Math.round(delay * 1.35));
+  }
+  throw new Error("Recognition job did not finish before the client wait limit.");
+}
+
+export function getPageRasterUrl(pageId: string): string {
+  return `${getBaseUrl()}/pages/${encodeURIComponent(pageId)}/raster`;
+}
+
+export async function exportDocument(
+  documentId: string,
+  format: "markdown" | "latex" | "latex_bundle" | "html" | "pdf",
+  revisionId?: string | null,
+): Promise<{ format: string; text: string } | Blob> {
+  if (format === "pdf" || format === "latex_bundle") {
+    const url = `${getBaseUrl()}/documents/${encodeURIComponent(documentId)}/exports`;
+    const response = await fetch(url, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        Accept: "application/pdf, application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ format, revision_id: revisionId ?? null }),
+    });
+    if (!response.ok) {
+      throw new ApiError(response.status, "Document export failed.");
+    }
+    return response.blob();
+  }
+  return fetchJson<{ status: string; format: string; text: string }>(
+    `/documents/${encodeURIComponent(documentId)}/exports`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ format, revision_id: revisionId ?? null }),
+    },
+  );
 }
 
 /**
@@ -538,22 +844,297 @@ export interface DocumentResponse {
   title: string;
   created_at: string;
   image_ids: string[];
+  source_kind?: string;
+  pages?: DocumentPageSummary[];
+  active_revision_id?: string | null;
+  updated_at?: string;
+  archived_at?: string | null;
+  trashed_at?: string | null;
+  sync_version?: number;
+  default_language?: string;
+  course_context?: string | null;
+  source_metadata?: Record<string, unknown> | null;
 }
 
-export async function createDocument(title: string): Promise<DocumentResponse> {
+export interface DocumentListOptions {
+  query?: string;
+  includeArchived?: boolean;
+  includeTrashed?: boolean;
+  view?: "active" | "archived" | "trash";
+  limit?: number;
+  offset?: number;
+}
+
+export interface UpdateDocumentRequest {
+  title?: string;
+  archived?: boolean;
+  default_language?: string;
+  course_context?: string | null;
+  expected_sync_version?: number;
+}
+
+export async function createDocument(
+  title: string,
+  signal?: AbortSignal,
+): Promise<DocumentResponse> {
   return fetchJson<DocumentResponse>("/documents", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ title }),
+    signal,
   });
 }
 
-export async function getDocuments(): Promise<DocumentResponse[]> {
-  return fetchJson<DocumentResponse[]>("/documents", {
+export interface DocumentListPage {
+  items: DocumentResponse[];
+  offset: number;
+  limit: number;
+  total: number;
+  hasMore: boolean;
+}
+
+export async function getDocumentsPage(
+  options: DocumentListOptions = {},
+): Promise<DocumentListPage> {
+  const params = new URLSearchParams();
+  if (options.query?.trim()) params.set("query", options.query.trim());
+  if (options.includeArchived) params.set("include_archived", "true");
+  if (options.includeTrashed) params.set("include_trashed", "true");
+  if (options.view) params.set("view", options.view);
+  if (options.limit !== undefined) params.set("limit", String(options.limit));
+  if (options.offset !== undefined) params.set("offset", String(options.offset));
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  const response = await fetchJsonWithMeta<DocumentResponse[]>(`/documents${suffix}`, {
     method: "GET",
   });
+  const offset = options.offset ?? Number(response.headers.get("X-Document-Offset") ?? 0);
+  const limit = options.limit ?? Number(response.headers.get("X-Document-Limit") ?? response.data.length);
+  const totalHeader = Number(response.headers.get("X-Document-Total"));
+  const hasMoreHeader = response.headers.get("X-Document-Has-More");
+  return {
+    items: response.data,
+    offset: Number.isFinite(offset) ? Math.max(0, offset) : 0,
+    limit: Number.isFinite(limit) && limit > 0 ? limit : response.data.length,
+    total: Number.isFinite(totalHeader) && totalHeader >= 0
+      ? totalHeader
+      : (options.offset ?? 0) + response.data.length,
+    hasMore: hasMoreHeader === null
+      ? response.data.length >= (options.limit ?? response.data.length + 1)
+      : hasMoreHeader.toLowerCase() === "true",
+  };
+}
+
+export async function getDocuments(options: DocumentListOptions = {}): Promise<DocumentResponse[]> {
+  return (await getDocumentsPage(options)).items;
 }
 
 export async function getDocument(documentId: string): Promise<DocumentResponse> {
   return fetchJson<DocumentResponse>(`/documents/${encodeURIComponent(documentId)}`);
+}
+
+export async function updateDocument(
+  documentId: string,
+  update: UpdateDocumentRequest,
+): Promise<DocumentResponse> {
+  return fetchJson<DocumentResponse>(`/documents/${encodeURIComponent(documentId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(update),
+  });
+}
+
+export async function restoreDocument(documentId: string): Promise<DocumentResponse> {
+  return fetchJson<DocumentResponse>(
+    `/documents/${encodeURIComponent(documentId)}/restore`,
+    { method: "POST" },
+  );
+}
+
+export async function trashDocument(documentId: string): Promise<DocumentResponse> {
+  return fetchJson<DocumentResponse>(`/documents/${encodeURIComponent(documentId)}`, {
+    method: "DELETE",
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Cross-device synchronization
+// ---------------------------------------------------------------------------
+
+export interface SyncOperationRequest {
+  client_id: string;
+  client_operation_id: string;
+  document_id: string;
+  base_sync_version: number;
+  entity_type: string;
+  entity_id?: string | null;
+  operation_type: string;
+  payload: Record<string, unknown>;
+}
+
+export interface SyncAcceptedOperation {
+  client_id: string;
+  client_operation_id: string;
+  operation_id: string;
+  server_sequence: number;
+  document_id: string;
+  sync_version: number;
+  idempotent: boolean;
+}
+
+export interface SyncConflict {
+  conflict_id: string;
+  document_id: string;
+  client_id: string;
+  client_operation_id: string;
+  base_sync_version: number;
+  current_sync_version: number;
+  entity_type: string;
+  entity_id: string | null;
+  operation_type: string;
+  payload: Record<string, unknown>;
+  status: string;
+  resolution: Record<string, unknown> | null;
+  is_tombstone?: boolean;
+  created_at: string;
+  resolved_at: string | null;
+}
+
+export interface SyncPushResponse {
+  accepted: SyncAcceptedOperation[];
+  conflicts: SyncConflict[];
+  current_versions: Record<string, number>;
+}
+
+export interface SyncChange {
+  server_sequence: number;
+  operation_id: string;
+  document_id: string;
+  client_id: string;
+  client_operation_id: string;
+  base_sync_version: number;
+  sync_version: number;
+  entity_type: string;
+  entity_id: string | null;
+  operation_type: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+  contract_version?: string;
+  is_tombstone?: boolean;
+}
+
+export interface SyncPullResponse {
+  items: SyncChange[];
+  next_cursor: number;
+  has_more: boolean;
+}
+
+export async function pushSyncOperations(
+  operations: SyncOperationRequest[],
+): Promise<SyncPushResponse> {
+  return fetchJson<SyncPushResponse>("/sync/push", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ operations }),
+  });
+}
+
+export async function pullSyncOperations(
+  cursor = 0,
+  limit = 50,
+): Promise<SyncPullResponse> {
+  const params = new URLSearchParams({
+    cursor: String(cursor),
+    limit: String(limit),
+  });
+  return fetchJson<SyncPullResponse>(`/sync/pull?${params.toString()}`, {
+    method: "GET",
+  });
+}
+
+export async function listSyncConflicts(
+  includeResolved = false,
+): Promise<SyncConflict[]> {
+  const suffix = includeResolved ? "?include_resolved=true" : "";
+  return fetchJson<SyncConflict[]>(`/sync/conflicts${suffix}`, {
+    method: "GET",
+  });
+}
+
+export async function resolveSyncConflict(
+  conflictId: string,
+  decision: "keep_server" | "retry_as_new",
+  details: Record<string, unknown> = {},
+): Promise<SyncConflict> {
+  return fetchJson<SyncConflict>(
+    `/sync/conflicts/${encodeURIComponent(conflictId)}/resolve`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ decision, details }),
+    },
+  );
+}
+
+export interface SyncClientInfo {
+  client_id: string;
+  platform: string | null;
+  device_name: string | null;
+  cursor: number;
+  last_seen_at: string;
+  revoked_at: string | null;
+  created_at: string;
+}
+
+export async function registerSyncClient(body: {
+  client_id: string;
+  platform?: string;
+  device_name?: string;
+}): Promise<SyncClientInfo> {
+  return fetchJson<SyncClientInfo>("/sync/clients", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function acknowledgeSyncCursor(
+  clientId: string,
+  cursor: number,
+): Promise<SyncClientInfo> {
+  return fetchJson<SyncClientInfo>(
+    `/sync/clients/${encodeURIComponent(clientId)}/ack`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cursor }),
+    },
+  );
+}
+
+export interface ConsentResponse {
+  event_id: string;
+  policy_version: string;
+  scope: string;
+  action: string;
+  created_at: string;
+  personal_training_allowed: boolean;
+}
+
+export async function getConsent(): Promise<ConsentResponse | null> {
+  try {
+    return await fetchJson<ConsentResponse>("/personalization/consent");
+  } catch (err) {
+    if (err instanceof ApiError && (err.status === 404 || err.status === 403)) {
+      return null;
+    }
+    throw err;
+  }
+}
+
+export async function recordConsent(action: "grant" | "withdraw"): Promise<ConsentResponse> {
+  return fetchJson<ConsentResponse>("/personalization/consent", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action, scope: "personal_model" }),
+  });
 }
