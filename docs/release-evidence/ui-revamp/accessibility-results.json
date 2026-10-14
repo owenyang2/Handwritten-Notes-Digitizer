@@ -1,0 +1,878 @@
+[
+  {
+    "theme": "light",
+    "screen": "1280px Library",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "targets": [
+          [
+            ".notebook-card-copy > h2"
+          ],
+          [
+            ".notebook-card-copy > p"
+          ],
+          [
+            "span[aria-hidden=\"true\"]"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "theme": "light",
+    "screen": "1280px Notebook menu",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "aria-valid-attr-value",
+        "help": "ARIA attributes must conform to valid values",
+        "targets": [
+          [
+            "#radix-_r_c_"
+          ]
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "targets": [
+          [
+            ".notebook-card-copy > h2"
+          ],
+          [
+            ".notebook-card-copy > p"
+          ],
+          [
+            "span[aria-hidden=\"true\"]"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "theme": "light",
+    "screen": "1280px Import dialog",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "aria-hidden-focus",
+        "help": "ARIA hidden element must not be focusable or contain focusable elements",
+        "targets": [
+          [
+            "span[data-radix-focus-guard=\"\"]:nth-child(1)"
+          ],
+          [
+            ".skip-link"
+          ],
+          [
+            "aside"
+          ],
+          [
+            "header"
+          ],
+          [
+            ".library-screen"
+          ],
+          [
+            "span[data-radix-focus-guard=\"\"]:nth-child(5)"
+          ]
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "targets": [
+          [
+            ".notebook-card-copy > h2"
+          ],
+          [
+            ".notebook-card-copy > p"
+          ],
+          [
+            "p > span"
+          ],
+          [
+            "#radix-_r_8_"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "theme": "light",
+    "screen": "1280px Settings",
+    "violations": [],
+    "incomplete": []
+  },
+  {
+    "theme": "light",
+    "screen": "1280px Text review",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "aria-prohibited-attr",
+        "help": "Elements must only use permitted ARIA attributes",
+        "targets": [
+          [
+            "div[aria-label=\"2 regions need review\"]"
+          ]
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "targets": [
+          [
+            "li[data-unresolved=\"true\"]:nth-child(1) > button[data-region-id=\"region-1\"][type=\"button\"]"
+          ],
+          [
+            "li[data-unresolved=\"true\"]:nth-child(2) > button[data-region-id=\"region-2\"][type=\"button\"]"
+          ],
+          [
+            "textarea"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "theme": "light",
+    "screen": "1280px Formula review",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "aria-prohibited-attr",
+        "help": "Elements must only use permitted ARIA attributes",
+        "targets": [
+          [
+            "div[aria-label=\"2 regions need review\"]"
+          ]
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "targets": [
+          [
+            ".math-notes-side > h3"
+          ],
+          [
+            "div[aria-label=\"2 regions need review\"] > .muted"
+          ],
+          [
+            "li[data-unresolved=\"true\"]:nth-child(1) > button[data-region-id=\"region-1\"][type=\"button\"]"
+          ],
+          [
+            "li[data-unresolved=\"true\"]:nth-child(2) > button[data-region-id=\"region-2\"][type=\"button\"]"
+          ],
+          [
+            ".katex-base:nth-child(1) > .mord.mathnormal:nth-child(2)"
+          ],
+          [
+            ".katex-base:nth-child(1) > .mord.mathnormal:nth-child(3)"
+          ],
+          [
+            ".katex-base:nth-child(2) > .mord.mathnormal:nth-child(2)"
+          ],
+          [
+            ".katex-base:nth-child(2) > .mord.mathnormal:nth-child(3)"
+          ],
+          [
+            ".math-editor > details > summary"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "theme": "light",
+    "screen": "1280px Export dialog",
+    "violations": [],
+    "incomplete": []
+  },
+  {
+    "theme": "dark",
+    "screen": "1280px Library",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "targets": [
+          [
+            ".notebook-card-copy > h2"
+          ],
+          [
+            ".notebook-card-copy > p"
+          ],
+          [
+            "span[aria-hidden=\"true\"]"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "theme": "dark",
+    "screen": "1280px Notebook menu",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "aria-valid-attr-value",
+        "help": "ARIA attributes must conform to valid values",
+        "targets": [
+          [
+            "#radix-_r_c_"
+          ]
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "targets": [
+          [
+            ".notebook-card-copy > h2"
+          ],
+          [
+            ".notebook-card-copy > p"
+          ],
+          [
+            "span[aria-hidden=\"true\"]"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "theme": "dark",
+    "screen": "1280px Import dialog",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "aria-hidden-focus",
+        "help": "ARIA hidden element must not be focusable or contain focusable elements",
+        "targets": [
+          [
+            "span[data-radix-focus-guard=\"\"]:nth-child(1)"
+          ],
+          [
+            ".skip-link"
+          ],
+          [
+            "aside"
+          ],
+          [
+            "header"
+          ],
+          [
+            ".library-screen"
+          ],
+          [
+            "span[data-radix-focus-guard=\"\"]:nth-child(5)"
+          ]
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "targets": [
+          [
+            ".notebook-card-copy > h2"
+          ],
+          [
+            ".notebook-card-copy > p"
+          ],
+          [
+            "p > span"
+          ],
+          [
+            "#radix-_r_8_"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "theme": "dark",
+    "screen": "1280px Settings",
+    "violations": [],
+    "incomplete": []
+  },
+  {
+    "theme": "dark",
+    "screen": "1280px Text review",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "aria-prohibited-attr",
+        "help": "Elements must only use permitted ARIA attributes",
+        "targets": [
+          [
+            "div[aria-label=\"2 regions need review\"]"
+          ]
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "targets": [
+          [
+            "li[data-unresolved=\"true\"]:nth-child(1) > button[data-region-id=\"region-1\"][type=\"button\"]"
+          ],
+          [
+            "li[data-unresolved=\"true\"]:nth-child(2) > button[data-region-id=\"region-2\"][type=\"button\"]"
+          ],
+          [
+            "textarea"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "theme": "dark",
+    "screen": "1280px Formula review",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "aria-prohibited-attr",
+        "help": "Elements must only use permitted ARIA attributes",
+        "targets": [
+          [
+            "div[aria-label=\"2 regions need review\"]"
+          ]
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "targets": [
+          [
+            ".math-notes-side > h3"
+          ],
+          [
+            "div[aria-label=\"2 regions need review\"] > .muted"
+          ],
+          [
+            "li[data-unresolved=\"true\"]:nth-child(1) > button[data-region-id=\"region-1\"][type=\"button\"]"
+          ],
+          [
+            "li[data-unresolved=\"true\"]:nth-child(2) > button[data-region-id=\"region-2\"][type=\"button\"]"
+          ],
+          [
+            ".katex-base:nth-child(1) > .mord.mathnormal:nth-child(2)"
+          ],
+          [
+            ".katex-base:nth-child(1) > .mord.mathnormal:nth-child(3)"
+          ],
+          [
+            ".katex-base:nth-child(2) > .mord.mathnormal:nth-child(2)"
+          ],
+          [
+            ".katex-base:nth-child(2) > .mord.mathnormal:nth-child(3)"
+          ],
+          [
+            ".math-editor > details > summary"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "theme": "dark",
+    "screen": "1280px Export dialog",
+    "violations": [],
+    "incomplete": []
+  },
+  {
+    "theme": "light",
+    "screen": "320px Library",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "targets": [
+          [
+            ".notebook-card-copy > h2"
+          ],
+          [
+            ".notebook-card-copy > p"
+          ],
+          [
+            "span[aria-hidden=\"true\"]"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "theme": "light",
+    "screen": "320px Navigation drawer",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "aria-hidden-focus",
+        "help": "ARIA hidden element must not be focusable or contain focusable elements",
+        "targets": [
+          [
+            "span[data-radix-focus-guard=\"\"]:nth-child(1)"
+          ],
+          [
+            ".skip-link"
+          ],
+          [
+            "header"
+          ],
+          [
+            ".library-screen"
+          ],
+          [
+            "span[data-radix-focus-guard=\"\"]:nth-child(5)"
+          ]
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "targets": [
+          [
+            ".notebook-card-copy > h2"
+          ],
+          [
+            ".notebook-card-copy > p"
+          ],
+          [
+            "p > span"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "theme": "light",
+    "screen": "320px Notebook menu",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "aria-valid-attr-value",
+        "help": "ARIA attributes must conform to valid values",
+        "targets": [
+          [
+            "#radix-_r_c_"
+          ]
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "targets": [
+          [
+            ".notebook-card-copy > h2"
+          ],
+          [
+            ".notebook-card-copy > p"
+          ],
+          [
+            "span[aria-hidden=\"true\"]"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "theme": "light",
+    "screen": "320px Import dialog",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "aria-hidden-focus",
+        "help": "ARIA hidden element must not be focusable or contain focusable elements",
+        "targets": [
+          [
+            "span[data-radix-focus-guard=\"\"]:nth-child(1)"
+          ],
+          [
+            ".skip-link"
+          ],
+          [
+            "header"
+          ],
+          [
+            ".library-screen"
+          ],
+          [
+            "span[data-radix-focus-guard=\"\"]:nth-child(5)"
+          ]
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "targets": [
+          [
+            ".notebook-card-copy > h2"
+          ],
+          [
+            ".notebook-card-copy > p"
+          ],
+          [
+            "p > span"
+          ],
+          [
+            "#radix-_r_8_"
+          ],
+          [
+            ".math-notes-consent"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "theme": "light",
+    "screen": "320px Settings",
+    "violations": [],
+    "incomplete": []
+  },
+  {
+    "theme": "light",
+    "screen": "320px Text review",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "aria-prohibited-attr",
+        "help": "Elements must only use permitted ARIA attributes",
+        "targets": [
+          [
+            ".review-pane-switch"
+          ],
+          [
+            "div[aria-label=\"2 regions need review\"]"
+          ]
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "targets": [
+          [
+            "li[data-unresolved=\"true\"]:nth-child(1) > button[data-region-id=\"region-1\"][type=\"button\"]"
+          ],
+          [
+            "li[data-unresolved=\"true\"]:nth-child(2) > button[data-region-id=\"region-2\"][type=\"button\"]"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "theme": "light",
+    "screen": "320px Formula review",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "aria-prohibited-attr",
+        "help": "Elements must only use permitted ARIA attributes",
+        "targets": [
+          [
+            ".review-pane-switch"
+          ],
+          [
+            "div[aria-label=\"2 regions need review\"]"
+          ]
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "targets": [
+          [
+            "li[data-unresolved=\"true\"]:nth-child(1) > button[data-region-id=\"region-1\"][type=\"button\"]"
+          ],
+          [
+            "li[data-unresolved=\"true\"]:nth-child(2) > button[data-region-id=\"region-2\"][type=\"button\"]"
+          ],
+          [
+            ".katex-base:nth-child(1) > .mord.mathnormal:nth-child(2)"
+          ],
+          [
+            ".katex-base:nth-child(1) > .mord.mathnormal:nth-child(3)"
+          ],
+          [
+            ".katex-base:nth-child(2) > .mord.mathnormal:nth-child(2)"
+          ],
+          [
+            ".katex-base:nth-child(2) > .mord.mathnormal:nth-child(3)"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "theme": "light",
+    "screen": "320px Export dialog",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "targets": [
+          [
+            "dialog > p:nth-child(2)"
+          ],
+          [
+            "dialog > .muted"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "theme": "dark",
+    "screen": "320px Library",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "targets": [
+          [
+            ".notebook-card-copy > h2"
+          ],
+          [
+            ".notebook-card-copy > p"
+          ],
+          [
+            "span[aria-hidden=\"true\"]"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "theme": "dark",
+    "screen": "320px Navigation drawer",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "aria-hidden-focus",
+        "help": "ARIA hidden element must not be focusable or contain focusable elements",
+        "targets": [
+          [
+            "span[data-radix-focus-guard=\"\"]:nth-child(1)"
+          ],
+          [
+            ".skip-link"
+          ],
+          [
+            "header"
+          ],
+          [
+            ".library-screen"
+          ],
+          [
+            "span[data-radix-focus-guard=\"\"]:nth-child(5)"
+          ]
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "targets": [
+          [
+            ".notebook-card-copy > h2"
+          ],
+          [
+            ".notebook-card-copy > p"
+          ],
+          [
+            "p > span"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "theme": "dark",
+    "screen": "320px Notebook menu",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "aria-valid-attr-value",
+        "help": "ARIA attributes must conform to valid values",
+        "targets": [
+          [
+            "#radix-_r_c_"
+          ]
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "targets": [
+          [
+            ".notebook-card-copy > h2"
+          ],
+          [
+            ".notebook-card-copy > p"
+          ],
+          [
+            "span[aria-hidden=\"true\"]"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "theme": "dark",
+    "screen": "320px Import dialog",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "aria-hidden-focus",
+        "help": "ARIA hidden element must not be focusable or contain focusable elements",
+        "targets": [
+          [
+            "span[data-radix-focus-guard=\"\"]:nth-child(1)"
+          ],
+          [
+            ".skip-link"
+          ],
+          [
+            "header"
+          ],
+          [
+            ".library-screen"
+          ],
+          [
+            "span[data-radix-focus-guard=\"\"]:nth-child(5)"
+          ]
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "targets": [
+          [
+            ".notebook-card-copy > h2"
+          ],
+          [
+            ".notebook-card-copy > p"
+          ],
+          [
+            "p > span"
+          ],
+          [
+            "#radix-_r_8_"
+          ],
+          [
+            ".math-notes-consent"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "theme": "dark",
+    "screen": "320px Settings",
+    "violations": [],
+    "incomplete": []
+  },
+  {
+    "theme": "dark",
+    "screen": "320px Text review",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "aria-prohibited-attr",
+        "help": "Elements must only use permitted ARIA attributes",
+        "targets": [
+          [
+            ".review-pane-switch"
+          ],
+          [
+            "div[aria-label=\"2 regions need review\"]"
+          ]
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "targets": [
+          [
+            "li[data-unresolved=\"true\"]:nth-child(1) > button[data-region-id=\"region-1\"][type=\"button\"]"
+          ],
+          [
+            "li[data-unresolved=\"true\"]:nth-child(2) > button[data-region-id=\"region-2\"][type=\"button\"]"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "theme": "dark",
+    "screen": "320px Formula review",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "aria-prohibited-attr",
+        "help": "Elements must only use permitted ARIA attributes",
+        "targets": [
+          [
+            ".review-pane-switch"
+          ],
+          [
+            "div[aria-label=\"2 regions need review\"]"
+          ]
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "targets": [
+          [
+            "li[data-unresolved=\"true\"]:nth-child(1) > button[data-region-id=\"region-1\"][type=\"button\"]"
+          ],
+          [
+            "li[data-unresolved=\"true\"]:nth-child(2) > button[data-region-id=\"region-2\"][type=\"button\"]"
+          ],
+          [
+            ".katex-base:nth-child(1) > .mord.mathnormal:nth-child(2)"
+          ],
+          [
+            ".katex-base:nth-child(1) > .mord.mathnormal:nth-child(3)"
+          ],
+          [
+            ".katex-base:nth-child(2) > .mord.mathnormal:nth-child(2)"
+          ],
+          [
+            ".katex-base:nth-child(2) > .mord.mathnormal:nth-child(3)"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "theme": "dark",
+    "screen": "320px Export dialog",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "targets": [
+          [
+            "dialog > p:nth-child(2)"
+          ],
+          [
+            "dialog > .muted"
+          ]
+        ]
+      }
+    ]
+  }
+]

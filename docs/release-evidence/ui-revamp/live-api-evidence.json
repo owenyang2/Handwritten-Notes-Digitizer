@@ -1,0 +1,11 @@
+{
+  "date": "2026-10-14",
+  "source": "Synthetic PDF page; no recognition accuracy evaluation",
+  "notebook": "e76dec03-d910-4e1c-8b25-6a77bfd7eca2",
+  "page": "0f413e62-858b-4157-b936-a98628e93153",
+  "region": "0187884f-92f5-4c24-86dd-3536c3c74a83",
+  "import": "passed",
+  "reviewSaveAndReload": "passed",
+  "markdownDownload": "passed",
+  "trainingConsent": "not granted"
+}

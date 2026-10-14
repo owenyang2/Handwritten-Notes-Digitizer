@@ -1,119 +1,112 @@
 # Production Compose profile
 
-**Deployment acceptance is incomplete.** Fresh PostgreSQL migrations fail on
-merged main; a fix is prepared and tested locally but remains uncommitted in
-this workspace. S3/MinIO verification was blocked by registry downloads.
-See the [feature matrix](FEATURE_STATUS_MATRIX.md) and
-[active deployment checklist](../TODO-2026-10-11.md#6-before-a-staging-or-beta-release).
+The optional profile runs PostgreSQL 16, Redis 7, SeaweedFS 4.48, the FastAPI
+backend and the nginx frontend. The default local/demo profile remains SQLite
+and filesystem storage. Recognition models are supplied separately.
 
-This repository's default path is the SQLite local/demo web/API stack:
+## Start an isolated deployment
 
-```bash
-HND_ENVIRONMENT=development FRONTEND_PORT=8080 make docker-up
-```
-
-That uses `docker-compose.yml` with SQLite (`HND_DATABASE_URL=sqlite:///./var/hnd.db`)
-and the filesystem object store. The local website is at `http://localhost:8080/`.
-Recognition requires separately installed models and a compatible runtime;
-follow [getting started](GETTING_STARTED.md). Do not replace that file with this
-profile.
-
-`docker-compose.prod.yml` is the optional production-shaped layout: PostgreSQL 16, Redis 7, MinIO (S3-compatible), the API, and the nginx frontend.
-
-## Run the production profile
-
-From the repository root:
+Copy `.env.production.example` to `.env.production` and fill every secret with
+an independent value. `openssl rand -hex 32` generates a suitable value. Keep
+the encryption key with your backups: changing it makes existing encrypted
+objects unreadable. Environment files containing secrets are ignored by Git.
 
 ```bash
-docker compose -f docker-compose.prod.yml up --build
+cp .env.production.example .env.production
+# Fill all required values before starting.
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build --wait
 ```
 
-Then open `http://localhost/` (or `FRONTEND_PORT` if you override it). The API is bound to `127.0.0.1:8000`. MinIO is on `127.0.0.1:9000` (API) and `127.0.0.1:9001` (console).
-
-Stop with Ctrl-C, then:
+The website uses `FRONTEND_PORT` (8080 in the example). The direct API is bound
+to `127.0.0.1:8000`. PostgreSQL, Redis and SeaweedFS have no published
+ports; S3 is reachable only through the internal storage network.
+Terminate HTTPS before exposing the website: production session cookies are
+Secure. No public deployment is performed by the verification workflow.
 
 ```bash
-docker compose -f docker-compose.prod.yml down
+docker compose --env-file .env.production -f docker-compose.prod.yml down
 ```
 
-Add `-v` only if you intend to delete Postgres, Redis, and MinIO volumes.
+This retains data volumes. Only use `down -v` for a disposable deployment whose
+data you intend to delete.
 
-## Production Python extras
+## Storage startup and permissions
 
-CI and `Dockerfile.backend` stay on `backend/requirements.txt` so the lean image does not pull Redis/S3/Postgres drivers.
+`storage-config` writes two identities into a private configuration volume:
+an administrator and the backend identity, which can Read/Write/List only
+`HND_S3_BUCKET`. Equal admin/backend access keys and known default credentials
+are rejected. The API never receives the storage admin credentials or the
+encryption key.
 
-The production image is `Dockerfile.backend.prod`, which also installs `backend/requirements-prod.txt`:
+SeaweedFS creates the named bucket on startup. `storage-init` enables default
+AES256 encryption and verifies an encrypted object can be written, inspected,
+read and deleted. The backend waits for successful initialization, PostgreSQL
+and Redis health. Encryption initialization fails the deployment if it cannot
+verify encrypted storage. The existing S3 adapter and stored object references
+remain unchanged.
 
-- `redis==5.2.1` — shared rate-limit buckets
-- `boto3==1.35.76` — S3-compatible object store
-- `psycopg[binary]==3.2.4` — PostgreSQL driver (`postgresql+psycopg://...`)
+The storage service and initializer use a separate internal Docker network;
+only the backend joins both the storage network and the application network.
+WebDAV, the Admin UI, Iceberg and Lance are disabled. This is a single-node
+profile, with no storage replication.
 
-Local (non-Docker) use:
-
-```bash
-backend/.venv/bin/pip install -r backend/requirements.txt
-backend/.venv/bin/pip install -r backend/requirements-prod.txt
-```
-
-## What the compose file sets
-
-| Variable | Production default | Role |
-| --- | --- | --- |
-| `HND_DATABASE_URL` | `postgresql+psycopg://hnd:hnd@postgres:5432/hnd` | Relational store |
-| `HND_REDIS_URL` | `redis://redis:6379/0` | Rate-limit `INCR`/`EXPIRE` buckets |
-| `HND_OBJECT_STORE_BACKEND` | `s3` | User image/crop/upload bytes |
-| `HND_S3_ENDPOINT_URL` | `http://minio:9000` | MinIO S3 API |
-| `HND_S3_BUCKET` | `hnd-objects` | Created by `minio-init` |
-| `HND_ENABLE_METRICS` | `true` | JSON request logs + `GET /metrics` |
-
-Unset `HND_REDIS_URL` and the API falls back to in-process rate limits. Unset the S3 backend and it stays on the filesystem store (the local compose default).
-
-## Volumes
-
-- `postgres_data` — PostgreSQL cluster under `/var/lib/postgresql/data`
-- `redis_data` — Redis AOF/RDB under `/data`
-- `minio_data` — object bytes under `/data`
-- `./backend/var/objectstore/models` — **bind-mounted read-only** so trained formula/HTR artifacts are still supplied by the operator (they are not uploaded to MinIO by this profile)
-
-## Healthchecks
-
-| Service | Probe |
+| Required variable | Purpose |
 | --- | --- |
-| postgres | `pg_isready` |
-| redis | `redis-cli ping` |
-| minio | `mc ready local` |
-| minio-init | one-shot `mc mb --ignore-existing` (must complete successfully) |
-| backend | `GET /health` |
-| frontend | `wget http://127.0.0.1/` |
+| `HND_POSTGRES_PASSWORD` | PostgreSQL password; the role/database names default to `hnd` |
+| `HND_S3_ADMIN_ACCESS_KEY`, `HND_S3_ADMIN_SECRET_KEY` | Storage administrator used for setup |
+| `HND_S3_ACCESS_KEY`, `HND_S3_SECRET_KEY` | Separate bucket-scoped backend credentials |
+| `HND_S3_ENCRYPTION_KEY` | Independent secret of at least 32 characters; retain with backups |
 
-The backend waits for Postgres, Redis, and successful MinIO bucket creation before
-it starts. API startup applies Alembic migrations before serving requests.
-You can also run them explicitly:
+| Optional setting | Default |
+| --- | --- |
+| `HND_ENVIRONMENT` | `production` |
+| `HND_REDIS_URL` | `redis://redis:6379/0` |
+| `HND_OBJECT_STORE_BACKEND` | `s3` |
+| `HND_S3_ENDPOINT_URL` | `http://seaweedfs:8333` |
+| `HND_S3_REGION` | `us-east-1` |
+| `HND_S3_BUCKET` | `hnd-objects` |
+| `HND_S3_PREFIX` | Empty |
+| `HND_ENABLE_METRICS` | `true` |
 
-```bash
-docker compose -f docker-compose.prod.yml exec backend python -c "from app.data.migrations import upgrade_database; from app.config import get_settings; upgrade_database(get_settings().database_url)"
-```
+Volumes are `postgres_data`, `redis_data`, `seaweed_data` (objects, metadata
+and local storage state), and `seaweed_config` (credentials). Model artifacts
+remain a read-only host mount at `backend/var/objectstore/models`.
 
-## MinIO bucket
+The API applies Alembic migrations at startup. Install
+`backend/requirements-prod.txt` in addition to the base requirements when
+running the production integrations outside Docker.
 
-`minio-init` creates `hnd-objects` (or `HND_S3_BUCKET`) once MinIO accepts S3 credentials. Re-run the one-shot job if you need to recreate the bucket:
+## Existing MinIO data
 
-```bash
-docker compose -f docker-compose.prod.yml run --rm minio-init
-```
+MinIO's community server and client repositories are archived. The profile
+now uses SeaweedFS rather than relying on the retired upstream images.
+[Upstream status](https://github.com/minio/minio).
 
-Or from the console at `http://127.0.0.1:9001` with `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` (defaults are `minioadmin` / `minioadmin` and must be changed).
+SeaweedFS does not read MinIO's disk format. Existing `minio_data` volumes
+are not reused or deleted. Before replacing an existing deployment, back it
+up, copy the bucket through the S3 API while retaining every object key,
+verify object counts and digests, then change the endpoint. Keep the old
+volume until reads and exports have been verified. No existing data migration
+was performed in this pass.
 
-## What is still required before a real deployment
+## Authentication and diagnostics
 
-This profile is production-*shaped*, not production-complete.
+Production startup rejects known default database/S3 credentials and exposed
+password-reset tokens. Password-reset routes return 404 in production until
+a mail sender exists. Development/test may explicitly enable
+`HND_EXPOSE_RESET_TOKENS`; production refuses that flag.
 
-- **Real model artifacts.** Recognition reports `unavailable` until verified UniMERNet/compact/CRNN weights are present under the models bind-mount. Do not treat a green `/health` liveness field as recognition quality.
-- **TLS.** Terminate HTTPS in front of nginx. `HND_ENVIRONMENT=production` marks the session cookie `Secure`, so browser login over plain HTTP will not persist. Bearer tokens still work for API clients.
-- **Secrets.** Replace Compose placeholder passwords and MinIO keys. Do not publish Postgres or Redis ports.
-- **Backups.** Snapshot `postgres_data` and `minio_data` (and Redis if you rely on it beyond rate limits). Test restore.
-- **Workers.** Recognition and training still run as in-process threads on the API. The commented `worker` service in `docker-compose.prod.yml` is a placeholder for an isolated worker; it is not wired.
-- **OpenTelemetry.** `HND_OTEL_EXPORTER_OTLP_ENDPOINT` is accepted and exported as `OTEL_EXPORTER_OTLP_ENDPOINT`. This repo does not bundle an OTEL SDK or collector.
-- **Rate limits / metrics.** Redis-backed limits cover auth, image upload/recognize, `/documents/import`, `/uploads`, `/pages/*/recognition`, `/sync/push`, and `/export`. `/metrics` is a Prometheus counter of method/route/status only — no note text, tokens, LaTeX, or filenames.
+Public `/api/health` reports liveness and capability booleans. nginx blocks
+`/api/health/details`, `/api/metrics`, `/api/docs`, `/api/redoc`, and
+`/api/openapi.json`. Operators can query detailed health and metrics directly
+on the private backend interface. When configured Redis is unavailable,
+authentication rate limiting returns 503 rather than bypassing the quota.
 
-Keep using `docker-compose.yml` whenever you want the original SQLite local/demo defaults.
+## Deployment acceptance
+
+See the dated verification report and [feature matrix](FEATURE_STATUS_MATRIX.md)
+for actual test results. A local stack smoke test does not establish internet
+or hardware readiness. Still required: TLS configuration, database least
+privilege, backup/restore drills, representative model quality and Linux model
+runtime checks, workload capacity, physical-device acceptance, and the remaining
+items in the [deployment checklist](../TODO-2026-10-11.md#6-before-a-staging-or-beta-release).

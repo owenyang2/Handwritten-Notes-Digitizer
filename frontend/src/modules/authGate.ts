@@ -49,6 +49,7 @@ export class AuthGate {
     usernameInput.type = "text";
     usernameInput.name = "username";
     usernameInput.placeholder = "Username";
+    usernameInput.setAttribute("aria-label", "Username");
     usernameInput.autocomplete = "username";
     usernameInput.required = true;
     usernameInput.setAttribute("data-testid", "auth-username");
@@ -58,6 +59,7 @@ export class AuthGate {
     emailInput.type = "email";
     emailInput.name = "email";
     emailInput.placeholder = "Email";
+    emailInput.setAttribute("aria-label", "Email");
     emailInput.autocomplete = "email";
     emailInput.setAttribute("data-testid", "auth-email");
     form.appendChild(emailInput);
@@ -66,6 +68,7 @@ export class AuthGate {
     passwordInput.type = "password";
     passwordInput.name = "password";
     passwordInput.placeholder = "Password";
+    passwordInput.setAttribute("aria-label", "Password");
     passwordInput.autocomplete = "current-password";
     passwordInput.required = true;
     passwordInput.setAttribute("data-testid", "auth-password");
@@ -115,6 +118,10 @@ export class AuthGate {
 
       if (!username || !password) {
         statusEl.textContent = "Username and password are required.";
+        return;
+      }
+      if (this.mode === "register" && password.length < 8) {
+        statusEl.textContent = "Password must be at least 8 characters.";
         return;
       }
 

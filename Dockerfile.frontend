@@ -42,8 +42,11 @@ RUN rm -rf /usr/share/nginx/html/*
 COPY --from=builder /app/dist /usr/share/nginx/html
 
 # nginx configuration is provided via docker-compose volume mount or bundled
-# here as a fallback.  The bundled config is overridden by compose.
+# here as a fallback.  The bundled default.conf is overridden when compose
+# bind-mounts nginx.conf. The security-header snippet is an absolute path
+# inside the image, so that mount does not hide it.
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY deploy/nginx/security-headers.conf /etc/nginx/security-headers.conf
 
 # Expose HTTP port (Req 11.1, 11.4)
 EXPOSE 80

@@ -1,0 +1,15 @@
+{
+  "date": "2026-10-14",
+  "browser": "Desktop Google Chrome, native zoom control",
+  "zoomPercent": 200,
+  "cssViewport": {
+    "width": 735,
+    "height": 339
+  },
+  "documentScrollWidth": 735,
+  "correctionFieldWidth": 335.5,
+  "liveApiSave": "passed",
+  "exportDialogReachable": "passed",
+  "restoredZoomPercent": 100,
+  "source": "Synthetic PNG/PDF sample, no recognition evaluation"
+}

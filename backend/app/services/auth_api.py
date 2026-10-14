@@ -21,15 +21,23 @@ run against an isolated database and a fresh session store.
 
 from __future__ import annotations
 
+import re
 import uuid
 from functools import lru_cache
 from typing import Iterator, Optional
 
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Response, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.middleware.rate_limiter import (
+    RateLimitUnavailable,
+    consume_subject_limit,
+    login_lock_remaining,
+    note_login_failure,
+    note_login_success,
+)
 from app.data.db import create_db_engine, create_session_factory
 from app.data.migrations import upgrade_database
 from app.data.models import User
@@ -166,7 +174,7 @@ def get_current_user(
     if user_id is None:
         raise _auth_required()
     user = repos.users.get_by_id(user_id)
-    if user is None:
+    if user is None or user.disabled_at is not None:
         raise _auth_required()
     return user
 
@@ -174,11 +182,24 @@ def get_current_user(
 # --- Login endpoint ----------------------------------------------------------
 
 
-class LoginRequest(BaseModel):
-    """Credentials submitted to ``POST /auth/login``."""
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
-    username: str
-    password: str
+
+class LoginRequest(BaseModel):
+    """Credentials submitted to ``POST /auth/login``.
+
+    Password length is capped so an unauthenticated caller cannot force an
+    arbitrarily expensive PBKDF2. Login still accepts existing shorter
+    passwords; registration is where the minimum length is enforced.
+    """
+
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=128)
+
+    @field_validator("username")
+    @classmethod
+    def strip_username(cls, value: str) -> str:
+        return value.strip()
 
 
 class LoginResponse(BaseModel):
@@ -192,9 +213,22 @@ class LoginResponse(BaseModel):
 class RegisterRequest(BaseModel):
     """Credentials submitted to ``POST /auth/register``."""
 
-    username: str
-    email: str
-    password: str
+    username: str = Field(min_length=1, max_length=64)
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("username")
+    @classmethod
+    def strip_username(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if not _EMAIL_RE.match(normalized):
+            raise ValueError("email is not a valid email address")
+        return normalized
 
 
 class MeResponse(BaseModel):
@@ -225,7 +259,9 @@ def register(
     automatically.
     """
     username = payload.username.strip()
-    email = payload.email.strip()
+    email = payload.email.strip().lower()
+    _enforce_subject_quota(email, "POST:/auth/register", 3, 0.05)
+    _enforce_subject_quota(username, "POST:/auth/register", 3, 0.05)
     if not username or not payload.password:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -278,14 +314,29 @@ def login(
     disclosed). No user data is written during login. On success the ``session``
     cookie is set so subsequent same-origin requests authenticate automatically.
     """
+    username = payload.username.strip()
+    _raise_if_locked(username)
+    _enforce_subject_quota(username, "POST:/auth/login", 5, 0.2)
     try:
-        token, user = auth.login(payload.username, payload.password)
+        token, user = auth.login(username, payload.password)
     except InvalidCredentials:
+        try:
+            note_login_failure(username)
+        except RateLimitUnavailable as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Authentication is temporarily unavailable.",
+            ) from exc
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=INVALID_CREDENTIALS_MESSAGE,
             headers={"WWW-Authenticate": "Bearer"},
         )
+    try:
+        note_login_success(username)
+    except RateLimitUnavailable:
+        # The session is already issued. A Redis blip must not turn success into 503.
+        pass
     _set_session_cookie(response, token)
     return LoginResponse(access_token=token, user_id=user.user_id)
 
@@ -311,6 +362,48 @@ def me(user: User = Depends(get_current_user)) -> MeResponse:
     return MeResponse(
         user_id=user.user_id, username=user.username, email=user.email
     )
+
+
+def _enforce_subject_quota(
+    subject: str, route_key: str, capacity: float, refill_rate: float
+) -> None:
+    """Apply the per-account auth bucket. IP quotas are enforced in middleware."""
+    try:
+        result = consume_subject_limit(subject, route_key, capacity, refill_rate)
+    except RateLimitUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication is temporarily unavailable.",
+        ) from exc
+    if result == "unavailable":
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication is temporarily unavailable.",
+            headers={"Retry-After": "5"},
+        )
+    if result == "limited":
+        retry_after = int(1.0 / refill_rate) if refill_rate > 0 else 60
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please slow down.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+
+def _raise_if_locked(username: str) -> None:
+    try:
+        remaining = login_lock_remaining(username)
+    except RateLimitUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication is temporarily unavailable.",
+        ) from exc
+    if remaining:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please slow down.",
+            headers={"Retry-After": str(remaining)},
+        )
 
 
 __all__ = [

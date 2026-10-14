@@ -95,6 +95,11 @@ export class SyncUI {
     this.unsubscribe = this.coordinator.subscribe((snapshot) => this.renderState(snapshot));
   }
 
+  dispose(): void {
+    this.unsubscribe?.();
+    this.unsubscribe = null;
+  }
+
   private async syncNow(): Promise<void> {
     this.syncButton.disabled = true;
     this.conflictRefreshButton.disabled = true;

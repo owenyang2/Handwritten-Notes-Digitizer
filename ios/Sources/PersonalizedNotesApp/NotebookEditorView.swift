@@ -218,6 +218,12 @@ struct NotebookEditorView: View {
 
                 Menu {
                     Button {
+                        canvasCommand = PencilCanvasCommand(action: .toggleRuler)
+                    } label: {
+                        Label("Toggle Ruler", systemImage: "ruler")
+                    }
+                    Divider()
+                    Button {
                         showingImportIntoNotebook = true
                     } label: {
                         Label("Import into This Notebook", systemImage: "rectangle.badge.plus")
@@ -302,11 +308,6 @@ struct NotebookEditorView: View {
                         Label("Paste Selection", systemImage: "doc.on.clipboard")
                     }
                     .keyboardShortcut("v", modifiers: .command)
-                    Button {
-                        canvasCommand = PencilCanvasCommand(action: .toggleRuler)
-                    } label: {
-                        Label("Toggle Ruler", systemImage: "ruler")
-                    }
                 } label: {
                     Label("Tools", systemImage: "pencil.and.outline")
                 }
@@ -597,10 +598,11 @@ struct NotebookEditorView: View {
             get: { pagePendingDeletion != nil },
             set: { if !$0 { pagePendingDeletion = nil } }
         )) {
-            Button("Delete", role: .destructive) {
-                guard let pageID = pagePendingDeletion else { return }
-                pagePendingDeletion = nil
-                Task { await model.deletePage(documentID: documentID, pageID: pageID) }
+            if let pageID = pagePendingDeletion {
+                Button("Delete", role: .destructive) {
+                    pagePendingDeletion = nil
+                    Task { await model.deletePage(documentID: documentID, pageID: pageID) }
+                }
             }
             Button("Cancel", role: .cancel) { pagePendingDeletion = nil }
         } message: {

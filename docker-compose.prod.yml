@@ -4,29 +4,35 @@
 #   docker compose up
 # which uses docker-compose.yml (SQLite + filesystem object store).
 #
-# Production-shaped stack (Postgres, Redis, MinIO, backend, frontend):
+# Production-shaped stack (Postgres, Redis, SeaweedFS, backend, frontend):
 #   docker compose -f docker-compose.prod.yml up --build
 #
 # Volumes:
 #   postgres_data  — PostgreSQL 16 cluster (HND_DATABASE_URL)
 #   redis_data     — Redis 7 RDB/AOF directory (HND_REDIS_URL)
-#   minio_data     — MinIO object bytes (HND_OBJECT_STORE_BACKEND=s3)
+#   seaweed_data — SeaweedFS object bytes and metadata
 #
 # Healthchecks:
 #   postgres  pg_isready
 #   redis     redis-cli ping
-#   minio     mc ready local
+#   seaweedfs GET /cluster/status on the internal master
 #   backend   GET /health
 #   frontend  wget /
 #
-# Secrets in this file are local-dev placeholders. Replace them before any
-# real deployment. TLS, backups, and trained model artifacts are still required
-# (see docs/PRODUCTION_PROFILE.md).
+# Required secrets have no defaults in this file. Compose refuses to start
+# unless HND_POSTGRES_PASSWORD, HND_S3_ADMIN_ACCESS_KEY, HND_S3_ADMIN_SECRET_KEY, HND_S3_ENCRYPTION_KEY,
+# HND_S3_ACCESS_KEY, and HND_S3_SECRET_KEY are set. TLS, backups, and trained
+# model artifacts are still required (see docs/PRODUCTION_PROFILE.md).
 
 volumes:
   postgres_data:
   redis_data:
-  minio_data:
+  seaweed_data:
+  seaweed_config:
+
+networks:
+  storage:
+    internal: true
 
 services:
   postgres:
@@ -34,7 +40,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: "${HND_POSTGRES_USER:-hnd}"
-      POSTGRES_PASSWORD: "${HND_POSTGRES_PASSWORD:-hnd}"
+      POSTGRES_PASSWORD: "${HND_POSTGRES_PASSWORD:?must be set}"
       POSTGRES_DB: "${HND_POSTGRES_DB:-hnd}"
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -58,49 +64,64 @@ services:
       retries: 10
       start_period: 5s
 
-  minio:
-    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
-    restart: unless-stopped
-    command: ["server", "/data", "--console-address", ":9001"]
+  storage-config:
+    image: python:3.11-slim
+    network_mode: none
     environment:
-      MINIO_ROOT_USER: "${MINIO_ROOT_USER:-minioadmin}"
-      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-minioadmin}"
+      HND_S3_BUCKET: "${HND_S3_BUCKET:-hnd-objects}"
+      HND_S3_ADMIN_ACCESS_KEY: "${HND_S3_ADMIN_ACCESS_KEY:?must be set}"
+      HND_S3_ADMIN_SECRET_KEY: "${HND_S3_ADMIN_SECRET_KEY:?must be set}"
+      HND_S3_ENCRYPTION_KEY: "${HND_S3_ENCRYPTION_KEY:?must be set and retained for encrypted data}"
+      HND_S3_ACCESS_KEY: "${HND_S3_ACCESS_KEY:?must be set}"
+      HND_S3_SECRET_KEY: "${HND_S3_SECRET_KEY:?must be set}"
+    command: ["python", "/configure.py"]
     volumes:
-      - minio_data:/data
-    ports:
-      - "127.0.0.1:9000:9000"
-      - "127.0.0.1:9001:9001"
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 10s
+      - ./deploy/seaweedfs/configure.py:/configure.py:ro
+      - seaweed_config:/config
 
-  minio-init:
-    image: minio/mc:RELEASE.2024-12-18T16-44-28Z
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.48
+    restart: unless-stopped
+    networks: [storage]
     depends_on:
-      - minio
+      storage-config:
+        condition: service_completed_successfully
+    command: ["mini", "-dir=/data", "-ip=seaweedfs", "-s3.config=/config/s3.json", "-webdav=false", "-admin.ui=false", "-s3.port.iceberg=0", "-s3.port.lance=0"]
     environment:
-      MINIO_ROOT_USER: "${MINIO_ROOT_USER:-minioadmin}"
-      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-minioadmin}"
-      MINIO_BUCKET: "${HND_S3_BUCKET:-hnd-objects}"
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        i=0
-        until mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"; do
-          i=$$((i+1))
-          if [ $$i -gt 30 ]; then exit 1; fi
-          sleep 1
-        done
-        mc mb --ignore-existing "local/$$MINIO_BUCKET"
+      S3_BUCKET: "${HND_S3_BUCKET:-hnd-objects}"
+      WEED_S3_SSE_KEY: "${HND_S3_ENCRYPTION_KEY:?must be set and retained for encrypted data}"
+    volumes:
+      - seaweed_data:/data
+      - seaweed_config:/config:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9333/cluster/status"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 15s
+
+  storage-init:
+    image: handwritten-notes-digitizer-backend-prod
+    networks: [storage]
+    depends_on:
+      seaweedfs:
+        condition: service_healthy
+    environment:
+      HND_S3_BUCKET: "${HND_S3_BUCKET:-hnd-objects}"
+      HND_S3_REGION: "${HND_S3_REGION:-us-east-1}"
+      HND_S3_ADMIN_ACCESS_KEY: "${HND_S3_ADMIN_ACCESS_KEY:?must be set}"
+      HND_S3_ADMIN_SECRET_KEY: "${HND_S3_ADMIN_SECRET_KEY:?must be set}"
+    command: ["python", "/initialize.py"]
+    volumes:
+      - ./deploy/seaweedfs/initialize.py:/initialize.py:ro
 
   backend:
+    image: handwritten-notes-digitizer-backend-prod
     build:
       context: .
       dockerfile: Dockerfile.backend.prod
     restart: unless-stopped
+    networks: [default, storage]
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
@@ -108,7 +129,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      minio-init:
+      storage-init:
         condition: service_completed_successfully
     environment:
       HND_ENVIRONMENT: "${HND_ENVIRONMENT:-production}"
@@ -116,16 +137,16 @@ services:
       HND_RANDOM_SEED: "${HND_RANDOM_SEED:-1337}"
       HND_DETERMINISTIC: "${HND_DETERMINISTIC:-true}"
 
-      HND_DATABASE_URL: "${HND_DATABASE_URL:-postgresql+psycopg://hnd:hnd@postgres:5432/hnd}"
+      HND_DATABASE_URL: "postgresql+psycopg://${HND_POSTGRES_USER:-hnd}:${HND_POSTGRES_PASSWORD}@postgres:5432/${HND_POSTGRES_DB:-hnd}"
       HND_REDIS_URL: "${HND_REDIS_URL:-redis://redis:6379/0}"
 
       HND_OBJECT_STORE_BACKEND: "${HND_OBJECT_STORE_BACKEND:-s3}"
       HND_OBJECT_STORE_PATH: "${HND_OBJECT_STORE_PATH:-/app/var/objectstore}"
-      HND_S3_ENDPOINT_URL: "${HND_S3_ENDPOINT_URL:-http://minio:9000}"
+      HND_S3_ENDPOINT_URL: "${HND_S3_ENDPOINT_URL:-http://seaweedfs:8333}"
       HND_S3_REGION: "${HND_S3_REGION:-us-east-1}"
       HND_S3_BUCKET: "${HND_S3_BUCKET:-hnd-objects}"
-      HND_S3_ACCESS_KEY: "${HND_S3_ACCESS_KEY:-minioadmin}"
-      HND_S3_SECRET_KEY: "${HND_S3_SECRET_KEY:-minioadmin}"
+      HND_S3_ACCESS_KEY: "${HND_S3_ACCESS_KEY:?must be set}"
+      HND_S3_SECRET_KEY: "${HND_S3_SECRET_KEY:?must be set}"
       HND_S3_PREFIX: "${HND_S3_PREFIX:-}"
       HND_OTEL_EXPORTER_OTLP_ENDPOINT: "${HND_OTEL_EXPORTER_OTLP_ENDPOINT:-}"
 
@@ -183,9 +204,11 @@ services:
   # worker:
   #   Optional isolated recognition/training worker. Not wired yet — the API
   #   process still runs in-process job threads. When a worker entrypoint exists,
-  #   give it the same HND_DATABASE_URL, HND_REDIS_URL, and HND_OBJECT_STORE_*
-  #   values as backend and consider setting HND_TRAINING_WORKER_AVAILABLE=false
-  #   on the API replica so training is not duplicated.
+  #   it must use the same required secrets as the backend service above
+  #   (HND_DATABASE_URL, HND_S3_ACCESS_KEY, HND_S3_SECRET_KEY, and the rest of
+  #   that service's environment). Do not hardcode passwords in this file.
+  #   Consider setting HND_TRAINING_WORKER_AVAILABLE=false on the API replica
+  #   so training is not duplicated.
   #   build:
   #     context: .
   #     dockerfile: Dockerfile.backend.prod
@@ -194,13 +217,7 @@ services:
   #       condition: service_healthy
   #     redis:
   #       condition: service_healthy
-  #     minio-init:
+  #     storage-init:
   #       condition: service_completed_successfully
   #   environment:
-  #     HND_DATABASE_URL: postgresql+psycopg://hnd:hnd@postgres:5432/hnd
-  #     HND_REDIS_URL: redis://redis:6379/0
-  #     HND_OBJECT_STORE_BACKEND: s3
-  #     HND_S3_ENDPOINT_URL: http://minio:9000
-  #     HND_S3_BUCKET: hnd-objects
-  #     HND_S3_ACCESS_KEY: minioadmin
-  #     HND_S3_SECRET_KEY: minioadmin
+  #     # Same required environment as the backend service. No literal passwords.

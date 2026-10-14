@@ -26,6 +26,9 @@ COPY backend/ .
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
+# Production image default. docker-compose.prod.yml may still override it.
+ENV HND_ENVIRONMENT=production
+
 RUN useradd --create-home --shell /bin/sh appuser \
     && mkdir -p /app/var/objectstore \
     && chown -R appuser:appuser /app

@@ -3,20 +3,22 @@
 An iPad and web app for turning handwritten notes and PDFs into reviewed text
 and editable LaTeX while preserving the original source.
 
-SwiftUI / PencilKit · TypeScript / Vite · FastAPI / PyTorch
+SwiftUI / PencilKit · React / TypeScript / Vite · FastAPI / PyTorch
 
 [Demo details](demos/README.md) · [Engineering case study](docs/CASE_STUDY.md) ·
 [Run locally](docs/GETTING_STARTED.md)
 
 <table>
-  <tr><th>iPad: notes and conversion</th><th>Web: source and saved correction</th></tr>
+  <tr><th>iPad: recorded conversion demo</th><th>Web: Quiet Notebook workspace</th></tr>
   <tr>
     <td><a href="demos/demo-preview.png"><img src="demos/demo-preview.png" width="210" alt="iPad simulator showing a source page after formula conversion"></a></td>
-    <td><a href="demos/website-formula-review.png"><img src="demos/website-formula-review.png" width="245" alt="Website showing the original formula crop beside its saved editable LaTeX"></a></td>
+    <td><a href="docs/release-evidence/ui-revamp/review-light-1440.png"><img src="docs/release-evidence/ui-revamp/review-light-1440.png" width="360" alt="Quiet Notebook workspace showing source-linked review in light appearance"></a></td>
   </tr>
 </table>
 
-The screenshots use a printed formula smoke fixture to demonstrate the workflow.
+The iPad demo uses a printed formula smoke fixture. The current web screenshot
+uses synthetic lecture notes to show the redesigned workspace; the video predates
+the redesign. [UI screenshots and validation](docs/release-evidence/UI_REVAMP_2026-10-14.md).
 
 ## The workflow
 
@@ -30,7 +32,8 @@ The screenshots use a printed formula smoke fixture to demonstrate the workflow.
    a controlled PDF.
 
 The native client is currently named **Personalized Notes** in the app and
-Xcode targets. It is the iPad interface to this same project.
+Xcode targets. It is the native interface to this same project, with a universal
+iPhone/iPad target. Simulator checks do not establish physical-device readiness.
 
 ## Engineering highlights
 
@@ -56,7 +59,7 @@ research paths; their quality has not been established on representative notes.
 flowchart LR
     iPad["iPad · SwiftUI / PencilKit"] --> local["Local SQLite + ink files"]
     local <-->|"pending operations / ink revisions"| api["FastAPI"]
-    web["Web · TypeScript / Vite"] -->|"HTTP API"| api
+    web["Web · React / TypeScript / Vite"] -->|"HTTP API"| api
     api --> db["SQLite · documents, jobs, revisions"]
     api --> store["Filesystem object store · originals, crops, ink"]
     api --> worker["Recognition worker · process-local"]
@@ -65,20 +68,22 @@ flowchart LR
     worker --> models["UniMERNet / TrOCR · external weights"]
 ```
 
-PostgreSQL, Redis-backed rate limits, and S3-compatible storage have an optional
-[deployment profile](docs/PRODUCTION_PROFILE.md). Deployment validation remains
-incomplete; the current recognition worker runs inside the API process.
+PostgreSQL, Redis-backed rate limits, and encrypted SeaweedFS storage have an
+optional [deployment profile](docs/PRODUCTION_PROFILE.md). The local production
+stack passes its functional smoke checks; HTTPS, backup/restore and recognition
+runtime acceptance remain. The recognition worker runs inside the API process.
 
 ## Current status
 
 | Area | Evidence and remaining limits |
 | --- | --- |
+| Quiet Notebook UI | Library-first web workspace, System/Light/Dark appearance, responsive source-linked review and explicit save/export; browser accessibility/recovery and native simulator checks recorded in the [UI report](docs/release-evidence/UI_REVAMP_2026-10-14.md) |
 | Web and iPad simulator conversion | Real-model recognition → source-linked review → save → reopen → Markdown export demonstrated locally |
 | Offline storage and sync | Automated recovery, conflict, and exact-ink restoration coverage; complete live two-client interruption/conflict testing remains |
 | Handwriting quality | Representative accuracy evaluation remains; the demo prose prediction needs human correction |
 | Physical iPad / Apple Pencil | Hardware behavior, signing, accessibility, battery, and thermal testing remain |
 | Personalization | Training/consent infrastructure exists; no demonstrated accuracy improvement |
-| Deployment | Local SQLite workflow verified; PostgreSQL migration fix prepared locally, S3/MinIO and production acceptance incomplete |
+| Deployment | SQLite plus the PostgreSQL/Redis/SeaweedFS production stack verified locally; encrypted storage and API workflow checks pass; internet deployment acceptance remains |
 
 See the [maintained feature matrix](docs/FEATURE_STATUS_MATRIX.md),
 [dated validation report](docs/release-evidence/REVIEW_FIXES_2026-10-11.md), and
@@ -113,7 +118,7 @@ model environment; that environment is not bundled in the Linux Docker image.
 | Directory | Responsibility |
 | --- | --- |
 | [`ios/`](ios/README.md) | SwiftUI/PencilKit app, SQLite store, sync client, share extension |
-| [`frontend/`](frontend/README.md) | TypeScript review workspace, source previews, import and sync UI |
+| [`frontend/`](frontend/README.md) | React/TypeScript Library, source-linked review, import, appearance and sync UI |
 | `backend/` | FastAPI services, persistence, recognition jobs, model adapters, tests |
 | `contracts/` | OpenAPI, error codes, canonical ink fixtures |
 | `training/`, [`benchmarks/`](benchmarks/README.md) | Compact-model experiments and verified-prediction metrics |

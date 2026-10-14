@@ -141,6 +141,7 @@ export class SyncCoordinator {
   private loaded = false;
   private loadPromise: Promise<void> | null = null;
   private autoSyncStarted = false;
+  private autoSyncCleanup?: () => void;
 
   constructor(options: SyncCoordinatorOptions) {
     this.userId = options.userId;
@@ -364,9 +365,20 @@ export class SyncCoordinator {
       void this.syncNow();
     };
     window.addEventListener("online", trigger);
-    document.addEventListener("visibilitychange", () => {
+    const onVisibility = (): void => {
       if (document.visibilityState === "visible") trigger();
-    });
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    this.autoSyncCleanup = () => {
+      window.removeEventListener("online", trigger);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }
+
+  stopAutoSync(): void {
+    this.autoSyncCleanup?.();
+    this.autoSyncCleanup = undefined;
+    this.autoSyncStarted = false;
   }
 
   private mergeConflicts(next: SyncConflict[]): SyncConflict[] {

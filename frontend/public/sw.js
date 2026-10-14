@@ -1,4 +1,4 @@
-const CACHE_NAME = 'notes-digitizer-v2';
+const CACHE_NAME = 'notes-digitizer-v3';
 const ASSETS = [
   '/',
   '/index.html',

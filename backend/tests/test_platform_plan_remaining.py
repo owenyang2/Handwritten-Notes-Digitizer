@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import json
 import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from PIL import Image as PILImage
+from sqlalchemy import select
 from sqlalchemy.pool import StaticPool
 
 from app.data import (
@@ -25,6 +28,7 @@ from app.data import (
     create_db_engine,
     create_session_factory,
 )
+from app.data.models import PasswordResetToken
 from app.data.object_store import FilesystemObjectStore
 from app.ml.iam_dataset import LabelsUnverifiedError, load_split_manifest, load_training_samples
 from app.ml.ink_v1 import content_hash, finalize, validate
@@ -228,11 +232,22 @@ def test_ink_bundle_and_consent_flow(api_client):
         json={"email": "ink-user@example.com"},
     )
     assert reset.status_code == 202
-    token = reset.json().get("debug_token")
-    assert token
+    assert reset.json() == {"status": "accepted"}
+    raw_token = "local-reset-token-value-0123456789"
+    token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+    owner = session.scalar(select(User).where(User.username == "ink-user"))
+    assert owner is not None
+    session.add(
+        PasswordResetToken(
+            token_hash=token_hash,
+            user_id=owner.user_id,
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        )
+    )
+    session.commit()
     confirm = client.post(
         "/auth/password-reset/confirm",
-        json={"token": token, "new_password": "new-password-123"},
+        json={"token": raw_token, "new_password": "new-password-123"},
     )
     assert confirm.status_code == 200, confirm.text
 

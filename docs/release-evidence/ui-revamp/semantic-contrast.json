@@ -1,0 +1,90 @@
+{
+  "scope": "WCAG relative luminance of declared opaque semantic text/surface tokens; not a complete rendered-image or focus-indicator audit.",
+  "minimumRequired": 4.5,
+  "pairs": [
+    {
+      "theme": "light",
+      "foreground": "ink",
+      "background": "bg",
+      "ratio": 14.5
+    },
+    {
+      "theme": "light",
+      "foreground": "muted",
+      "background": "bg",
+      "ratio": 5.13
+    },
+    {
+      "theme": "light",
+      "foreground": "ink",
+      "background": "panel",
+      "ratio": 15.55
+    },
+    {
+      "theme": "light",
+      "foreground": "muted",
+      "background": "panel",
+      "ratio": 5.51
+    },
+    {
+      "theme": "light",
+      "foreground": "ink",
+      "background": "sidebar",
+      "ratio": 13.66
+    },
+    {
+      "theme": "light",
+      "foreground": "muted",
+      "background": "sidebar",
+      "ratio": 4.83
+    },
+    {
+      "theme": "light",
+      "foreground": "on-accent",
+      "background": "accent",
+      "ratio": 14.97
+    },
+    {
+      "theme": "dark",
+      "foreground": "ink",
+      "background": "bg",
+      "ratio": 15.55
+    },
+    {
+      "theme": "dark",
+      "foreground": "muted",
+      "background": "bg",
+      "ratio": 8.01
+    },
+    {
+      "theme": "dark",
+      "foreground": "ink",
+      "background": "panel",
+      "ratio": 13.73
+    },
+    {
+      "theme": "dark",
+      "foreground": "muted",
+      "background": "panel",
+      "ratio": 7.07
+    },
+    {
+      "theme": "dark",
+      "foreground": "ink",
+      "background": "sidebar",
+      "ratio": 14.41
+    },
+    {
+      "theme": "dark",
+      "foreground": "muted",
+      "background": "sidebar",
+      "ratio": 7.42
+    },
+    {
+      "theme": "dark",
+      "foreground": "on-accent",
+      "background": "accent",
+      "ratio": 14.22
+    }
+  ]
+}

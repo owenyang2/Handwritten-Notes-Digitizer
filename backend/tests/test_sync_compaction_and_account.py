@@ -266,17 +266,21 @@ def test_account_session_list_revoke_isolation_and_deletion_job(api_client) -> N
     assert any(ref["kind"] == "session" for ref in deletion["target_refs"])
 
     with session_factory() as session:
-        jobs = list(
-            session.scalars(
-                select(DeletionJob).where(DeletionJob.user_id == alice.user_id)
-            ).all()
-        )
-        assert len(jobs) == 1
-        assert jobs[0].status == "completed"
+        job = session.get(DeletionJob, uuid.UUID(deletion["job_id"]))
+        assert job is not None
+        assert job.user_id is None
+        assert job.status == "completed"
+        assert session.get(User, alice.user_id) is None
         assert (
             RepositoryFactory(session).documents.get(alice.user_id, document.document_id)
             is None
         )
+
+    login = client.post(
+        "/auth/login",
+        json={"username": "alice", "password": "password-123"},
+    )
+    assert login.status_code == 401
 
     assert (
         client.get("/account/sessions", headers=_auth(alice_token_b)).status_code

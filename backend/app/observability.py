@@ -33,6 +33,7 @@ _LATEX_CMD_RE = re.compile(
 _FILENAME_RE = re.compile(
     r"(?i)\b[\w./-]+\.(?:png|jpe?g|gif|webp|tif{1,2}|pdf|tex|bin|pt|onnx|heic)\b"
 )
+_EMAIL_RE = re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b")
 _UUID_RE = re.compile(
     r"/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 )
@@ -51,6 +52,7 @@ def redact_text(value: str) -> str:
     text = _LATEX_INLINE_RE.sub("[LATEX]", text)
     text = _LATEX_CMD_RE.sub("[LATEX]", text)
     text = _FILENAME_RE.sub("[FILE]", text)
+    text = _EMAIL_RE.sub("[EMAIL]", text)
     return text
 
 
@@ -148,21 +150,29 @@ def metrics_endpoint() -> PlainTextResponse:
     )
 
 
+def install_redacting_filter() -> None:
+    """Attach the redacting filter even when metrics and JSON logs are off."""
+    root = logging.getLogger()
+    if not any(isinstance(existing, RedactingFilter) for existing in root.filters):
+        root.addFilter(RedactingFilter())
+    for handler in root.handlers:
+        if not any(isinstance(existing, RedactingFilter) for existing in handler.filters):
+            handler.addFilter(RedactingFilter())
+
+
 def configure_observability(settings: Settings) -> None:
     """Install redacting JSON logs and surface the optional OTLP endpoint."""
-    redactor = RedactingFilter()
     formatter = JsonLogFormatter()
     root = logging.getLogger()
     if not root.handlers:
         handler = logging.StreamHandler()
         handler.setFormatter(formatter)
-        handler.addFilter(redactor)
         root.addHandler(handler)
         root.setLevel(logging.INFO)
     else:
         for handler in root.handlers:
-            handler.addFilter(redactor)
             handler.setFormatter(formatter)
+    install_redacting_filter()
     if settings.otel_exporter_otlp_endpoint:
         os.environ.setdefault(
             "OTEL_EXPORTER_OTLP_ENDPOINT", settings.otel_exporter_otlp_endpoint
@@ -180,6 +190,7 @@ __all__ = [
     "JsonLogFormatter",
     "MetricsMiddleware",
     "configure_observability",
+    "install_redacting_filter",
     "metrics",
     "metrics_enabled",
     "metrics_endpoint",

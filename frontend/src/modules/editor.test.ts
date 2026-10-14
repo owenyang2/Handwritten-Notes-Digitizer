@@ -444,6 +444,9 @@ describe("Editor.render() — display alongside image (Req 3.3)", () => {
     document.dispatchEvent(new MouseEvent("mousemove", { clientX: 20, clientY: 0, bubbles: true }));
     document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
 
+    handle.dispatchEvent(new MouseEvent("mousedown", { button: 0, clientX: 0, clientY: 0, bubbles: true }));
+    editor.dispose();
+    document.dispatchEvent(new MouseEvent("mousemove", { clientX: 100, clientY: 0, bubbles: true }));
     mount.querySelector<HTMLButtonElement>("[data-testid='editor-line-save']")!.click();
 
     expect(saved).toEqual([

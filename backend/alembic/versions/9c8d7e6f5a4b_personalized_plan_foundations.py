@@ -143,10 +143,11 @@ def upgrade() -> None:
     if _has_table("region_predictions"):
         if not _has_column("region_predictions", "model_assignment_id"):
             # SQLite cannot add a foreign-key constraint with a plain ALTER
-            # TABLE.  Batch mode recreates the table safely while preserving
-            # the existing prediction rows and constraints.
+            # TABLE. Rebuild only SQLite; PostgreSQL must retain the primary
+            # key referenced by existing reviews and use native ALTER TABLE.
             with op.batch_alter_table(
-                "region_predictions", recreate="always"
+                "region_predictions",
+                recreate="always" if op.get_bind().dialect.name == "sqlite" else "auto",
             ) as batch_op:
                 batch_op.add_column(
                     sa.Column(

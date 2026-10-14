@@ -1501,13 +1501,17 @@
         "type": "object"
       },
       "LoginRequest": {
-        "description": "Credentials submitted to ``POST /auth/login``.",
+        "description": "Credentials submitted to ``POST /auth/login``.\n\nPassword length is capped so an unauthenticated caller cannot force an\narbitrarily expensive PBKDF2. Login still accepts existing shorter\npasswords; registration is where the minimum length is enforced.",
         "properties": {
           "password": {
+            "maxLength": 128,
+            "minLength": 1,
             "title": "Password",
             "type": "string"
           },
           "username": {
+            "maxLength": 64,
+            "minLength": 1,
             "title": "Username",
             "type": "string"
           }
@@ -3116,14 +3120,20 @@
         "description": "Credentials submitted to ``POST /auth/register``.",
         "properties": {
           "email": {
+            "maxLength": 320,
+            "minLength": 3,
             "title": "Email",
             "type": "string"
           },
           "password": {
+            "maxLength": 128,
+            "minLength": 8,
             "title": "Password",
             "type": "string"
           },
           "username": {
+            "maxLength": 64,
+            "minLength": 1,
             "title": "Username",
             "type": "string"
           }
@@ -3153,6 +3163,7 @@
               "format": "uuid",
               "type": "string"
             },
+            "maxItems": 2000,
             "minItems": 1,
             "title": "Region Ids",
             "type": "array"
@@ -4534,6 +4545,64 @@
           }
         },
         "summary": "List authentication sessions for the current account",
+        "tags": [
+          "account"
+        ]
+      }
+    },
+    "/account/sessions/revoke-all": {
+      "post": {
+        "operationId": "revoke_all_account_sessions_account_sessions_revoke_all_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Session"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sign out every session for the current account",
         "tags": [
           "account"
         ]
@@ -6143,7 +6212,7 @@
     },
     "/health": {
       "get": {
-        "description": "Capability-aware health probe (Req 11.5).\n\nReturns HTTP 200 with a JSON object containing:\n- ``status``: always ``\"ok\"`` (the endpoint itself is always up)\n- ``capabilities``: a dict mapping each capability name to a boolean\n  indicating whether all its required components are currently available.\n- ``model_status``: ``loaded`` when a trained artifact passed its\n  inference check, otherwise ``unavailable``. Recognition never\n  silently falls back to random weights.",
+        "description": "Public liveness probe (Req 11.5).\n\nReturns ``status`` and capability booleans only. Model paths and\nexception text live on ``GET /health/details``, which nginx does not\nexpose through the public frontend.",
         "operationId": "health_health_get",
         "responses": {
           "200": {

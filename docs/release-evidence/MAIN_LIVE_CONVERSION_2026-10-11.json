@@ -1,0 +1,419 @@
+{
+  "commit": "aa79236883bb4f235439f9f75daaf1477ff5b2e2",
+  "endpoint": "http://127.0.0.1:5173/api",
+  "fixture_limit": "Functional public/synthetic fixtures, not a handwriting accuracy benchmark.",
+  "journeys": [
+    {
+      "mode": "formula",
+      "document": {
+        "document_id": "bc55e6ca-ec2a-4810-bf71-035abbd66d42",
+        "title": "Main verification formula",
+        "page_count": 1,
+        "pages": [
+          {
+            "page_id": "56358eba-94f4-4fba-b3a8-6113520de8db",
+            "page_index": 0,
+            "title": null,
+            "image_id": "ef398147-567e-444e-bf60-fce1be51f572",
+            "width": 360,
+            "height": 100,
+            "dpi": 200,
+            "coordinate_space": "normalized-raster-v1",
+            "paper_template": null
+          }
+        ]
+      },
+      "run": {
+        "run_id": "eb820acc-7083-445e-9664-19b34abe6ded",
+        "document_id": "bc55e6ca-ec2a-4810-bf71-035abbd66d42",
+        "page_id": "56358eba-94f4-4fba-b3a8-6113520de8db",
+        "state": "complete",
+        "scope": "page",
+        "mode": "formula",
+        "error_message": null,
+        "result_ids": [
+          "c0febd36-8627-4806-a6f9-1ed909faddaf"
+        ],
+        "created_at": "2026-10-12T00:40:42.991023",
+        "idempotent": false,
+        "progress_current": 1,
+        "progress_total": 1
+      },
+      "results": [
+        {
+          "region_id": "c77701cb-ad5c-4627-b66e-81a8d6a532f4",
+          "prediction_id": "c0febd36-8627-4806-a6f9-1ed909faddaf",
+          "bbox": [
+            21,
+            23,
+            203,
+            56
+          ],
+          "content_type": "math_display",
+          "order_index": 0,
+          "prediction_text": "\\mathbf { x } + \\mathbf { y } = 2",
+          "reviewed_text": null,
+          "excluded": false,
+          "review_version": null,
+          "truncated": false,
+          "engine_id": "unimernet-small",
+          "source_stale": false,
+          "crop_revision": 1
+        }
+      ],
+      "review": {
+        "review_id": "cc3ddf04-9b91-4341-93d3-c1c8e878e7e3",
+        "region_id": "c77701cb-ad5c-4627-b66e-81a8d6a532f4",
+        "reviewed_text": "x + y = 2",
+        "excluded": false,
+        "version": 1,
+        "review_revision_id": "d9aadd6f-6ab3-4e1b-b53b-12d0fc5b8266",
+        "document_revision_id": "e326ba21-a0ea-491f-a176-84954c52de2d",
+        "training_example_id": null
+      },
+      "reopened": [
+        {
+          "region_id": "c77701cb-ad5c-4627-b66e-81a8d6a532f4",
+          "prediction_id": "c0febd36-8627-4806-a6f9-1ed909faddaf",
+          "bbox": [
+            21,
+            23,
+            203,
+            56
+          ],
+          "content_type": "math_display",
+          "order_index": 0,
+          "prediction_text": "\\mathbf { x } + \\mathbf { y } = 2",
+          "reviewed_text": "x + y = 2",
+          "excluded": false,
+          "review_version": 1,
+          "truncated": false,
+          "engine_id": "unimernet-small",
+          "source_stale": false,
+          "crop_revision": 1
+        }
+      ],
+      "exports": {
+        "markdown": {
+          "status": "success",
+          "format": "markdown",
+          "text": "$$\nx + y = 2\n$$"
+        },
+        "latex": {
+          "status": "success",
+          "format": "latex",
+          "text": "\\documentclass{article}\n\\usepackage{amsmath,amssymb,graphicx}\n\\begin{document}\n\n\\[\nx + y = 2\n\\]\n\n\\end{document}\n"
+        },
+        "html": {
+          "status": "success",
+          "format": "html",
+          "text": "<!DOCTYPE html>\n<html><body>\n<pre class=\"math\">x + y = 2</pre>\n</body></html>"
+        }
+      },
+      "metadata_sync_changes": [
+        {
+          "server_sequence": 1,
+          "operation_id": "a2b60ac6-0a46-45d1-9b59-023ab9bf7c1c",
+          "document_id": "bc55e6ca-ec2a-4810-bf71-035abbd66d42",
+          "client_id": "server:documents",
+          "client_operation_id": "0f2e3e74-f0a1-4691-a71d-eb813e0918f6",
+          "base_sync_version": 2,
+          "sync_version": 3,
+          "entity_type": "document",
+          "entity_id": "bc55e6ca-ec2a-4810-bf71-035abbd66d42",
+          "operation_type": "document.metadata",
+          "payload": {
+            "title": "Main verification formula",
+            "archived": true,
+            "is_favorite": true,
+            "default_language": "en",
+            "course_context": null
+          },
+          "created_at": "2026-10-12T00:40:50.829342",
+          "is_tombstone": false,
+          "contract_version": "v1"
+        },
+        {
+          "server_sequence": 2,
+          "operation_id": "a635751d-14c8-4a2d-8f9b-1177ab036056",
+          "document_id": "bc55e6ca-ec2a-4810-bf71-035abbd66d42",
+          "client_id": "server:documents",
+          "client_operation_id": "0f44876e-6cb1-4023-bafc-fe65dd021605",
+          "base_sync_version": 3,
+          "sync_version": 4,
+          "entity_type": "document",
+          "entity_id": "bc55e6ca-ec2a-4810-bf71-035abbd66d42",
+          "operation_type": "document.trash",
+          "payload": {},
+          "created_at": "2026-10-12T00:40:50.837971",
+          "is_tombstone": false,
+          "contract_version": "v1"
+        },
+        {
+          "server_sequence": 3,
+          "operation_id": "38ea8b35-364e-4889-9964-6e8107db9644",
+          "document_id": "bc55e6ca-ec2a-4810-bf71-035abbd66d42",
+          "client_id": "server:documents",
+          "client_operation_id": "87e8c463-0079-4146-b695-e69f9ade5cd2",
+          "base_sync_version": 4,
+          "sync_version": 5,
+          "entity_type": "document",
+          "entity_id": "bc55e6ca-ec2a-4810-bf71-035abbd66d42",
+          "operation_type": "document.restore",
+          "payload": {},
+          "created_at": "2026-10-12T00:40:50.844110",
+          "is_tombstone": false,
+          "contract_version": "v1"
+        },
+        {
+          "server_sequence": 4,
+          "operation_id": "dd9f69e1-c911-48d8-97f0-ab00b62be716",
+          "document_id": "bc55e6ca-ec2a-4810-bf71-035abbd66d42",
+          "client_id": "server:documents",
+          "client_operation_id": "6d82560e-47f2-4078-b180-26250875825e",
+          "base_sync_version": 5,
+          "sync_version": 6,
+          "entity_type": "document",
+          "entity_id": "bc55e6ca-ec2a-4810-bf71-035abbd66d42",
+          "operation_type": "document.metadata",
+          "payload": {
+            "title": "Main verification formula",
+            "archived": false,
+            "is_favorite": false,
+            "default_language": "en",
+            "course_context": null
+          },
+          "created_at": "2026-10-12T00:40:50.850378",
+          "is_tombstone": false,
+          "contract_version": "v1"
+        }
+      ]
+    },
+    {
+      "mode": "prose",
+      "document": {
+        "document_id": "0d5151fb-1922-4142-ae73-fc362d65dca9",
+        "title": "Main verification prose",
+        "page_count": 1,
+        "pages": [
+          {
+            "page_id": "68135a4d-5dc1-44f1-9df1-166b046347d8",
+            "page_index": 0,
+            "title": null,
+            "image_id": "b1d58b96-76e8-4022-a308-7da5c4985f2e",
+            "width": 248,
+            "height": 76,
+            "dpi": 200,
+            "coordinate_space": "normalized-raster-v1",
+            "paper_template": null
+          }
+        ]
+      },
+      "run": {
+        "run_id": "bc491f47-72fa-4926-9a43-df5391d55a11",
+        "document_id": "0d5151fb-1922-4142-ae73-fc362d65dca9",
+        "page_id": "68135a4d-5dc1-44f1-9df1-166b046347d8",
+        "state": "complete",
+        "scope": "page",
+        "mode": "prose",
+        "error_message": null,
+        "result_ids": [
+          "edf7c2df-8e6a-4044-9c71-9a855f33bd76"
+        ],
+        "created_at": "2026-10-12T00:40:50.896415",
+        "idempotent": false,
+        "progress_current": 1,
+        "progress_total": 1
+      },
+      "results": [
+        {
+          "region_id": "3b7ed9cc-bf0b-4291-8726-f8fe950e9e6b",
+          "prediction_id": "edf7c2df-8e6a-4044-9c71-9a855f33bd76",
+          "bbox": [
+            0,
+            0,
+            248,
+            76
+          ],
+          "content_type": "text",
+          "order_index": 0,
+          "prediction_text": "indus the",
+          "reviewed_text": null,
+          "excluded": false,
+          "review_version": null,
+          "truncated": false,
+          "engine_id": "trocr-handwritten",
+          "source_stale": false,
+          "crop_revision": 1
+        }
+      ],
+      "review": {
+        "review_id": "e8d9d4d9-0d58-4a4d-91b5-627544d963ad",
+        "region_id": "3b7ed9cc-bf0b-4291-8726-f8fe950e9e6b",
+        "reviewed_text": "Reviewed prose on main",
+        "excluded": false,
+        "version": 1,
+        "review_revision_id": "3037243b-9375-4bbf-84c3-092efbf6e7ee",
+        "document_revision_id": "a796bbdd-1973-4f78-bfc7-3ef47b00e536",
+        "training_example_id": null
+      },
+      "reopened": [
+        {
+          "region_id": "3b7ed9cc-bf0b-4291-8726-f8fe950e9e6b",
+          "prediction_id": "edf7c2df-8e6a-4044-9c71-9a855f33bd76",
+          "bbox": [
+            0,
+            0,
+            248,
+            76
+          ],
+          "content_type": "text",
+          "order_index": 0,
+          "prediction_text": "indus the",
+          "reviewed_text": "Reviewed prose on main",
+          "excluded": false,
+          "review_version": 1,
+          "truncated": false,
+          "engine_id": "trocr-handwritten",
+          "source_stale": false,
+          "crop_revision": 1
+        }
+      ],
+      "exports": {
+        "markdown": {
+          "status": "success",
+          "format": "markdown",
+          "text": "Reviewed prose on main"
+        },
+        "latex": {
+          "status": "success",
+          "format": "latex",
+          "text": "\\documentclass{article}\n\\usepackage{amsmath,amssymb,graphicx}\n\\begin{document}\n\nReviewed prose on main\n\n\\end{document}\n"
+        },
+        "html": {
+          "status": "success",
+          "format": "html",
+          "text": "<!DOCTYPE html>\n<html><body>\n<p>Reviewed prose on main</p>\n</body></html>"
+        }
+      },
+      "metadata_sync_changes": [
+        {
+          "server_sequence": 5,
+          "operation_id": "e0a96468-20a7-4cb7-af6d-85cc0ea80155",
+          "document_id": "0d5151fb-1922-4142-ae73-fc362d65dca9",
+          "client_id": "server:documents",
+          "client_operation_id": "f06e7b58-3ea8-4a43-a92d-7bfbae1f6645",
+          "base_sync_version": 2,
+          "sync_version": 3,
+          "entity_type": "document",
+          "entity_id": "0d5151fb-1922-4142-ae73-fc362d65dca9",
+          "operation_type": "document.metadata",
+          "payload": {
+            "title": "Main verification prose",
+            "archived": true,
+            "is_favorite": true,
+            "default_language": "en",
+            "course_context": null
+          },
+          "created_at": "2026-10-12T00:41:18.926451",
+          "is_tombstone": false,
+          "contract_version": "v1"
+        },
+        {
+          "server_sequence": 6,
+          "operation_id": "99bbc183-4b71-4c19-b623-169f371f8075",
+          "document_id": "0d5151fb-1922-4142-ae73-fc362d65dca9",
+          "client_id": "server:documents",
+          "client_operation_id": "e5a04cbd-4dc3-49db-b512-6deabecce9b0",
+          "base_sync_version": 3,
+          "sync_version": 4,
+          "entity_type": "document",
+          "entity_id": "0d5151fb-1922-4142-ae73-fc362d65dca9",
+          "operation_type": "document.trash",
+          "payload": {},
+          "created_at": "2026-10-12T00:41:18.950697",
+          "is_tombstone": false,
+          "contract_version": "v1"
+        },
+        {
+          "server_sequence": 7,
+          "operation_id": "c00eab72-ca95-4aef-b987-1f1df86bccbb",
+          "document_id": "0d5151fb-1922-4142-ae73-fc362d65dca9",
+          "client_id": "server:documents",
+          "client_operation_id": "9b30d648-5332-41fb-a426-e63a35507e94",
+          "base_sync_version": 4,
+          "sync_version": 5,
+          "entity_type": "document",
+          "entity_id": "0d5151fb-1922-4142-ae73-fc362d65dca9",
+          "operation_type": "document.restore",
+          "payload": {},
+          "created_at": "2026-10-12T00:41:18.955998",
+          "is_tombstone": false,
+          "contract_version": "v1"
+        },
+        {
+          "server_sequence": 8,
+          "operation_id": "2ce34ff4-91ee-4882-9ed2-3b05b60b6095",
+          "document_id": "0d5151fb-1922-4142-ae73-fc362d65dca9",
+          "client_id": "server:documents",
+          "client_operation_id": "7f68e34f-db2d-4321-b2f9-2e1122d9db11",
+          "base_sync_version": 5,
+          "sync_version": 6,
+          "entity_type": "document",
+          "entity_id": "0d5151fb-1922-4142-ae73-fc362d65dca9",
+          "operation_type": "document.metadata",
+          "payload": {
+            "title": "Main verification prose",
+            "archived": false,
+            "is_favorite": false,
+            "default_language": "en",
+            "course_context": null
+          },
+          "created_at": "2026-10-12T00:41:18.960563",
+          "is_tombstone": false,
+          "contract_version": "v1"
+        }
+      ]
+    }
+  ],
+  "model_health": {
+    "formula_model": {
+      "backend": "unimernet-small",
+      "loaded": true,
+      "reason": null,
+      "provenance": {
+        "backend_id": "unimernet-small",
+        "license": "See upstream model card",
+        "model_id": "wanderkid/unimernet_small",
+        "notes": "Generated by scripts/download_unimernet.py; use the exact revision for replay.",
+        "requested_revision": "main",
+        "revision": "82cb85440138c2038680fca410c8f70bb7343d6d",
+        "source_url": "https://huggingface.co/wanderkid/unimernet_small",
+        "supported_inputs": [
+          "png",
+          "jpeg",
+          "formula_crop"
+        ],
+        "weight_sha256": "3c4b36213bb7c7f773e04ef0f5022fd1b7934d5a489869116010a63961476859"
+      }
+    },
+    "prose_model": {
+      "loaded": true,
+      "backend": "trocr-handwritten",
+      "personalization_compatible": false,
+      "reason": null,
+      "provenance": {
+        "backend_id": "trocr-handwritten",
+        "model_id": "microsoft/trocr-base-handwritten",
+        "revision": "eaacaf452b06415df8f10bb6fad3a4c11e609406",
+        "source_url": "https://huggingface.co/microsoft/trocr-base-handwritten",
+        "weight_sha256": "66074482f479dc42847eb1fd948ac8e75b9fcd8ed743a31cfec292c5c6db6a6e",
+        "license": "MIT",
+        "supported_inputs": [
+          "prose_line"
+        ]
+      }
+    },
+    "model_status": "unavailable"
+  }
+}

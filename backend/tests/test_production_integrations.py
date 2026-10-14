@@ -35,20 +35,31 @@ def test_postgres_migrations_reach_the_current_schema() -> None:
         assert "token_hash" in session_columns
         assert "session_id" in session_columns
         assert "token" not in session_columns
+        # Adding model provenance must preserve both existing review references.
+        for table in ("region_reviews", "review_revisions"):
+            references = inspector.get_foreign_keys(table)
+            assert any(foreign_key["constrained_columns"] == ["prediction_id"]
+                       and foreign_key["referred_table"] == "region_predictions"
+                       and foreign_key["referred_columns"] == ["prediction_id"]
+                       for foreign_key in references)
+        assert any(foreign_key["constrained_columns"] == ["model_assignment_id"]
+                   and foreign_key["referred_table"] == "model_assignments"
+                   for foreign_key in inspector.get_foreign_keys("region_predictions"))
     finally:
         engine.dispose()
 
 
-def test_minio_s3_object_store_round_trip() -> None:
+@pytest.fixture()
+def s3_store() -> S3CompatibleObjectStore:
     endpoint = os.environ.get("HND_TEST_S3_ENDPOINT_URL")
     bucket = os.environ.get("HND_TEST_S3_BUCKET")
     if not endpoint or not bucket:
         pytest.skip(
-            "set HND_TEST_S3_ENDPOINT_URL and HND_TEST_S3_BUCKET to a disposable MinIO bucket"
+            "set HND_TEST_S3_ENDPOINT_URL and HND_TEST_S3_BUCKET to a disposable S3 bucket"
         )
     pytest.importorskip("boto3")
 
-    store = S3CompatibleObjectStore(
+    return S3CompatibleObjectStore(
         bucket=bucket,
         endpoint_url=endpoint,
         region=os.environ.get("HND_TEST_S3_REGION", "us-east-1"),
@@ -56,6 +67,10 @@ def test_minio_s3_object_store_round_trip() -> None:
         secret_key=os.environ.get("HND_TEST_S3_SECRET_KEY"),
         prefix=os.environ.get("HND_TEST_S3_PREFIX", "contract-tests"),
     )
+
+
+def test_s3_object_store_round_trip(s3_store: S3CompatibleObjectStore) -> None:
+    store = s3_store
     reference = store.put_asset_bytes(
         "integration-test",
         b"production-object-store-contract",
@@ -65,6 +80,28 @@ def test_minio_s3_object_store_round_trip() -> None:
     try:
         assert store.exists(reference)
         assert store.get(reference) == b"production-object-store-contract"
+        if os.environ.get("HND_TEST_S3_REQUIRE_ENCRYPTION") == "1":
+            metadata = store._client.head_object(Bucket=store._bucket, Key=store._key(reference))
+            assert metadata.get("ServerSideEncryption") == "AES256"
     finally:
         store.delete(reference)
     assert not store.exists(reference)
+
+
+def test_s3_owner_purge_preserves_other_owners(s3_store: S3CompatibleObjectStore) -> None:
+    store = s3_store
+    owner = "integration-" + uuid.uuid4().hex
+    refs = [
+        store.put_image_bytes(owner, b"image"),
+        store.put_region_crop(owner, b"crop"),
+        store.put_adapter_weights(owner, b"adapter"),
+        store.put_asset_bytes(owner, b"asset"),
+    ]
+    other = store.put_image_bytes(owner + "-other", b"other-owner")
+    try:
+        store.delete_owner(owner)
+        assert all(not store.exists(ref) for ref in refs)
+        assert store.get(other) == b"other-owner"
+    finally:
+        for ref in [*refs, other]:
+            store.delete(ref)

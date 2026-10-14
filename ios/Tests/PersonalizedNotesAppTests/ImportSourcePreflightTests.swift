@@ -42,7 +42,9 @@ final class ImportSourcePreflightTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
 
         let imageURL = directory.appendingPathComponent("diagram.png")
-        let image = UIGraphicsImageRenderer(size: CGSize(width: 32, height: 24)).image { context in
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 2
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 32, height: 24), format: format).image { context in
             UIColor.systemBlue.setFill()
             context.fill(CGRect(x: 0, y: 0, width: 32, height: 24))
         }

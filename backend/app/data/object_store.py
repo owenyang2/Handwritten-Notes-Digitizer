@@ -255,6 +255,15 @@ class ObjectStore(ABC):
     def delete(self, reference: str) -> None:
         """Delete the object at ``reference`` if present (idempotent)."""
 
+    def delete_owner(self, user_id: str) -> None:
+        """Delete every object stored under this user's kind prefixes.
+
+        The default raises ``NotImplementedError`` so test doubles that only
+        implement single-object delete keep working. Account purge still
+        deletes the references recorded on the user's rows.
+        """
+        raise NotImplementedError
+
 
 class FilesystemObjectStore(ObjectStore):
     """Filesystem-backed object store rooted at a configurable directory.
@@ -336,6 +345,14 @@ class FilesystemObjectStore(ObjectStore):
         except FileNotFoundError:
             # Deletion is idempotent.
             pass
+
+    def delete_owner(self, user_id: str) -> None:
+        """Remove ``<kind>/<user_id>/`` trees for every object category."""
+        owner = _validate_segment(user_id, field="user_id")
+        for kind in ObjectKind:
+            prefix = self._resolve(f"{kind.value}/{owner}")
+            if prefix.is_dir():
+                shutil.rmtree(prefix)
 
     def clear(self) -> None:
         """Remove all stored objects (primarily for tests/teardown)."""

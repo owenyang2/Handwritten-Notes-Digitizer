@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -22,6 +23,8 @@ from app.services.images_api import get_object_store
 from app.services.isolation import get_or_404
 from app.services.model_resolution import resolve_model_assignment
 from app.services.page_raster import page_raster
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["math-regions"])
 
@@ -128,7 +131,7 @@ class PatchRegionRequest(BaseModel):
 
 
 class ReorderRegionsRequest(BaseModel):
-    region_ids: list[uuid.UUID] = Field(min_length=1)
+    region_ids: list[uuid.UUID] = Field(min_length=1, max_length=2000)
 
 
 class SplitRegionRequest(BaseModel):
@@ -219,7 +222,8 @@ def create_region(
         page_bytes, _ = page_raster(page, user.user_id, repos, store)
         crop_bytes = _crop_png(page_bytes, [x, y, w, h])
     except Exception as exc:
-        raise HTTPException(status_code=422, detail=f"Could not create region crop: {exc}") from exc
+        logger.exception("Could not create region crop")
+        raise HTTPException(status_code=422, detail="Could not create region crop.") from exc
     crop_hash = hashlib.sha256(crop_bytes).hexdigest()
     crop_path = store.put_region_crop(str(user.user_id), crop_bytes, suffix=".png")
     region = DocumentRegion(
@@ -350,7 +354,8 @@ def patch_region(
         try:
             crop = _crop_png(page_raster(page, user.user_id, repos, store)[0], [x, y, w, h])
         except Exception as exc:
-            raise HTTPException(status_code=422, detail=f"Could not update region crop: {exc}") from exc
+            logger.exception("Could not update region crop")
+            raise HTTPException(status_code=422, detail="Could not update region crop.") from exc
         region.bbox_x, region.bbox_y = x, y
         region.bbox_width, region.bbox_height = w, h
         region.page_revision += 1
@@ -495,7 +500,8 @@ def merge_regions(
     try:
         crop = _crop_png(page_raster(page, user.user_id, repos, store)[0], [x, y, right - x, bottom - y])
     except Exception as exc:
-        raise HTTPException(status_code=422, detail=f"Could not create merged crop: {exc}") from exc
+        logger.exception("Could not create merged crop")
+        raise HTTPException(status_code=422, detail="Could not create merged crop.") from exc
     merged = DocumentRegion(
         page_id=page.page_id,
         order_index=min(region.order_index for region in resolved),

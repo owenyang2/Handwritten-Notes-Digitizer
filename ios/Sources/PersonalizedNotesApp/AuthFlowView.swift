@@ -14,6 +14,7 @@ struct AuthFlowView: View {
     @State private var recoveryConfirmation = ""
     @State private var recoveryNotice: String?
     @State private var authNotice: String?
+    @State private var openingLibrary = false
 
     private enum Mode: Equatable {
         case welcome
@@ -68,14 +69,14 @@ struct AuthFlowView: View {
                         .accessibilityHidden(true)
                     Text("Write first. Sync when you’re ready.")
                         .font(.largeTitle.weight(.semibold))
-                    Text("Your notes are saved on this iPad immediately. Create an account when you want backup, cross-device sync, and handwriting conversion.")
+                    Text("Your notes are saved on this device immediately. Create an account when you want backup, cross-device sync, and handwriting conversion.")
                         .font(.title3)
                         .foregroundStyle(.secondary)
                 }
 
                 VStack(spacing: 12) {
                     Button("Create Account") { mode = .register }
-                        .buttonStyle(.borderedProminent)
+                        .modifier(NotebookPrimaryAction())
                         .controlSize(.large)
                         .frame(maxWidth: .infinity)
                     Button("Sign In") { mode = .signIn }
@@ -83,22 +84,28 @@ struct AuthFlowView: View {
                         .controlSize(.large)
                         .frame(maxWidth: .infinity)
                     Button {
-                        Task { await model.continueOffline() }
+                        openingLibrary = true
+                        Task { await model.continueOffline(); openingLibrary = false }
                     } label: {
-                        Label("Continue Offline", systemImage: "ipad.and.iphone")
+                        HStack {
+                            Label("Continue Offline", systemImage: "ipad.and.iphone")
+                            if openingLibrary { ProgressView() }
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .frame(maxWidth: .infinity)
+                    .disabled(openingLibrary)
                 }
                 .accessibilityElement(children: .contain)
 
                 if !model.documents.isEmpty {
-                    Text("You have \(model.documents.count) local note\(model.documents.count == 1 ? "" : "s") on this iPad.")
+                    Text("You have \(model.documents.count) local note\(model.documents.count == 1 ? "" : "s") on this device.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
 
-                Text("Sign-in is optional for local writing. Notes stay on this iPad until you choose to sync.")
+                Text("Sign-in is optional for local writing. Notes stay on this device until you choose to sync.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }

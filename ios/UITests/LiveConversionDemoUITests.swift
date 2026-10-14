@@ -43,15 +43,15 @@ final class LiveConversionDemoUITests: XCTestCase {
             XCTAssertTrue(app.textViews.firstMatch.waitForExistence(timeout: 10))
             let original = app.textViews.firstMatch.value as? String
             XCTAssertFalse((original ?? "").isEmpty)
-            app.buttons["Accept / Save"].tap()
+            app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "conversion-save-")).firstMatch.tap()
             XCTAssertTrue(app.staticTexts["Review saved."].waitForExistence(timeout: 10), app.debugDescription)
             let exportButton = app.buttons["conversion-export"]
             XCTAssertTrue(exportButton.waitForExistence(timeout: 5), app.debugDescription)
             let exportReady = expectation(for: NSPredicate { _, _ in exportButton.isHittable }, evaluatedWith: exportButton)
             wait(for: [exportReady], timeout: 15)
             exportButton.tap()
-            XCTAssertTrue(app.buttons["Markdown"].waitForExistence(timeout: 5))
-            app.buttons["Markdown"].tap()
+            XCTAssertTrue(app.buttons["Save and export Markdown"].waitForExistence(timeout: 5))
+            app.buttons["Save and export Markdown"].tap()
             XCTAssertTrue(app.buttons["Close"].waitForExistence(timeout: 15), app.debugDescription)
             app.buttons["Close"].tap()
             app.buttons["Done"].tap()

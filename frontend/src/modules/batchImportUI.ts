@@ -80,6 +80,11 @@ export class BatchImportUI {
     return this.queue;
   }
 
+  dispose(): void {
+    this.unsubscribe?.();
+    this.unsubscribe = null;
+  }
+
   render(): void {
     this.unsubscribe?.();
     this.mount.replaceChildren();

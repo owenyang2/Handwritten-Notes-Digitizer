@@ -100,3 +100,24 @@ records the simulator recognition → review → save/reopen → Markdown-sharin
 journey. Broader two-client interruption/conflict and physical testing remain.
 
 [Project overview](../README.md) · [Documentation index](../docs/README.md)
+
+## Quiet Notebook UI alignment (October 14, 2026)
+
+The generated target now supports iPhone and iPad. Settings persists System / Light / Dark appearance; conversion review adapts to available width and guards unsaved dismissal. PencilKit and local ink persistence retain their existing contracts. Universal compilation is not a claim of physical iPhone or Pencil readiness. See the [UI revamp evidence](../docs/release-evidence/UI_REVAMP_2026-10-14.md) for simulator results, screenshots, and remaining device gates.
+
+The October 14 follow-up also checks the largest accessibility Dynamic Type
+size on iPhone, including scrolling to Continue Offline, changing appearance,
+and creating a notebook with the keyboard open. The appearance picker uses a
+full row to avoid splitting its label/value into narrow columns. This targeted
+reachability check does not replace a complete Dynamic Type or VoiceOver audit.
+Compact native toolbars can move actions into the system More menu; UI tests
+must open that menu and scroll long action lists before selecting an item.
+The initial expanded iPhone run exposed a Tools-menu failure at Toggle Ruler;
+the final verification below resolves it and records complete green suites.
+
+The [final October 14 verification](../docs/release-evidence/VERIFICATION_AND_PONYTAIL_AUDIT_2026-10-14.md)
+records 33 native app tests and all eight UI tests passing on both iPhone and
+iPad simulators. UI-test launch mode disables UIKit animations to keep those
+functional checks deterministic; production retains normal animations. The
+earlier compact Tools-menu failure is resolved, and page-deletion confirmation
+retains its target correctly. Physical-device and broader accessibility gates remain.

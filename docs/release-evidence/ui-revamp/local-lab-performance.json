@@ -1,0 +1,87 @@
+{
+  "date": "2026-10-14",
+  "browser": "156.0.8078.4",
+  "scope": "Synthetic two-region notebook; local production preview, mocked API, first run can include cold assets; five runs per profile. CPU throttling is not a real mobile-device measurement. Largest observed Event Timing duration is not field INP. No field p75 claim.",
+  "samples": [
+    {
+      "profile": "desktop",
+      "run": 1,
+      "lcpMs": 120,
+      "cls": 0,
+      "layoutShiftSources": [],
+      "maxObservedInteractionMs": 56
+    },
+    {
+      "profile": "desktop",
+      "run": 2,
+      "lcpMs": 88,
+      "cls": 0,
+      "layoutShiftSources": [],
+      "maxObservedInteractionMs": 24
+    },
+    {
+      "profile": "desktop",
+      "run": 3,
+      "lcpMs": 108,
+      "cls": 0,
+      "layoutShiftSources": [],
+      "maxObservedInteractionMs": 24
+    },
+    {
+      "profile": "desktop",
+      "run": 4,
+      "lcpMs": 108,
+      "cls": 0,
+      "layoutShiftSources": [],
+      "maxObservedInteractionMs": 24
+    },
+    {
+      "profile": "desktop",
+      "run": 5,
+      "lcpMs": 104,
+      "cls": 0,
+      "layoutShiftSources": [],
+      "maxObservedInteractionMs": 24
+    },
+    {
+      "profile": "compact-4x-cpu",
+      "run": 1,
+      "lcpMs": 224,
+      "cls": 0,
+      "layoutShiftSources": [],
+      "maxObservedInteractionMs": 24
+    },
+    {
+      "profile": "compact-4x-cpu",
+      "run": 2,
+      "lcpMs": 188,
+      "cls": 0,
+      "layoutShiftSources": [],
+      "maxObservedInteractionMs": 16
+    },
+    {
+      "profile": "compact-4x-cpu",
+      "run": 3,
+      "lcpMs": 212,
+      "cls": 0,
+      "layoutShiftSources": [],
+      "maxObservedInteractionMs": 16
+    },
+    {
+      "profile": "compact-4x-cpu",
+      "run": 4,
+      "lcpMs": 208,
+      "cls": 0,
+      "layoutShiftSources": [],
+      "maxObservedInteractionMs": 24
+    },
+    {
+      "profile": "compact-4x-cpu",
+      "run": 5,
+      "lcpMs": 196,
+      "cls": 0,
+      "layoutShiftSources": [],
+      "maxObservedInteractionMs": 24
+    }
+  ]
+}

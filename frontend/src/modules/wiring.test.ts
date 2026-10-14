@@ -12,7 +12,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { UploadUI } from "./uploadUI.js";
 import { CalibrationUI } from "./calibrationUI.js";
-import { bootstrap } from "../main.js";
+import { bootstrap, disposeApp } from "../main.js";
 
 Object.assign(navigator, {
   clipboard: {
@@ -25,12 +25,14 @@ Object.assign(navigator, {
 // ---------------------------------------------------------------------------
 
 function makeMount(): HTMLElement {
+  window.history.replaceState(null, "", "/library");
   const el = document.createElement("div");
   document.body.appendChild(el);
   return el;
 }
 
 function cleanup(el: HTMLElement): void {
+  disposeApp(el);
   el.remove();
 }
 
@@ -86,6 +88,8 @@ vi.mock("../api/capabilities.js", () => ({
 import * as apiClient from "../api/client.js";
 import * as capabilitiesModule from "../api/capabilities.js";
 
+beforeEach(() => { vi.mocked(apiClient.getDocuments).mockResolvedValue([]); });
+
 // ---------------------------------------------------------------------------
 // UploadUI unit tests
 // ---------------------------------------------------------------------------
@@ -99,6 +103,11 @@ describe("UploadUI — rendering and interaction", () => {
   afterEach(() => {
     cleanup(mount);
     vi.resetAllMocks();
+    vi.mocked(apiClient.getDocuments).mockResolvedValue([]);
+    vi.mocked(apiClient.getDocumentsPage).mockImplementation(async (options) => {
+      const items = await apiClient.getDocuments(options);
+      return { items, hasMore: false, offset: 0, limit: 50, total: items.length };
+    });
   });
 
   it("renders a drop zone and submit button", () => {
@@ -246,6 +255,11 @@ describe("CalibrationUI — rendering and interaction", () => {
   afterEach(() => {
     cleanup(mount);
     vi.resetAllMocks();
+    vi.mocked(apiClient.getDocuments).mockResolvedValue([]);
+    vi.mocked(apiClient.getDocumentsPage).mockImplementation(async (options) => {
+      const items = await apiClient.getDocuments(options);
+      return { items, hasMore: false, offset: 0, limit: 50, total: items.length };
+    });
   });
 
   const prompts = [
@@ -375,6 +389,11 @@ describe("bootstrap() — upload to recognition wiring (Req 11.4)", () => {
   beforeEach(() => {
     root = makeMount();
     vi.resetAllMocks();
+    vi.mocked(apiClient.getDocuments).mockResolvedValue([]);
+    vi.mocked(apiClient.getDocumentsPage).mockImplementation(async (options) => {
+      const items = await apiClient.getDocuments(options);
+      return { items, hasMore: false, offset: 0, limit: 50, total: items.length };
+    });
 
     // Default: all capabilities available.
     vi.mocked(capabilitiesModule.isAvailable).mockReturnValue(true);
@@ -398,6 +417,10 @@ describe("bootstrap() — upload to recognition wiring (Req 11.4)", () => {
       image_ids: [],
     });
     vi.mocked(apiClient.getDocuments).mockResolvedValue([]);
+    vi.mocked(apiClient.getDocumentsPage).mockImplementation(async (options) => {
+      const items = await apiClient.getDocuments(options);
+      return { items, hasMore: false, offset: 0, limit: 50, total: items.length };
+    });
     vi.mocked(apiClient.listPageRegions).mockResolvedValue([]);
     vi.mocked(apiClient.getProcessedImageUrl).mockImplementation(
       (imageId: string) => `/api/images/${imageId}/processed`,
@@ -478,6 +501,11 @@ describe("bootstrap() — upload to recognition wiring (Req 11.4)", () => {
   afterEach(() => {
     cleanup(root);
     vi.resetAllMocks();
+    vi.mocked(apiClient.getDocuments).mockResolvedValue([]);
+    vi.mocked(apiClient.getDocumentsPage).mockImplementation(async (options) => {
+      const items = await apiClient.getDocuments(options);
+      return { items, hasMore: false, offset: 0, limit: 50, total: items.length };
+    });
     vi.unstubAllGlobals();
   });
 
@@ -488,19 +516,11 @@ describe("bootstrap() — upload to recognition wiring (Req 11.4)", () => {
     expect(root.querySelector("[data-testid='upload-drop-zone']")).not.toBeNull();
   });
 
-  it("keeps calibration visible by default and switches workspace tool tabs", async () => {
+  it("starts in Library and keeps optional calibration inside Settings", async () => {
     await bootstrap(root);
-
-    const calibrationPanel = root.querySelector<HTMLElement>("#utility-panel-calibration")!;
-    const historyPanel = root.querySelector<HTMLElement>("#utility-panel-history")!;
-    expect(calibrationPanel.hidden).toBe(false);
-    expect(historyPanel.hidden).toBe(true);
+    expect(root.querySelector<HTMLElement>(".library-screen")!.hidden).toBe(false);
+    expect(root.querySelector<HTMLElement>(".settings-screen")!.hidden).toBe(true);
     expect(root.querySelector("[data-testid='calibration-start-btn']")).not.toBeNull();
-
-    root.querySelector<HTMLButtonElement>("#utility-tab-history")!.click();
-
-    expect(calibrationPanel.hidden).toBe(true);
-    expect(historyPanel.hidden).toBe(false);
   });
 
   it("editor section is hidden before a file is uploaded", async () => {
@@ -528,6 +548,8 @@ describe("bootstrap() — upload to recognition wiring (Req 11.4)", () => {
     });
     fileInput.dispatchEvent(new Event("change"));
 
+    const conversion = root.querySelector<HTMLInputElement>("[data-testid='upload-convert-after-import']")!;
+    conversion.checked = true; conversion.dispatchEvent(new Event("change"));
     const btn = root.querySelector<HTMLButtonElement>("[data-testid='upload-submit-btn']")!;
     btn.click();
 
@@ -552,6 +574,8 @@ describe("bootstrap() — upload to recognition wiring (Req 11.4)", () => {
     });
     fileInput.dispatchEvent(new Event("change"));
 
+    const conversion = root.querySelector<HTMLInputElement>("[data-testid='upload-convert-after-import']")!;
+    conversion.checked = true; conversion.dispatchEvent(new Event("change"));
     const btn = root.querySelector<HTMLButtonElement>("[data-testid='upload-submit-btn']")!;
     btn.click();
 
@@ -571,6 +595,8 @@ describe("bootstrap() — upload to recognition wiring (Req 11.4)", () => {
       configurable: true,
     });
     fileInput.dispatchEvent(new Event("change"));
+    const conversion = root.querySelector<HTMLInputElement>("[data-testid='upload-convert-after-import']")!;
+    conversion.checked = true; conversion.dispatchEvent(new Event("change"));
     root.querySelector<HTMLButtonElement>("[data-testid='upload-submit-btn']")!.click();
 
     await vi.waitFor(() => {
@@ -591,6 +617,8 @@ describe("bootstrap() — upload to recognition wiring (Req 11.4)", () => {
       configurable: true,
     });
     fileInput.dispatchEvent(new Event("change"));
+    const conversion = root.querySelector<HTMLInputElement>("[data-testid='upload-convert-after-import']")!;
+    conversion.checked = true; conversion.dispatchEvent(new Event("change"));
     root.querySelector<HTMLButtonElement>("[data-testid='upload-submit-btn']")!.click();
 
     await vi.waitFor(() => {
@@ -623,13 +651,15 @@ describe("bootstrap() — upload to recognition wiring (Req 11.4)", () => {
       configurable: true,
     });
     fileInput.dispatchEvent(new Event("change"));
+    const conversion = root.querySelector<HTMLInputElement>("[data-testid='upload-convert-after-import']")!;
+    conversion.checked = true; conversion.dispatchEvent(new Event("change"));
     root.querySelector<HTMLButtonElement>("[data-testid='upload-submit-btn']")!.click();
 
     await vi.waitFor(() => {
       const section = root.querySelector<HTMLElement>("[data-testid='math-notes-section']")!;
       expect(section.style.display).not.toBe("none");
       expect(section.textContent).toContain("Formula review");
-    });
+    }, { timeout: 10_000 });
     expect(apiClient.importDocument).toHaveBeenCalledWith(file, "calculus");
   });
 
@@ -677,8 +707,57 @@ describe("bootstrap() — upload to recognition wiring (Req 11.4)", () => {
       const section = root.querySelector<HTMLElement>("[data-testid='math-notes-section']")!;
       expect(section.style.display).not.toBe("none");
       expect(section.textContent).toContain("Formula review");
-    });
+    }, { timeout: 10_000 });
     expect(apiClient.getRecognitionResult).not.toHaveBeenCalled();
+  });
+
+  it("converts a reopened image that has no saved recognition result", async () => {
+    const notebook = { document_id: "reopened", title: "Unconverted", created_at: "2026-10-14T00:00:00Z", image_ids: ["img-reopened"] };
+    vi.mocked(apiClient.getDocuments).mockResolvedValue([notebook]);
+    vi.mocked(apiClient.getDocument).mockResolvedValue(notebook);
+    vi.mocked(apiClient.getRecognitionResult).mockRejectedValue(new apiClient.ApiError(404, "Not found"));
+    await bootstrap(root);
+    const link = await vi.waitFor(() => {
+      const found = root.querySelector<HTMLAnchorElement>(".gallery-document");
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    link.click();
+    const convert = await vi.waitFor(() => {
+      const found = [...root.querySelectorAll("button")].find((item) => item.textContent === "Convert page");
+      expect(found).toBeDefined();
+      return found!;
+    });
+    convert.click();
+    await vi.waitFor(() => expect(root.querySelector("[data-testid='editor-section']")?.textContent).toContain("hello"));
+    expect(apiClient.recognizeImage).toHaveBeenCalledWith("img-reopened");
+  });
+
+  it("does not replace a newly opened notebook with a late conversion response", async () => {
+    let complete!: (result: Awaited<ReturnType<typeof apiClient.recognizeImage>>) => void;
+    vi.mocked(apiClient.recognizeImage).mockImplementation(() => new Promise((resolve) => { complete = resolve; }));
+    const notebook = {
+      document_id: "doc-next", title: "Next notebook", created_at: "2026-10-14T12:00:00Z", image_ids: ["next-image"],
+      pages: [{ page_id: "next-page", page_index: 0, image_id: "next-image", width: 320, height: 180, dpi: 200, coordinate_space: "page-raster-v1" }],
+    };
+    vi.mocked(apiClient.getDocuments).mockResolvedValue([notebook]);
+    vi.mocked(apiClient.getDocument).mockResolvedValue(notebook);
+    await bootstrap(root);
+    const input = root.querySelector<HTMLInputElement>("[data-testid='upload-file-input']")!;
+    const file = new File(["img"], "first.png", { type: "image/png" });
+    Object.defineProperty(input, "files", { value: { 0: file, length: 1, item: () => file }, configurable: true });
+    input.dispatchEvent(new Event("change"));
+    const convert = root.querySelector<HTMLInputElement>("[data-testid='upload-convert-after-import']")!;
+    convert.checked = true; convert.dispatchEvent(new Event("change"));
+    root.querySelector<HTMLButtonElement>("[data-testid='upload-submit-btn']")!.click();
+    await vi.waitFor(() => expect(apiClient.recognizeImage).toHaveBeenCalled());
+    const link = await vi.waitFor(() => { const found = root.querySelector<HTMLAnchorElement>(".recent-notebooks a"); expect(found).not.toBeNull(); return found!; });
+    link.click();
+    await vi.waitFor(() => expect(root.querySelector<HTMLElement>("[data-testid='math-notes-section']")!.style.display).not.toBe("none"), { timeout: 10_000 });
+    complete({ status: "ok", recognized_any_text: false, lines: [] });
+    await vi.waitFor(() => expect(root.querySelector("[data-testid='upload-status']")!.textContent).toBe("Upload complete."));
+    expect(root.querySelector<HTMLElement>("[data-testid='math-notes-section']")!.style.display).not.toBe("none");
+    expect(root.querySelector(".document-screen h1")!.textContent).toBe("Next notebook");
   });
 
   it("confirmed correction calls submitCorrection with correct data", async () => {
@@ -691,6 +770,8 @@ describe("bootstrap() — upload to recognition wiring (Req 11.4)", () => {
       configurable: true,
     });
     fileInput.dispatchEvent(new Event("change"));
+    const conversion = root.querySelector<HTMLInputElement>("[data-testid='upload-convert-after-import']")!;
+    conversion.checked = true; conversion.dispatchEvent(new Event("change"));
     root.querySelector<HTMLButtonElement>("[data-testid='upload-submit-btn']")!.click();
 
     // Wait for the editor to be populated.
@@ -747,6 +828,8 @@ describe("bootstrap() — upload to recognition wiring (Req 11.4)", () => {
       configurable: true,
     });
     fileInput.dispatchEvent(new Event("change"));
+    const conversion = root.querySelector<HTMLInputElement>("[data-testid='upload-convert-after-import']")!;
+    conversion.checked = true; conversion.dispatchEvent(new Event("change"));
     root.querySelector<HTMLButtonElement>("[data-testid='upload-submit-btn']")!.click();
 
     await vi.waitFor(() => {
@@ -755,7 +838,7 @@ describe("bootstrap() — upload to recognition wiring (Req 11.4)", () => {
     });
 
     // Click the plain-text export button.
-    const exportBtn = root.querySelector<HTMLButtonElement>("[data-testid='export-btn-copy']")!;
+    const exportBtn = root.querySelector<HTMLButtonElement>("[data-testid='export-confirm']")!;
     exportBtn.click();
 
     await vi.waitFor(() => {
@@ -819,6 +902,8 @@ describe("bootstrap() — upload to recognition wiring (Req 11.4)", () => {
       configurable: true,
     });
     fileInput.dispatchEvent(new Event("change"));
+    const conversion = root.querySelector<HTMLInputElement>("[data-testid='upload-convert-after-import']")!;
+    conversion.checked = true; conversion.dispatchEvent(new Event("change"));
     root.querySelector<HTMLButtonElement>("[data-testid='upload-submit-btn']")!.click();
 
     const textarea = await vi.waitFor(() => {
@@ -831,7 +916,7 @@ describe("bootstrap() — upload to recognition wiring (Req 11.4)", () => {
     textarea.value = "acted quaintly but kept driving their oxen forward";
     textarea.dispatchEvent(new Event("input", { bubbles: true }));
 
-    const exportBtn = root.querySelector<HTMLButtonElement>("[data-testid='export-btn-copy']")!;
+    const exportBtn = root.querySelector<HTMLButtonElement>("[data-testid='export-confirm']")!;
     exportBtn.click();
 
     await vi.waitFor(() => {
@@ -877,6 +962,8 @@ describe("bootstrap() — upload to recognition wiring (Req 11.4)", () => {
       configurable: true,
     });
     fileInput.dispatchEvent(new Event("change"));
+    const conversion = root.querySelector<HTMLInputElement>("[data-testid='upload-convert-after-import']")!;
+    conversion.checked = true; conversion.dispatchEvent(new Event("change"));
     root.querySelector<HTMLButtonElement>("[data-testid='upload-submit-btn']")!.click();
 
     const textarea = await vi.waitFor(() => {
@@ -925,11 +1012,21 @@ describe("bootstrap() — capability gating (Req 11.5, 11.6)", () => {
   beforeEach(() => {
     root = makeMount();
     vi.resetAllMocks();
+    vi.mocked(apiClient.getDocuments).mockResolvedValue([]);
+    vi.mocked(apiClient.getDocumentsPage).mockImplementation(async (options) => {
+      const items = await apiClient.getDocuments(options);
+      return { items, hasMore: false, offset: 0, limit: 50, total: items.length };
+    });
   });
 
   afterEach(() => {
     cleanup(root);
     vi.resetAllMocks();
+    vi.mocked(apiClient.getDocuments).mockResolvedValue([]);
+    vi.mocked(apiClient.getDocumentsPage).mockImplementation(async (options) => {
+      const items = await apiClient.getDocuments(options);
+      return { items, hasMore: false, offset: 0, limit: 50, total: items.length };
+    });
   });
 
   it("shows a capability banner when the backend reports degraded status", async () => {

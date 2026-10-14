@@ -14,7 +14,8 @@ from app.config.settings import get_settings
 from app.data.base import utcnow
 from app.data.models import ConsentEvent, PasswordResetToken, User
 from app.data.repositories import RepositoryFactory
-from app.services.auth import hash_password
+from app.middleware.rate_limiter import RateLimitUnavailable, consume_subject_limit
+from app.services.auth import SessionStore, hash_password
 from app.services.auth_api import get_current_user, get_repositories
 from app.services.error_codes import http_error
 
@@ -133,29 +134,63 @@ def list_vocabulary(
     ]
 
 
+def _password_reset_available() -> bool:
+    """Reset stays off in production until a mail sender exists.
+
+    Development and test can still issue tokens. The raw token is never part of
+    the default response; ``HND_EXPOSE_RESET_TOKENS`` is an explicit local flag
+    and startup refuses it when ``environment`` is production.
+    """
+    return get_settings().environment != "production"
+
+
+def _enforce_reset_quota(subject: str, route_key: str, capacity: float, refill_rate: float) -> None:
+    try:
+        result = consume_subject_limit(subject, route_key, capacity, refill_rate)
+    except RateLimitUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication is temporarily unavailable.",
+        ) from exc
+    if result == "unavailable":
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication is temporarily unavailable.",
+        )
+    if result == "limited":
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please slow down.",
+        )
+
+
 @account_recovery_router.post("/password-reset/request", status_code=status.HTTP_202_ACCEPTED)
 def request_password_reset(
     req: PasswordResetRequest,
     repos: RepositoryFactory = Depends(get_repositories),
 ) -> dict[str, str]:
     """Always look identical so usernames cannot be enumerated from this path."""
-    email = req.email.strip()
-    user = repos.users.get_by_email(email) or repos.users.get_by_email(email.lower())
-    if user is not None:
-        raw = secrets.token_urlsafe(32)
-        token_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
-        repos.password_resets.add(
-            PasswordResetToken(
-                token_hash=token_hash,
-                user_id=user.user_id,
-                expires_at=utcnow() + timedelta(hours=1),
-            )
+    if not _password_reset_available():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    email = req.email.strip().lower()
+    _enforce_reset_quota(email, "POST:/auth/password-reset/request", 5, 0.1)
+    user = repos.users.get_by_email(email)
+    if user is None or user.disabled_at is not None:
+        return {"status": "accepted"}
+    raw = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    repos.password_resets.add(
+        PasswordResetToken(
+            token_hash=token_hash,
+            user_id=user.user_id,
+            expires_at=utcnow() + timedelta(hours=1),
         )
-        repos.session.commit()
-        # Recovery mail is out of process. Tests inspect the hash; production
-        # should enqueue this token to a verified-email sender.
-        return {"status": "accepted", "debug_token": raw if get_settings().environment != "production" else ""}
-    return {"status": "accepted", "debug_token": ""}
+    )
+    repos.session.commit()
+    settings = get_settings()
+    if settings.expose_reset_tokens and settings.environment != "production":
+        return {"status": "accepted", "debug_token": raw}
+    return {"status": "accepted"}
 
 
 def _as_aware(value: datetime) -> datetime:
@@ -169,14 +204,20 @@ def confirm_password_reset(
     req: PasswordResetConfirm,
     repos: RepositoryFactory = Depends(get_repositories),
 ) -> dict[str, str]:
+    if not _password_reset_available():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    _enforce_reset_quota(req.token, "POST:/auth/password-reset/confirm", 10, 0.2)
     token_hash = hashlib.sha256(req.token.encode("utf-8")).hexdigest()
     row = repos.password_resets.get(token_hash)
     if row is None or row.used_at is not None or _as_aware(row.expires_at) <= utcnow():
         raise HTTPException(status_code=400, detail="Invalid or expired reset token")
     user = repos.users.get_by_id(row.user_id)
-    if user is None:
+    if user is None or user.disabled_at is not None:
         raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+    now = utcnow()
     user.password_hash = hash_password(req.new_password)
-    row.used_at = utcnow()
-    repos.session.commit()
+    row.used_at = now
+    repos.password_resets.consume_outstanding(user.user_id, used_at=now, keep_hash=token_hash)
+    # Commits the password change, the consumed tokens, and every live session.
+    SessionStore(repos.session).revoke_all(user.user_id)
     return {"status": "updated"}

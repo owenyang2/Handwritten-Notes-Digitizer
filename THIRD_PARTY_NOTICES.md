@@ -48,3 +48,8 @@ own notices. The direct dependency manifests are
 [`ios/Package.swift`](ios/Package.swift). Optional runtime/training manifests
 remain separate. Retain applicable upstream notices when distributing a built
 application or container.
+
+The optional production profile runs [SeaweedFS](https://github.com/seaweedfs/seaweedfs),
+licensed under Apache-2.0, as a separate container. Its image and bundled
+dependencies retain their upstream notices. The retired MinIO images are no
+longer used by this profile.
