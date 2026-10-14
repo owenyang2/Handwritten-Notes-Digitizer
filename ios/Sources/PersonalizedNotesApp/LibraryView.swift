@@ -8,6 +8,7 @@ import PhotosUI
 
 struct LibraryView: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.colorScheme) private var colorScheme
     @State private var newTitle = ""
     @State private var showingCreate = false
     @State private var showingRename = false
@@ -29,96 +30,9 @@ struct LibraryView: View {
     #endif
 
     var body: some View {
-        List(selection: $selectedDocumentIDs) {
-            Section {
-                syncStatusRow
-            }
-            if model.libraryView == .trash {
-                Section {
-                    Label(
-                        "Trash is retained on this iPad until you explicitly delete it permanently. Permanent deletion is account-wide after the server accepts it.",
-                        systemImage: "clock.arrow.circlepath"
-                    )
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                }
-            }
-            Section(sectionTitle) {
-                if model.documents.isEmpty {
-                    if model.libraryView == .active {
-                        EmptyLibraryStartView {
-                            showingCreate = true
-                        } onGettingStarted: {
-                            showingGettingStarted = true
-                        }
-                    } else {
-                        Text(emptyText)
-                            .foregroundStyle(.secondary)
-                    }
-                } else if layout == .grid {
-                    LazyVGrid(
-                        columns: [GridItem(.adaptive(minimum: 180), spacing: 14)],
-                        spacing: 14
-                    ) {
-                        ForEach(sortedDocuments) { document in
-                            gridCard(for: document)
-                                .tag(document.documentID)
-                        }
-                        if model.hasMoreDocuments {
-                            Button("Load more notebooks") {
-                                Task { await model.loadMoreLibrary() }
-                            }
-                            .buttonStyle(.bordered)
-                            .frame(maxWidth: .infinity)
-                        }
-                    }
-                    .padding(.vertical, 6)
-                } else {
-                    ForEach(sortedDocuments) { document in
-                        Button {
-                            model.openNotebook(
-                                document.documentID,
-                                pageID: matchingPage(for: document)?.pageID
-                            )
-                        } label: {
-                            HStack(spacing: 10) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(document.title)
-                                        .foregroundStyle(.primary)
-                                    Text(subtitle(for: document))
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                    if let page = matchingPage(for: document) {
-                                        Text("Page match: \(pageDisplayName(for: page))")
-                                            .font(.caption2)
-                                            .foregroundStyle(.tint)
-                                    }
-                                }
-                                Spacer(minLength: 8)
-                                if document.isFavorite {
-                                    Image(systemName: "star.fill")
-                                        .foregroundStyle(.yellow)
-                                        .accessibilityLabel("Favorite")
-                                }
-                            }
-                        }
-                        .contextMenu { notebookContextMenu(for: document) }
-                        .accessibilityLabel(document.title)
-                        .accessibilityHint("Opens notebook")
-                        .tag(document.documentID)
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            trailingActions(for: document)
-                        }
-                    }
-                    if model.hasMoreDocuments {
-                        Button("Load more notebooks") {
-                            Task { await model.loadMoreLibrary() }
-                        }
-                        .frame(maxWidth: .infinity)
-                    }
-                }
-            }
-        }
+        libraryList
+        .scrollContentBackground(.hidden)
+        .background(NotebookColors.canvas(colorScheme))
         .navigationTitle("Library")
         .searchable(text: $model.searchQuery)
         .onChange(of: model.searchQuery) { _, _ in
@@ -130,119 +44,7 @@ struct LibraryView: View {
         }
         .onChange(of: layout) { _, value in value.save() }
         .onChange(of: sort) { _, value in value.save() }
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Picker("View", selection: $model.libraryView) {
-                    ForEach(DocumentLibraryView.allCases, id: \.self) { view in
-                        Text(view.label).tag(view)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .frame(maxWidth: 360)
-            }
-            ToolbarItem(placement: .primaryAction) {
-                Menu {
-                    Button {
-                        showingCreate = true
-                    } label: {
-                        Label("New Notebook", systemImage: "square.and.pencil")
-                    }
-                    .keyboardShortcut("n", modifiers: [.command])
-                    Button {
-                        showingImporter = true
-                    } label: {
-                        Label("Import PDF, Image, or Notebook", systemImage: "square.and.arrow.down")
-                    }
-                    .keyboardShortcut("o", modifiers: [.command])
-                    #if os(iOS) && canImport(PhotosUI)
-                    Button {
-                        showingPhotoPicker = true
-                    } label: {
-                        Label("Import Photos", systemImage: "photo.on.rectangle.angled")
-                    }
-                    #endif
-                } label: {
-                    Label("New", systemImage: "plus")
-                }
-                .disabled(model.libraryView != .active)
-            }
-            ToolbarItem(placement: .automatic) {
-                Menu {
-                    Picker("Layout", selection: $layout) {
-                        ForEach(LibraryLayout.allCases, id: \.self) { option in
-                            Label(option.title, systemImage: option.systemImage)
-                                .tag(option)
-                        }
-                    }
-                    Picker("Sort", selection: $sort) {
-                        ForEach(LibrarySort.allCases, id: \.self) { option in
-                            Text(option.title).tag(option)
-                        }
-                    }
-                } label: {
-                    Label("Library view options", systemImage: layout.systemImage)
-                }
-                .accessibilityLabel("Library view options")
-            }
-            #if os(iOS)
-            ToolbarItem(placement: .automatic) {
-                EditButton()
-            }
-            #endif
-            if !selectedDocumentIDs.isEmpty {
-                ToolbarItem(placement: .automatic) {
-                    Menu {
-                        if model.libraryView == .trash {
-                            Button("Restore selected") {
-                                let ids = selectedDocumentIDs
-                                selectedDocumentIDs.removeAll()
-                                Task {
-                                    for id in ids { await model.restoreDocument(id) }
-                                }
-                            }
-                            Button("Delete permanently", role: .destructive) {
-                                pendingPermanentDeleteIDs = selectedDocumentIDs
-                                selectedDocumentIDs.removeAll()
-                            }
-                        } else {
-                            Button("Archive selected") {
-                                let ids = selectedDocumentIDs
-                                selectedDocumentIDs.removeAll()
-                                Task { await model.archiveDocuments(Array(ids), archived: true) }
-                            }
-                            Button("Add selected to Favorites") {
-                                let ids = selectedDocumentIDs
-                                selectedDocumentIDs.removeAll()
-                                Task { await model.toggleFavorites(Array(ids)) }
-                            }
-                            Button("Trash selected", role: .destructive) {
-                                let ids = selectedDocumentIDs
-                                selectedDocumentIDs.removeAll()
-                                Task { await model.trashDocuments(Array(ids)) }
-                            }
-                        }
-                    } label: {
-                        Label("Bulk actions", systemImage: "checklist")
-                    }
-                }
-            }
-            ToolbarItem(placement: leadingPlacement) {
-                Menu {
-                    if model.isGuest {
-                        Button("Sign In or Create Account") { model.route = .welcome }
-                    } else {
-                        Button("Account") { showingAccount = true }
-                    }
-                    Button("Getting Started") { showingGettingStarted = true }
-                    Button("Settings") { showingSettings = true }
-                    Button("Sign Out", role: .destructive) {
-                        Task { await model.logout() }
-                    }
-                } label: {
-                    Label("More", systemImage: "ellipsis.circle")
-                }
-            }
-        }
+        .toolbar { libraryToolbar }
         .refreshable {
             await model.syncNow()
         }
@@ -327,7 +129,7 @@ struct LibraryView: View {
             Button("Sync Local Notes") {
                 Task { await model.acceptGuestMerge() }
             }
-            Button("Keep on This iPad for Now", role: .cancel) {
+            Button("Keep on This Device for Now", role: .cancel) {
                 model.deferGuestMerge()
             }
         } message: {
@@ -357,6 +159,217 @@ struct LibraryView: View {
                 "This permanently removes \(pendingPermanentDeleteIDs.count == 1 ? "this notebook" : "these notebooks") from the account after sync. The action cannot be undone."
             )
         }
+    }
+
+    private var libraryList: some View {
+        List(selection: $selectedDocumentIDs) {
+            Section {
+                syncStatusRow
+            }
+            if model.libraryView == .trash {
+                Section {
+                    Label(
+                        "Trash is retained on this iPad until you explicitly delete it permanently. Permanent deletion is account-wide after the server accepts it.",
+                        systemImage: "clock.arrow.circlepath"
+                    )
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                }
+            }
+            Section(sectionTitle) {
+                if model.documents.isEmpty {
+                    if model.libraryView == .active {
+                        EmptyLibraryStartView {
+                            showingCreate = true
+                        } onGettingStarted: {
+                            showingGettingStarted = true
+                        }
+                    } else {
+                        Text(emptyText)
+                            .foregroundStyle(.secondary)
+                    }
+                } else if layout == .grid {
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: 180), spacing: 14)],
+                        spacing: 14
+                    ) {
+                        ForEach(sortedDocuments) { document in
+                            gridCard(for: document)
+                                .tag(document.documentID)
+                        }
+                        if model.hasMoreDocuments {
+                            Button("Load more notebooks") {
+                                Task { await model.loadMoreLibrary() }
+                            }
+                            .buttonStyle(.bordered)
+                            .frame(maxWidth: .infinity)
+                        }
+                    }
+                    .padding(.vertical, 6)
+                } else {
+                    ForEach(sortedDocuments) { document in
+                        Button {
+                            model.openNotebook(
+                                document.documentID,
+                                pageID: matchingPage(for: document)?.pageID
+                            )
+                        } label: {
+                            HStack(spacing: 10) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(document.title)
+                                        .foregroundStyle(.primary)
+                                    Text(subtitle(for: document))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    if let page = matchingPage(for: document) {
+                                        Text("Page match: \(pageDisplayName(for: page))")
+                                            .font(.caption2)
+                                            .foregroundStyle(.tint)
+                                    }
+                                }
+                                Spacer(minLength: 8)
+                                if document.isFavorite {
+                                    Image(systemName: "star.fill")
+                                        .foregroundStyle(.yellow)
+                                        .accessibilityLabel("Favorite")
+                                }
+                            }
+                            .padding(.trailing, 44)
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu { notebookContextMenu(for: document) }
+                        .accessibilityLabel(document.title)
+                        .accessibilityHint("Opens notebook")
+                        .tag(document.documentID)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            trailingActions(for: document)
+                        }
+                        .overlay(alignment: .trailing) { notebookActionsMenu(for: document) }
+                    }
+                    if model.hasMoreDocuments {
+                        Button("Load more notebooks") {
+                            Task { await model.loadMoreLibrary() }
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                }
+            }
+        }
+    }
+
+    @ToolbarContentBuilder private var libraryToolbar: some ToolbarContent {
+
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    Button {
+                        showingCreate = true
+                    } label: {
+                        Label("New Notebook", systemImage: "square.and.pencil")
+                    }
+                    .keyboardShortcut("n", modifiers: [.command])
+                    Button {
+                        showingImporter = true
+                    } label: {
+                        Label("Import PDF, Image, or Notebook", systemImage: "square.and.arrow.down")
+                    }
+                    .keyboardShortcut("o", modifiers: [.command])
+                    #if os(iOS) && canImport(PhotosUI)
+                    Button {
+                        showingPhotoPicker = true
+                    } label: {
+                        Label("Import Photos", systemImage: "photo.on.rectangle.angled")
+                    }
+                    #endif
+                } label: {
+                    Label("New", systemImage: "plus")
+                }
+                .disabled(model.libraryView != .active)
+            }
+            ToolbarItem(placement: .automatic) {
+                Menu {
+                    Picker("Library view", selection: $model.libraryView) {
+                        ForEach(DocumentLibraryView.allCases, id: \.self) { view in
+                            Text(view.label).tag(view)
+                        }
+                    }
+                    .pickerStyle(.inline)
+                    Divider()
+                    Picker("Layout", selection: $layout) {
+                        ForEach(LibraryLayout.allCases, id: \.self) { option in
+                            Label(option.title, systemImage: option.systemImage)
+                                .tag(option)
+                        }
+                    }
+                    Picker("Sort", selection: $sort) {
+                        ForEach(LibrarySort.allCases, id: \.self) { option in
+                            Text(option.title).tag(option)
+                        }
+                    }
+                } label: {
+                    Label("Library view options", systemImage: layout.systemImage)
+                }
+                .accessibilityLabel("Library view options")
+                .accessibilityIdentifier("library-view-picker")
+            }
+            #if os(iOS)
+            ToolbarItem(placement: .automatic) {
+                EditButton()
+            }
+            #endif
+            if !selectedDocumentIDs.isEmpty {
+                ToolbarItem(placement: .automatic) {
+                    Menu {
+                        if model.libraryView == .trash {
+                            Button("Restore selected") {
+                                let ids = selectedDocumentIDs
+                                selectedDocumentIDs.removeAll()
+                                Task {
+                                    for id in ids { await model.restoreDocument(id) }
+                                }
+                            }
+                            Button("Delete permanently", role: .destructive) {
+                                pendingPermanentDeleteIDs = selectedDocumentIDs
+                                selectedDocumentIDs.removeAll()
+                            }
+                        } else {
+                            Button("Archive selected") {
+                                let ids = selectedDocumentIDs
+                                selectedDocumentIDs.removeAll()
+                                Task { await model.archiveDocuments(Array(ids), archived: true) }
+                            }
+                            Button("Add selected to Favorites") {
+                                let ids = selectedDocumentIDs
+                                selectedDocumentIDs.removeAll()
+                                Task { await model.toggleFavorites(Array(ids)) }
+                            }
+                            Button("Trash selected", role: .destructive) {
+                                let ids = selectedDocumentIDs
+                                selectedDocumentIDs.removeAll()
+                                Task { await model.trashDocuments(Array(ids)) }
+                            }
+                        }
+                    } label: {
+                        Label("Bulk actions", systemImage: "checklist")
+                    }
+                }
+            }
+            ToolbarItem(placement: leadingPlacement) {
+                Menu {
+                    if model.isGuest {
+                        Button("Sign In or Create Account") { model.route = .welcome }
+                    } else {
+                        Button("Account") { showingAccount = true }
+                    }
+                    Button("Getting Started") { showingGettingStarted = true }
+                    Button("Settings") { showingSettings = true }
+                    Button("Sign Out", role: .destructive) {
+                        Task { await model.logout() }
+                    }
+                } label: {
+                    Label("More", systemImage: "ellipsis.circle")
+                }
+                .accessibilityIdentifier("library-more")
+            }
     }
 
     private var leadingPlacement: ToolbarItemPlacement {
@@ -517,6 +530,17 @@ struct LibraryView: View {
         .hoverEffect(.highlight)
         #endif
         .accessibilityLabel("\(document.title). \(subtitle(for: document))")
+        .overlay(alignment: .topTrailing) { notebookActionsMenu(for: document) }
+    }
+
+    private func notebookActionsMenu(for document: DocumentRecord) -> some View {
+        Menu { notebookContextMenu(for: document) } label: {
+            Image(systemName: "ellipsis")
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel("Actions for \(document.title)")
     }
 
     @ViewBuilder
@@ -658,8 +682,8 @@ private struct EmptyLibraryStartView: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
             Button("Create Notebook", action: onCreate)
-                .buttonStyle(.borderedProminent)
-                .accessibilityHint("Creates a notebook saved on this iPad")
+                .modifier(NotebookPrimaryAction())
+                .accessibilityHint("Creates a notebook saved on this device")
             Button("Getting Started", action: onGettingStarted)
                 .buttonStyle(.bordered)
                 .accessibilityHint("Explains the first writing, page, and sync steps")
@@ -754,7 +778,7 @@ struct SyncIssuesView: View {
                                 Button("Retry import") {
                                     model.retryImport(failure)
                                 }
-                                .buttonStyle(.borderedProminent)
+                                .modifier(NotebookPrimaryAction())
                                 Button("Discard", role: .destructive) {
                                     model.discardImportFailure(failure)
                                 }
@@ -778,7 +802,7 @@ struct SyncIssuesView: View {
                             Button("Retry save") {
                                 Task { await model.retryLocalSave(pageID: failure.pageID) }
                             }
-                            .buttonStyle(.borderedProminent)
+                            .modifier(NotebookPrimaryAction())
                         }
                         .padding(.vertical, 4)
                     }
@@ -822,7 +846,7 @@ struct SyncIssuesView: View {
                                 Button("Retry my change") {
                                     Task { await model.resolveSyncConflict(conflict.conflictID, decision: .retryAsNew) }
                                 }
-                                .buttonStyle(.borderedProminent)
+                                .modifier(NotebookPrimaryAction())
                             }
                         }
                         .padding(.vertical, 4)

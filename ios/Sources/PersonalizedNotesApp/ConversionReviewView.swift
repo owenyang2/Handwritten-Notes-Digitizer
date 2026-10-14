@@ -18,23 +18,29 @@ struct ConversionReviewView: View {
     @State private var message: String?
     @State private var busy = false
     @State private var choosingExportFormat = false
+    @State private var confirmingClose = false
+    @State private var savedTexts: [UUID: String] = [:]
+    @State private var savedExclusions: [UUID: Bool] = [:]
     @State private var exportedFile: ShareableExportFile?
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 HStack {
-                    Button("Done") { dismiss() }
+                    Button("Done") { if hasUnsavedChanges { confirmingClose = true } else { dismiss() } }
                     Spacer()
                     #if os(iOS)
                     EditButton()
                     #endif
-                    Button("Save All") { perform { try await saveAll(); try await reload(); message = "Review saved." } }
+                    Button("Save review") { perform { try await saveAll(); try await reload(); message = "Review saved." } }
                         .disabled(busy || blocks.isEmpty || blocks.contains { $0.sourceStale == true })
                     Button("Export") { choosingExportFormat = true }
-                    .confirmationDialog("Export saved review", isPresented: $choosingExportFormat, titleVisibility: .visible) {
+                    .confirmationDialog(hasUnsavedChanges ? "Save changes and export" : "Export saved review", isPresented: $choosingExportFormat, titleVisibility: .visible) {
                         ForEach(["markdown", "latex", "html"], id: \.self) { format in
-                            Button(format.capitalized) { perform { try await export(format) } }
+                            Button("Save and export \(format.capitalized)") { perform { try await export(format, saving: true) } }
+                            if hasUnsavedChanges {
+                                Button("Export last saved \(format.capitalized)") { perform { try await export(format, saving: false) } }
+                            }
                         }
                         Button("Cancel", role: .cancel) { }
                     }
@@ -44,26 +50,80 @@ struct ConversionReviewView: View {
                 .buttonStyle(.borderless)
                 .padding()
                 if let message { Text(message).font(.callout).padding().accessibilityIdentifier("conversion-review-status") }
+                GeometryReader { geometry in
+                    let wide = geometry.size.width >= 760
+                    let layout = wide ? AnyLayout(HStackLayout(spacing: 0)) : AnyLayout(VStackLayout(spacing: 0))
+                    layout {
+                        sourcePane
+                            .frame(maxWidth: .infinity)
+                            .frame(height: wide ? geometry.size.height : min(220, geometry.size.height * 0.3))
+                        resultPane
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }
+                if blocks.isEmpty && !busy { Text("No review blocks. Select a region on the website or retry conversion.").padding() }
+            }
+            .navigationTitle("Review")
+            .interactiveDismissDisabled(hasUnsavedChanges || busy)
+            .confirmationDialog("Changes not saved", isPresented: $confirmingClose, titleVisibility: .visible) {
+                Button("Save review and close") { perform { try await saveAll(); dismiss() } }
+                Button("Discard changes", role: .destructive) { dismiss() }
+                Button("Keep editing", role: .cancel) { }
+            } message: {
+                Text("Your corrections have not been saved to this notebook.")
+            }
+            .task { perform { source = try await model.client.conversionSource(runID: run.runID); try await reload() } }
+            .sheet(item: $exportedFile) { file in
                 #if canImport(UIKit)
+                ActivityShareView(file: file)
+                #else
+                Text(file.url.path)
+                #endif
+            }
+        }
+    }
+
+    private var hasUnsavedChanges: Bool {
+        blocks.contains { block in
+            (drafts[block.id] ?? "") != (savedTexts[block.id] ?? block.reviewedText ?? block.predictionText ?? "") ||
+            (exclusions[block.id] ?? false) != (savedExclusions[block.id] ?? block.excluded)
+        }
+    }
+
+    @ViewBuilder private var sourcePane: some View {
+        #if canImport(UIKit)
                 if let source, let image = UIImage(data: source) {
                     GeometryReader { geometry in
-                        let scale = min(geometry.size.width / image.size.width, geometry.size.height / image.size.height)
+                        let pixelWidth = CGFloat(image.cgImage?.width ?? Int(image.size.width * image.scale))
+                        let pixelHeight = CGFloat(image.cgImage?.height ?? Int(image.size.height * image.scale))
+                        let scale = min(geometry.size.width / pixelWidth, geometry.size.height / pixelHeight)
                         ZStack(alignment: .topLeading) {
-                            Image(uiImage: image).resizable().frame(width: image.size.width*scale, height: image.size.height*scale)
-                            if let block = blocks.first(where: { $0.regionID == selected }), block.bbox.count == 4 {
-                                Rectangle().stroke(Color.accentColor, lineWidth: 3)
-                                    .background(Color.accentColor.opacity(0.12))
+                            Image(uiImage: image).resizable().frame(width: pixelWidth*scale, height: pixelHeight*scale)
+                            ForEach(blocks.filter { $0.bbox.count == 4 }) { block in
+                                Button { selected = block.regionID } label: {
+                                    Rectangle().stroke(Color.blue, lineWidth: selected == block.regionID ? 3 : 1)
+                                        .background(Color.blue.opacity(selected == block.regionID ? 0.12 : 0.01))
+                                }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel("Select original region \(block.orderIndex + 1)")
                                     .frame(width: CGFloat(block.bbox[2])*scale, height: CGFloat(block.bbox[3])*scale)
                                     .offset(x: CGFloat(block.bbox[0])*scale, y: CGFloat(block.bbox[1])*scale)
                             }
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
-                    .frame(height: 240)
                     .padding()
                     .accessibilityLabel("Saved source revision with selected region highlighted")
                 }
-                #endif
+        #else
+        Text("Open the source page beside this review.").foregroundStyle(.secondary)
+        #endif
+    }
+
+    private var resultPane: some View {
+        VStack(spacing: 0) {
+            Text(hasUnsavedChanges ? "Changes not saved" : blocks.contains { $0.reviewedText == nil && savedTexts[$0.id] == nil } ? "Prediction · Save review to accept" : "Review matches saved content")
+                .font(.callout).foregroundStyle(.secondary).padding(.horizontal)
                 List {
                     ForEach(blocks) { block in
                         VStack(alignment: .leading, spacing: 8) {
@@ -79,7 +139,8 @@ struct ConversionReviewView: View {
                                 .accessibilityIdentifier("conversion-text-\(block.regionID.uuidString)")
                             Toggle("Exclude from export", isOn: Binding(get: { exclusions[block.regionID] ?? false }, set: { exclusions[block.regionID] = $0 }))
                             HStack {
-                                Button("Accept / Save") { perform { try await save(block); try await reload(); message = "Review saved." } }
+                                Button("Save review") { perform { try await save(block); try await reload(); message = "Review saved." } }
+                                    .accessibilityIdentifier("conversion-save-\(block.regionID.uuidString)")
                                     .disabled(block.sourceStale == true)
                                 Spacer()
                                 Menu("Region actions") {
@@ -117,17 +178,6 @@ struct ConversionReviewView: View {
                     }
                 }
                 .disabled(busy)
-                if blocks.isEmpty && !busy { Text("No review blocks. Select a region on the website or retry conversion.").padding() }
-            }
-            .navigationTitle("Review Conversion")
-            .task { perform { source = try await model.client.conversionSource(runID: run.runID); try await reload() } }
-            .sheet(item: $exportedFile) { file in
-                #if canImport(UIKit)
-                ActivityShareView(file: file)
-                #else
-                Text(file.url.path)
-                #endif
-            }
         }
     }
 
@@ -155,10 +205,18 @@ struct ConversionReviewView: View {
     private func save(_ block: ConversionBlock) async throws {
         let saved = try await model.client.saveConversionReview(block: block, text: drafts[block.id] ?? "", excluded: exclusions[block.id] ?? false)
         revisionID = saved.documentRevisionID
+        savedTexts[block.id] = drafts[block.id] ?? ""
+        savedExclusions[block.id] = exclusions[block.id] ?? false
     }
 
     private func saveAll() async throws {
-        for block in blocks { try await save(block) }
+        for block in blocks {
+            let text = drafts[block.id] ?? ""
+            let excluded = exclusions[block.id] ?? false
+            if text != (savedTexts[block.id] ?? block.reviewedText) || excluded != (savedExclusions[block.id] ?? block.excluded) {
+                try await save(block)
+            }
+        }
     }
 
     private func retry(_ regionIDs: [UUID]) async throws {
@@ -174,8 +232,8 @@ struct ConversionReviewView: View {
         try await reload()
     }
 
-    private func export(_ format: String) async throws {
-        try await saveAll()
+    private func export(_ format: String, saving: Bool) async throws {
+        if saving { try await saveAll() }
         let exported = try await model.client.exportConvertedDocument(documentID: run.documentID, format: format, revisionID: revisionID)
         let suffix = format == "latex" ? "tex" : format == "markdown" ? "md" : "html"
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("Converted-Notes-\(UUID().uuidString).\(suffix)")

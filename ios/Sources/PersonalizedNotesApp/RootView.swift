@@ -37,6 +37,8 @@ struct RootView: View {
                 }
             }
         }
+        .preferredColorScheme(model.settings.appearance.colorScheme)
+        .tint(.primary)
         .alert(
             "Something went wrong",
             isPresented: Binding(
