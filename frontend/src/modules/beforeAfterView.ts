@@ -124,6 +124,8 @@ export class BeforeAfterView {
   private authToken: string | undefined;
   private refreshTimer: number | null = null;
   private refreshInFlight = false;
+  private disposed = false;
+  private closeZoom?: () => void;
   private latestStatus?: PersonalizationStatusResponse;
   private latestReport?: BeforeAfterReport;
   private latestTrainingPairs: TrainingPairSummaryResponse[] = [];
@@ -134,6 +136,13 @@ export class BeforeAfterView {
     this.mount = options.mount;
     this.apiBase = options.apiBase ?? "/api";
     this.authToken = options.authToken;
+  }
+
+  dispose(): void {
+    this.disposed = true;
+    this.closeZoom?.();
+    if (this.refreshTimer !== null) window.clearInterval(this.refreshTimer);
+    this.refreshTimer = null;
   }
 
   /** Update the auth token (e.g., after login). */
@@ -357,6 +366,7 @@ export class BeforeAfterView {
       zoomButton.setAttribute("data-testid", "training-example-zoom");
       zoomButton.textContent = "Zoom sample";
       zoomButton.addEventListener("click", () => {
+        this.closeZoom?.();
         const dialog = document.createElement("div");
         dialog.className = "training-example-zoom-dialog";
         dialog.setAttribute("data-testid", "training-example-zoom-dialog");
@@ -378,6 +388,7 @@ export class BeforeAfterView {
         const close = (): void => {
           document.removeEventListener("keydown", onKeyDown);
           dialog.remove();
+          this.closeZoom = undefined;
         };
         const onKeyDown = (event: KeyboardEvent): void => {
           if (event.key === "Escape") close();
@@ -388,6 +399,7 @@ export class BeforeAfterView {
         });
         dialog.appendChild(closeButton);
         document.addEventListener("keydown", onKeyDown);
+        this.closeZoom = close;
         document.body.appendChild(dialog);
         closeButton.focus();
       });
@@ -907,6 +919,7 @@ export class BeforeAfterView {
     unavailableReason?: string | null,
     assignments: ModelAssignmentSummaryResponse[] = [],
   ): void {
+    if (this.disposed) return;
     this.latestStatus = status;
     this.latestReport = report;
     this.latestTrainingPairs = trainingPairs;
@@ -932,7 +945,7 @@ export class BeforeAfterView {
    * Shows a loading state while fetching and an error message on failure.
    */
   async refresh(): Promise<void> {
-    if (this.refreshInFlight) return;
+    if (this.disposed || this.refreshInFlight) return;
     this.refreshInFlight = true;
     this.renderLoading();
 
@@ -944,6 +957,7 @@ export class BeforeAfterView {
         this.fetchAssignments(),
       ]);
 
+      if (this.disposed) return;
       const report = reportFromApi(evalData);
       this.renderFull(
         statusData,
@@ -954,6 +968,7 @@ export class BeforeAfterView {
       );
       this.updateRefreshPolling(statusData.training_state);
     } catch (err: unknown) {
+      if (this.disposed) return;
       const message =
         err instanceof Error ? err.message : "Failed to load personalization data.";
       this.renderError(message);

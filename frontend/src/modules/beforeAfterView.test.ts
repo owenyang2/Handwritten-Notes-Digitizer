@@ -767,6 +767,9 @@ describe("BeforeAfterView — training example management", () => {
 
     dialog!.querySelector<HTMLButtonElement>("[data-testid='training-example-zoom-close']")!.click();
     expect(document.querySelector("[data-testid='training-example-zoom-dialog']")).toBeNull();
+    mount.querySelector<HTMLButtonElement>("[data-testid='training-example-zoom']")!.click();
+    view.dispose();
+    expect(document.querySelector("[data-testid='training-example-zoom-dialog']")).toBeNull();
   });
 });
 

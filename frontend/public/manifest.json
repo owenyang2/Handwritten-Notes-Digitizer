@@ -1,11 +1,11 @@
 {
   "name": "Handwriting Notes Digitizer",
   "short_name": "NotesDigitizer",
-  "description": "Convert your handwritten notes into digital text with high accuracy.",
-  "start_url": "/",
+  "description": "Import handwritten pages, review corrections against their source, and export your notes.",
+  "start_url": "/library",
   "display": "standalone",
   "background_color": "#ffffff",
-  "theme_color": "#1e293b",
+  "theme_color": "#f7f7f5",
   "icons": [
     {
       "src": "/icon.svg",

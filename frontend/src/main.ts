@@ -1,24 +1,16 @@
-// Frontend entry point.
-//
-// Wires the four UI modules together through the API client:
-//   upload → recognize → Editor display → inline correction → export
-//   plus the optional calibration UI and capability gating via GET /health.
-//
-// Task 19.1 — full wiring of upload → recognize → Editor → correction → export
-// and calibration UI via the web interface (Req 11.4).
+// Connect the React workspace to the existing upload, review, and sync contracts.
 
 import { UploadUI } from "./modules/uploadUI.js";
 import { Editor } from "./modules/editor.js";
 import { CalibrationUI } from "./modules/calibrationUI.js";
 import { BeforeAfterView } from "./modules/beforeAfterView.js";
 import { AuthGate } from "./modules/authGate.js";
-import { GalleryUI } from "./modules/galleryUI.js";
-import { MathNotesWorkspace } from "./modules/mathNotes.js";
+import { mountShell, type ShellHandle } from "./components/AppShell.js";
+import type { MathNotesWorkspace } from "./modules/mathNotes.js";
 import { BatchImportUI } from "./modules/batchImportUI.js";
 import { SyncCoordinator } from "./modules/syncOrchestrator.js";
 import { SyncUI } from "./modules/syncUI.js";
 import { ConsentUI } from "./modules/consentUI.js";
-import { registerServiceWorker } from "./serviceWorker.js";
 import "./styles.css";
 import {
   uploadImage,
@@ -39,8 +31,16 @@ import {
   ApiError,
 } from "./api/client.js";
 import { refreshCapabilities, isAvailable } from "./api/capabilities.js";
-import type { RecognitionResult, RecognizedLine, RecognizedWord } from "./types.js";
-import type { RecognitionResultDto, RecognizedLineDto, RecognizedWordDto } from "./api/types.js";
+import type {
+  RecognitionResult,
+  RecognizedLine,
+  RecognizedWord,
+} from "./types.js";
+import type {
+  RecognitionResultDto,
+  RecognizedLineDto,
+  RecognizedWordDto,
+} from "./api/types.js";
 
 // ---------------------------------------------------------------------------
 // DTO → domain type mappers
@@ -50,7 +50,12 @@ function mapWord(dto: RecognizedWordDto): RecognizedWord {
   return {
     index: dto.index,
     text: dto.text,
-    region: { x: dto.region.x, y: dto.region.y, width: dto.region.width, height: dto.region.height },
+    region: {
+      x: dto.region.x,
+      y: dto.region.y,
+      width: dto.region.width,
+      height: dto.region.height,
+    },
     confidence: dto.confidence,
   };
 }
@@ -58,7 +63,12 @@ function mapWord(dto: RecognizedWordDto): RecognizedWord {
 function mapLine(dto: RecognizedLineDto): RecognizedLine {
   return {
     index: dto.index,
-    region: { x: dto.region.x, y: dto.region.y, width: dto.region.width, height: dto.region.height },
+    region: {
+      x: dto.region.x,
+      y: dto.region.y,
+      width: dto.region.width,
+      height: dto.region.height,
+    },
     text: dto.text,
     alignmentStatus: dto.alignment_status,
     alignmentReason: dto.alignment_reason ?? undefined,
@@ -83,7 +93,18 @@ function mapResult(dto: RecognitionResultDto): RecognitionResult {
 // App bootstrap
 // ---------------------------------------------------------------------------
 
-export async function bootstrap(root: HTMLElement): Promise<void> {
+const cleanups = new WeakMap<HTMLElement, () => void>();
+export function disposeApp(root: HTMLElement): void {
+  cleanups.get(root)?.();
+}
+
+export async function bootstrap(
+  root: HTMLElement,
+  username = "",
+): Promise<void> {
+  cleanups.get(root)?.();
+  let disposed = false;
+  const disposers: Array<() => void> = [];
   // ------------------------------------------------------------------
   // 1. Fetch capability registry on startup to gate features.
   //    The UI renders optimistically before this completes; gates are
@@ -96,161 +117,38 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
   // ------------------------------------------------------------------
   root.replaceChildren();
 
-  const shell = document.createElement("div");
-  shell.className = "app-shell";
-  root.appendChild(shell);
-
-  const rail = document.createElement("aside");
-  rail.className = "workflow-rail";
-  rail.setAttribute("aria-label", "Workflow");
-  shell.appendChild(rail);
-
-  const brand = document.createElement("div");
-  brand.className = "app-brand";
-  rail.appendChild(brand);
-
-  const appTitle = document.createElement("h1");
-  appTitle.className = "app-title";
-  appTitle.textContent = "Handwriting Notes Digitizer";
-  brand.appendChild(appTitle);
-
-  const brandSub = document.createElement("p");
-  brandSub.className = "app-subtitle";
-  brandSub.textContent = "Review handwriting, correct regions, and build a personal training set.";
-  brand.appendChild(brandSub);
-
-  const workflow = document.createElement("ol");
-  workflow.className = "workflow-list";
-  const steps = [
-    ["Upload", "Add a note image"],
-    ["Review", "Fix text and alignment"],
-    ["Train", "Audit collected samples"],
-    ["Export", "Download clean text"],
-  ];
-  for (const [name, detail] of steps) {
-    const item = document.createElement("li");
-    item.className = "workflow-item";
-    const label = document.createElement("span");
-    label.className = "workflow-item-label";
-    label.textContent = name;
-    item.appendChild(label);
-    const desc = document.createElement("span");
-    desc.className = "workflow-item-desc";
-    desc.textContent = detail;
-    item.appendChild(desc);
-    workflow.appendChild(item);
-  }
-  rail.appendChild(workflow);
-
-  const workspace = document.createElement("main");
-  workspace.className = "app-workspace";
-  shell.appendChild(workspace);
-
-  const workspaceHeader = document.createElement("header");
-  workspaceHeader.className = "workspace-header";
-  workspace.appendChild(workspaceHeader);
-
-  const headerCopy = document.createElement("div");
-  workspaceHeader.appendChild(headerCopy);
-  const headerTitle = document.createElement("h2");
-  headerTitle.textContent = "Recognition review";
-  headerCopy.appendChild(headerTitle);
-  const headerText = document.createElement("p");
-  headerText.textContent =
-    "Only region-backed word edits feed training. Uncertain lines stay editable for export until their regions are reviewed.";
-  headerCopy.appendChild(headerText);
-
-  // Capability status banner (shown when backend is degraded / unreachable).
-  const capabilityBanner = document.createElement("div");
+  const section = (testId: string, label: string): HTMLElement => {
+    const node = document.createElement("section");
+    node.className = "app-section";
+    node.dataset.testid = testId;
+    node.setAttribute("aria-label", label);
+    return node;
+  };
+  const capabilityBanner = section("capability-banner", "Service availability");
   capabilityBanner.className = "capability-banner";
-  capabilityBanner.setAttribute("data-testid", "capability-banner");
   capabilityBanner.style.display = "none";
-  workspaceHeader.appendChild(capabilityBanner);
-
-  const workGrid = document.createElement("div");
-  workGrid.className = "work-grid";
-  workspace.appendChild(workGrid);
-
-  const reviewColumn = document.createElement("div");
-  reviewColumn.className = "review-column";
-  workGrid.appendChild(reviewColumn);
-
-  const sideColumn = document.createElement("aside");
-  sideColumn.className = "side-column";
-  workGrid.appendChild(sideColumn);
-
-  const utilityTabList = document.createElement("div");
-  utilityTabList.className = "utility-tab-list";
-  utilityTabList.setAttribute("role", "tablist");
-  utilityTabList.setAttribute("aria-label", "Workspace tools");
-  sideColumn.appendChild(utilityTabList);
-
-  const utilityPanels = document.createElement("div");
-  utilityPanels.className = "utility-tab-panels";
-  sideColumn.appendChild(utilityPanels);
-
-  type UtilityTabId = "calibration" | "training" | "export" | "history" | "import" | "sync" | "privacy";
-  const utilityTabs = new Map<UtilityTabId, { button: HTMLButtonElement; panel: HTMLElement }>();
-  let activeUtilityTab: UtilityTabId = "calibration";
-
-  const activateUtilityTab = (tabId: UtilityTabId): void => {
-    const target = utilityTabs.get(tabId);
-    if (!target || target.button.hidden) return;
-    activeUtilityTab = tabId;
-    for (const [id, tab] of utilityTabs) {
-      const active = id === tabId;
-      tab.button.setAttribute("aria-selected", active ? "true" : "false");
-      tab.panel.hidden = !active;
-    }
+  const calibrationPanel = section("calibration-tools", "Calibration");
+  const trainingPanel = section("training-tools", "Personalization");
+  const exportPanel = section("export-tools", "Export");
+  const importPanel = section("import-tools", "Batch import");
+  const syncPanel = section("sync-tools", "Sync");
+  const privacyPanel = section("privacy-tools", "Privacy");
+  const setUtilityTabVisible = (
+    id: "calibration" | "training",
+    visible: boolean,
+  ): void => {
+    (id === "calibration" ? calibrationPanel : trainingPanel).hidden = !visible;
   };
-
-  const addUtilityTab = (tabId: UtilityTabId, label: string): HTMLElement => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "utility-tab";
-    button.id = `utility-tab-${tabId}`;
-    button.textContent = label;
-    button.setAttribute("role", "tab");
-    button.setAttribute("aria-controls", `utility-panel-${tabId}`);
-    button.setAttribute("aria-selected", tabId === activeUtilityTab ? "true" : "false");
-    button.addEventListener("click", () => activateUtilityTab(tabId));
-    utilityTabList.appendChild(button);
-
-    const panel = document.createElement("div");
-    panel.className = "utility-tab-panel";
-    panel.id = `utility-panel-${tabId}`;
-    panel.setAttribute("role", "tabpanel");
-    panel.setAttribute("aria-labelledby", button.id);
-    panel.hidden = tabId !== activeUtilityTab;
-    utilityPanels.appendChild(panel);
-    utilityTabs.set(tabId, { button, panel });
-    return panel;
-  };
-
-  const setUtilityTabVisible = (tabId: UtilityTabId, visible: boolean): void => {
-    const tab = utilityTabs.get(tabId);
-    if (!tab) return;
-    tab.button.hidden = !visible;
-    tab.panel.hidden = !visible || activeUtilityTab !== tabId;
-    if (!visible && activeUtilityTab === tabId) {
-      const firstAvailable = [...utilityTabs.entries()].find(([, value]) => !value.button.hidden);
-      if (firstAvailable) activateUtilityTab(firstAvailable[0]);
-    }
-  };
-
-  const calibrationPanel = addUtilityTab("calibration", "Calibration");
-  const trainingPanel = addUtilityTab("training", "Training");
-  const exportPanel = addUtilityTab("export", "Export");
-  const historyPanel = addUtilityTab("history", "History");
-  const importPanel = addUtilityTab("import", "Batch import");
-  const syncPanel = addUtilityTab("sync", "Sync");
-  const privacyPanel = addUtilityTab("privacy", "Privacy");
 
   // --- Personalization guide + status (visible when capability is available) ---
   const personalizationSection = document.createElement("section");
-  personalizationSection.className = "app-section app-section--personalization panel";
+  personalizationSection.className =
+    "app-section app-section--personalization panel";
   personalizationSection.setAttribute("data-testid", "personalization-section");
-  personalizationSection.setAttribute("aria-label", "Personal handwriting learning");
+  personalizationSection.setAttribute(
+    "aria-label",
+    "Personal handwriting learning",
+  );
   trainingPanel.appendChild(personalizationSection);
 
   // --- Upload section ---
@@ -258,22 +156,20 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
   uploadSection.className = "app-section app-section--upload panel";
   uploadSection.setAttribute("data-testid", "upload-section");
   uploadSection.setAttribute("aria-label", "Upload image");
-  reviewColumn.appendChild(uploadSection);
 
   // --- Editor section (hidden until recognition completes) ---
   const editorSection = document.createElement("section");
-  editorSection.className = "app-section app-section--editor panel panel--review";
+  editorSection.className =
+    "app-section app-section--editor panel panel--review";
   editorSection.setAttribute("data-testid", "editor-section");
   editorSection.setAttribute("aria-label", "Recognized text editor");
   editorSection.style.display = "none";
-  reviewColumn.appendChild(editorSection);
 
   const mathNotesSection = document.createElement("section");
   mathNotesSection.className = "app-section app-section--math panel";
   mathNotesSection.setAttribute("data-testid", "math-notes-section");
   mathNotesSection.setAttribute("aria-label", "Formula crop review");
   mathNotesSection.style.display = "none";
-  reviewColumn.appendChild(mathNotesSection);
 
   // --- Export section (hidden until editor is populated) ---
   const exportSection = document.createElement("section");
@@ -290,18 +186,14 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
   calibrationSection.setAttribute("aria-label", "Optional calibration");
   calibrationPanel.appendChild(calibrationSection);
 
-  const gallerySection = document.createElement("section");
-  gallerySection.id = "document-history";
-  gallerySection.className = "app-section app-section--gallery panel";
-  gallerySection.setAttribute("data-testid", "document-history");
-  gallerySection.setAttribute("aria-label", "Document history");
-  historyPanel.appendChild(gallerySection);
-
   // --- Before/After metrics (nested inside personalization section) ---
   const beforeAfterSection = document.createElement("div");
   beforeAfterSection.className = "app-section app-section--before-after";
   beforeAfterSection.setAttribute("data-testid", "before-after-section");
-  beforeAfterSection.setAttribute("aria-label", "Accuracy before and after personalization");
+  beforeAfterSection.setAttribute(
+    "aria-label",
+    "Accuracy before and after personalization",
+  );
   personalizationSection.appendChild(beforeAfterSection);
 
   // ------------------------------------------------------------------
@@ -310,7 +202,9 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
   const uploadUI = new UploadUI({ mount: uploadSection });
   const editor = new Editor({ mount: editorSection });
   const calibrationUI = new CalibrationUI({ mount: calibrationSection });
-  const personalizationView = new BeforeAfterView({ mount: beforeAfterSection });
+  const personalizationView = new BeforeAfterView({
+    mount: beforeAfterSection,
+  });
 
   const refreshPersonalization = (): void => {
     if (!isAvailable("personalization")) return;
@@ -321,8 +215,12 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
   let currentImageId: string | null = null;
   let currentImageUrl: string | null = null;
   let currentDocumentId: string | null = null;
+  let loadedDocumentId: string | null = null;
+  let mathWorkspace: MathNotesWorkspace | null = null;
+  let openGeneration = 0;
+  let shell: ShellHandle;
 
-  const openMathNotes = (
+  const openMathNotes = async (
     documentId: string,
     pages: Array<{
       page_id: string;
@@ -333,16 +231,30 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
       dpi: number;
       coordinate_space: string;
     }>,
-  ): void => {
+  ): Promise<void> => {
     if (pages.length === 0) {
       mathNotesSection.style.display = "none";
       return;
     }
+    const { MathNotesWorkspace } = await import("./modules/mathNotes.js");
+    if (disposed || currentDocumentId !== documentId) return;
     mathNotesSection.style.display = "";
-    new MathNotesWorkspace({ mount: mathNotesSection, documentId, pages });
+    mathWorkspace?.dispose();
+    mathWorkspace = new MathNotesWorkspace({
+      mount: mathNotesSection,
+      documentId,
+      pages,
+      onNavigate: (pageId, regionId) => {
+        const url = `/notebooks/${encodeURIComponent(documentId)}/pages/${encodeURIComponent(pageId)}${regionId ? `?region=${encodeURIComponent(regionId)}` : ""}`;
+        shell.navigateTo(url, window.location.pathname === url.split("?")[0]);
+      },
+    });
   };
 
-  const renderRecognition = (imageId: string, recognitionDto: RecognitionResultDto): void => {
+  const renderRecognition = (
+    imageId: string,
+    recognitionDto: RecognitionResultDto,
+  ): void => {
     const recognitionResult = mapResult(recognitionDto);
     currentImageId = imageId;
     currentImageUrl = getProcessedImageUrl(imageId);
@@ -351,38 +263,46 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
     // image, so exports and controls cannot appear to target the wrong input.
     mathNotesSection.style.display = "none";
 
-    editor.setOnCorrection(async (wordIndex, lineIndex, originalText, correctedText) => {
-      if (!isAvailable("correction")) return;
+    editor.setOnCorrection(
+      async (wordIndex, lineIndex, originalText, correctedText) => {
+        if (!isAvailable("correction")) return;
 
-      const line = recognitionResult.lines.find((candidate) => candidate.index === lineIndex);
-      const word = line?.words.find((candidate) => candidate.index === wordIndex);
-      if (!word) return;
+        const line = recognitionResult.lines.find(
+          (candidate) => candidate.index === lineIndex,
+        );
+        const word = line?.words.find(
+          (candidate) => candidate.index === wordIndex,
+        );
+        if (!word) return;
 
-      try {
+        try {
+          await submitCorrection(imageId, {
+            word_index: wordIndex,
+            line_index: lineIndex,
+            region: word.region,
+            recognized_text: originalText,
+            corrected_text: correctedText,
+          });
+          refreshPersonalization();
+        } catch {
+          throw new Error("Correction could not be saved to training data.");
+        }
+      },
+    );
+
+    editor.setOnLineCorrection(
+      async (lineIndex, region, originalText, correctedText) => {
+        if (!isAvailable("correction")) return;
         await submitCorrection(imageId, {
-          word_index: wordIndex,
           line_index: lineIndex,
-          region: word.region,
+          region,
           recognized_text: originalText,
           corrected_text: correctedText,
+          store_if_unchanged: true,
         });
         refreshPersonalization();
-      } catch {
-        throw new Error("Correction could not be saved to training data.");
-      }
-    });
-
-    editor.setOnLineCorrection(async (lineIndex, region, originalText, correctedText) => {
-      if (!isAvailable("correction")) return;
-      await submitCorrection(imageId, {
-        line_index: lineIndex,
-        region,
-        recognized_text: originalText,
-        corrected_text: correctedText,
-        store_if_unchanged: true,
-      });
-      refreshPersonalization();
-    });
+      },
+    );
 
     editor.setOnReviewChange(async (review) => {
       await saveImageReviews(imageId, [review]);
@@ -394,33 +314,165 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
     exportSection.style.display = "";
   };
 
-  const gallery = new GalleryUI("document-history", (documentId) => {
-    void (async () => {
-      currentDocumentId = documentId;
-      // Imported PDF/image documents use the math-notes workflow. Do not run
-      // the legacy line recognizer while reopening them from history: there
-      // may be no legacy result yet, and that failure would hide the review
-      // workspace before it can load the durable page regions.
-      const document = await getDocument(documentId);
-      if (document.pages && document.pages.length > 0) {
-        currentImageId = document.pages.find((page) => page.image_id)?.image_id ?? null;
-        editorSection.style.display = "none";
-        exportSection.style.display = "none";
-        openMathNotes(documentId, document.pages);
-        uploadUI.updateStatus(`Opened ${document.title}.`, "success");
+  const renderUnconverted = (imageId: string) => {
+    currentImageId = imageId;
+    const sourceDocumentId = currentDocumentId;
+    mathNotesSection.style.display = "none";
+    exportSection.style.display = "none";
+    editorSection.style.display = "";
+    editorSection.replaceChildren();
+    const image = document.createElement("img");
+    image.src = getProcessedImageUrl(imageId);
+    image.alt = "Original imported handwriting";
+    image.className = "unconverted-page";
+    const message = document.createElement("p");
+    message.textContent =
+      "Imported. Convert this page when you’re ready to review its text.";
+    const convert = document.createElement("button");
+    convert.type = "button";
+    convert.textContent = "Convert page";
+    convert.onclick = async () => {
+      if (!isAvailable("recognition")) {
+        message.textContent =
+          "Recognition is unavailable. Your imported page is retained.";
         return;
       }
-      const imageId = document.image_ids.at(-1);
-      if (!imageId) {
-        uploadUI.updateStatus(`Selected ${document.title}. Add an image to begin review.`, "info");
-        return;
+      convert.disabled = true;
+      try {
+        const result = await recognizeImage(imageId);
+        if (
+          disposed ||
+          currentDocumentId !== sourceDocumentId ||
+          currentImageId !== imageId
+        )
+          return;
+        renderRecognition(imageId, result);
+      } catch (error) {
+        message.textContent =
+          error instanceof Error
+            ? error.message
+            : "Conversion failed. Try again.";
+        convert.disabled = false;
       }
-      renderRecognition(imageId, await getRecognitionResult(imageId));
-      uploadUI.updateStatus(`Opened ${document.title}.`, "success");
-    })().catch((err: unknown) => {
-      const message = err instanceof Error ? err.message : "Could not open the document.";
-      uploadUI.updateStatus(`Error: ${message}`, "error");
-    });
+    };
+    editorSection.append(message, convert, image);
+    return { message, convert };
+  };
+  const openDocument = async (
+    documentId: string,
+    pageId?: string,
+    regionId?: string,
+  ): Promise<void> => {
+    if (loadedDocumentId === documentId && (mathWorkspace || currentImageId)) {
+      if (mathWorkspace) mathNotesSection.style.display = "";
+      else editorSection.style.display = "";
+      if (pageId) await mathWorkspace?.selectPage(pageId, regionId);
+      return;
+    }
+    if (
+      mathWorkspace?.hasUnsavedChanges() &&
+      !window.confirm(
+        "This notebook has unsaved reviews. Leave and discard these changes?",
+      )
+    ) {
+      if (loadedDocumentId) shell.openDocument(loadedDocumentId);
+      return;
+    }
+    mathNotesSection.style.display = "none";
+    editorSection.style.display = "none";
+    const generation = ++openGeneration;
+    const notebook = await getDocument(documentId);
+    if (generation !== openGeneration || disposed) return;
+    currentDocumentId = documentId;
+    currentImageId = null;
+    loadedDocumentId = null;
+    shell.setDocument(notebook);
+    if (notebook.pages?.length) {
+      currentImageId =
+        notebook.pages.find((page) => page.image_id)?.image_id ?? null;
+      editorSection.style.display = "none";
+      exportSection.style.display = "none";
+      await openMathNotes(documentId, notebook.pages);
+      if (generation !== openGeneration || disposed) return;
+      if (pageId) await mathWorkspace?.selectPage(pageId, regionId);
+      if (generation !== openGeneration || disposed) return;
+    } else {
+      mathWorkspace?.dispose();
+      mathWorkspace = null;
+      mathNotesSection.style.display = "none";
+      const imageId = notebook.image_ids.at(-1);
+      if (imageId) {
+        try {
+          const result = await getRecognitionResult(imageId);
+          if (generation !== openGeneration || disposed) return;
+          renderRecognition(imageId, result);
+        } catch (error) {
+          if (generation !== openGeneration || disposed) return;
+          if (error instanceof ApiError && error.status === 404)
+            renderUnconverted(imageId);
+          else throw error;
+        }
+      } else {
+        editorSection.style.display = "";
+        editorSection.textContent =
+          "This notebook has no pages. Import notes from the Library to begin.";
+      }
+    }
+    loadedDocumentId = documentId;
+  };
+  shell = mountShell(root, {
+    mounts: {
+      upload: uploadSection,
+      batch: importPanel,
+      editor: editorSection,
+      math: mathNotesSection,
+      export: exportPanel,
+      calibration: calibrationPanel,
+      training: trainingPanel,
+      sync: syncPanel,
+      privacy: privacyPanel,
+      banner: capabilityBanner,
+    },
+    username,
+    onOpen: openDocument,
+    onReauthenticated: async () => {
+      const user = await getCurrentUser();
+      if (disposed || (user && user.username === username)) return;
+      // Another account's session must not inherit this workspace or its sync queue.
+      cleanups.get(root)?.();
+      window.history.replaceState(null, "", "/library");
+      await start(root);
+    },
+    onCloseImport: () => uploadUI.stopCamera(),
+    onLogout: () => {
+      if (
+        mathWorkspace?.hasUnsavedChanges() &&
+        !window.confirm("Sign out and discard unsaved reviews?")
+      )
+        return;
+      void logout()
+        .then(() => {
+          cleanups.get(root)?.();
+          window.history.replaceState(null, "", "/library");
+          return start(root);
+        })
+        .catch(() => {
+          capabilityBanner.textContent =
+            "Sign out failed. Check your connection and try again.";
+          capabilityBanner.style.display = "";
+        });
+    },
+  });
+  cleanups.set(root, () => {
+    disposed = true;
+    ++openGeneration;
+    uploadUI.dispose();
+    editor.dispose();
+    personalizationView.dispose();
+    mathWorkspace?.dispose();
+    for (const dispose of disposers) dispose();
+    shell.dispose();
+    cleanups.delete(root);
   });
 
   // ------------------------------------------------------------------
@@ -432,88 +484,124 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
       throw new Error("Upload capability is currently unavailable.");
     }
 
+    if (
+      mathWorkspace?.hasUnsavedChanges() &&
+      !window.confirm("Discard unsaved reviews and import a new notebook?")
+    )
+      return;
+    const uploadGeneration = ++openGeneration;
     currentImageId = null;
+    currentDocumentId = null;
+    loadedDocumentId = null;
+    mathWorkspace?.dispose();
+    mathWorkspace = null;
 
-    const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
-    let importedPdf = false;
-    if (isPdf) {
+    const isPdf =
+      file.type === "application/pdf" ||
+      file.name.toLowerCase().endsWith(".pdf");
+    let importedPages = false;
+    if (isPdf || !uploadUI.convertAfterImport) {
       const title = file.name.replace(/\.[^.]+$/, "").trim() || "Untitled Note";
       const imported = await importDocument(file, title);
+      if (disposed || uploadGeneration !== openGeneration) {
+        shell.refreshLibrary();
+        return;
+      }
       currentDocumentId = imported.document_id;
-      const firstImageId = imported.pages.find((page) => page.image_id)?.image_id;
+      shell.setDocument({
+        ...imported,
+        title,
+        created_at: new Date().toISOString(),
+        image_ids: [],
+      });
+      const firstImageId = imported.pages.find(
+        (page) => page.image_id,
+      )?.image_id;
       if (!firstImageId) {
-        throw new Error("The PDF was imported but no page rasters were created.");
+        throw new Error(
+          "The file was imported but no page rasters were created.",
+        );
       }
       currentImageId = firstImageId;
-      openMathNotes(imported.document_id, imported.pages);
+      await openMathNotes(imported.document_id, imported.pages);
       editorSection.style.display = "none";
       exportSection.style.display = "none";
-      importedPdf = true;
+      importedPages = true;
     } else if (!currentDocumentId) {
       const title = file.name.replace(/\.[^.]+$/, "").trim() || "Untitled Note";
       const document = await createDocument(title);
+      if (disposed || uploadGeneration !== openGeneration) {
+        shell.refreshLibrary();
+        return;
+      }
       currentDocumentId = document.document_id;
+      shell.setDocument(document);
     }
 
     if (!currentImageId) {
-      const { image_id: uploadedId } = await uploadImage(file, currentDocumentId);
+      const { image_id: uploadedId } = await uploadImage(
+        file,
+        currentDocumentId,
+      );
+      if (disposed || uploadGeneration !== openGeneration) {
+        shell.refreshLibrary();
+        return;
+      }
       currentImageId = uploadedId;
     }
+    if (disposed || uploadGeneration !== openGeneration) return;
     const imageId = currentImageId;
     if (!imageId) {
       throw new Error("Upload did not produce an image id.");
     }
-    if (importedPdf) {
+    loadedDocumentId = currentDocumentId;
+    if (currentDocumentId) shell.openDocument(currentDocumentId);
+    shell.closeImport();
+    if (importedPages) {
       uploadUI.updateStatus(
-        "PDF imported. Select a formula crop to begin review.",
+        "Notes imported. Select a region or convert the page to begin review.",
         "success",
       );
-      void gallery.render();
+      shell.refreshLibrary();
       return;
     }
-    // Create an object URL for the image preview. URL.createObjectURL may not
-    // be available in all environments (e.g., SSR/test); fall back gracefully.
-    try {
-      currentImageUrl = URL.createObjectURL(file);
-    } catch {
-      currentImageUrl = "";
-    }
-
-    // Gate: recognition capability
+    const pendingReview = renderUnconverted(imageId);
     if (!isAvailable("recognition")) {
-      // Show the editor with a degraded-mode notice.
-      editorSection.style.display = "";
-      editorSection.replaceChildren();
-      const unavailableMessage = document.createElement("p");
-      unavailableMessage.textContent = "Recognition is currently unavailable. Your image was uploaded.";
-      editorSection.appendChild(unavailableMessage);
+      pendingReview.message.textContent =
+        "Recognition is currently unavailable. Your image was uploaded.";
       return;
     }
+    pendingReview.convert.disabled = true;
+    pendingReview.message.textContent =
+      "Converting this page… Your original is retained.";
 
     // Step 2: Trigger recognition (POST /images/{image_id}/recognize).
     let recognitionDto;
     try {
       recognitionDto = await recognizeImage(imageId, (current, total) => {
-         uploadUI.updateStatus(`Recognizing... ${current}/${total} lines`, "info");
+        pendingReview.message.textContent = `Converting… ${current}/${total} lines`;
+        uploadUI.updateStatus(
+          `Recognizing... ${current}/${total} lines`,
+          "info",
+        );
       });
     } catch (err) {
-      if (err instanceof ApiError && err.status === 503) {
-        editorSection.style.display = "";
-        editorSection.replaceChildren();
-        const unavailableMessage = document.createElement("p");
-        unavailableMessage.textContent = "Recognition is currently unavailable. Your image was uploaded.";
-        editorSection.appendChild(unavailableMessage);
-        return;
-      }
+      if (disposed || uploadGeneration !== openGeneration) return;
+      pendingReview.convert.disabled = false;
+      pendingReview.message.textContent =
+        err instanceof ApiError && err.status === 503
+          ? "Recognition is currently unavailable. Your image was uploaded."
+          : `Conversion failed. Your original is retained. ${err instanceof Error ? err.message : "Try again."}`;
+      if (err instanceof ApiError && err.status === 503) return;
       throw err;
     }
 
+    if (disposed || uploadGeneration !== openGeneration) return;
     renderRecognition(imageId, recognitionDto);
-    void gallery.render();
+    shell.refreshLibrary();
   });
 
   uploadUI.render();
-  void gallery.render();
 
   const batchImportSection = document.createElement("section");
   batchImportSection.className = "app-section app-section--batch-import panel";
@@ -523,65 +611,35 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
 
   const batchImport = new BatchImportUI({
     mount: batchImportSection,
-    processor: async ({ file, signal, update }) => {
-      if (!isAvailable("upload")) {
-        throw new Error("Upload capability is currently unavailable.");
-      }
-      await update({ phase: "uploading", progress: 0.15 });
-      if (file.name.toLowerCase().endsWith(".pdf") || file.type === "application/pdf") {
-        const title = file.name.replace(/\.pdf$/i, "") || "Imported PDF";
-        const imported = await importDocument(file, title, signal);
-        await update({
-          phase: "imported",
-          progress: 0.9,
-          documentId: imported.document_id,
-          pageCount: imported.pages?.length ?? 0,
-        });
-        void gallery.render();
-        return {
-          kind: "pdf" as const,
-          documentId: imported.document_id,
-          pageCount: imported.pages?.length ?? 0,
-        };
-      }
-      const document = await createDocument(
-        file.name.replace(/\.[^.]+$/, "") || "Imported image",
-        signal,
-      );
-      const uploaded = await uploadImage(file, document.document_id, signal);
+    processor: async ({ file, signal, update, item }) => {
+      if (!isAvailable("upload"))
+        throw new Error("Import is currently unavailable.");
+      await update({ phase: "uploading" });
+      const title = file.name.replace(/\.[^.]+$/, "") || "Imported notes";
+      const imported = item.documentId
+        ? await getDocument(item.documentId)
+        : await importDocument(file, title, signal);
       await update({
-        phase: "recognizing",
-        progress: 0.55,
-        documentId: document.document_id,
-        imageId: uploaded.image_id,
+        phase: "imported",
+        documentId: imported.document_id,
+        pageCount: imported.pages?.length ?? 0,
       });
-      if (isAvailable("recognition")) {
-        try {
-          await recognizeImage(uploaded.image_id, undefined, signal);
-        } catch (err) {
-          if (!(err instanceof ApiError && err.status === 503)) throw err;
-        }
-      }
-      await update({
-        phase: "complete",
-        progress: 1,
-        documentId: document.document_id,
-        imageId: uploaded.image_id,
-        pageCount: 1,
-      });
-      void gallery.render();
+      shell.refreshLibrary();
       return {
-        kind: "image" as const,
-        documentId: document.document_id,
-        imageId: uploaded.image_id,
-        pageCount: 1,
+        kind:
+          file.type === "application/pdf"
+            ? ("pdf" as const)
+            : ("image" as const),
+        documentId: imported.document_id,
+        pageCount: imported.pages?.length ?? 0,
       };
     },
     onCompleted: () => {
-      void gallery.render();
+      shell.refreshLibrary();
     },
   });
   void batchImport.render();
+  disposers.push(() => batchImport.dispose());
 
   const syncSection = document.createElement("section");
   syncSection.className = "app-section app-section--sync panel";
@@ -607,20 +665,25 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
     const coordinator = new SyncCoordinator({
       userId: currentUser.user_id,
       onDocumentsChanged: () => {
-        void gallery.render();
+        shell.refreshLibrary();
       },
     });
+    if (disposed) return;
     const syncUI = new SyncUI({
       mount: syncSection,
       coordinator,
       onDocumentsChanged: () => {
-        void gallery.render();
+        shell.refreshLibrary();
       },
     });
     syncUI.render();
+    disposers.push(() => {
+      syncUI.dispose();
+      coordinator.stopAutoSync();
+    });
     try {
       await coordinator.load();
-      coordinator.startAutoSync();
+      if (!disposed) coordinator.startAutoSync();
     } catch {
       // Local sync durability may be unavailable in private browsing.
     }
@@ -637,40 +700,48 @@ export async function bootstrap(root: HTMLElement): Promise<void> {
     // Handled inside buildCalibrationSection which replaces this handler.
   });
 
-  buildCalibrationSection(calibrationUI, calibrationSection, refreshPersonalization);
+  buildCalibrationSection(
+    calibrationUI,
+    calibrationSection,
+    refreshPersonalization,
+  );
 
   // ------------------------------------------------------------------
   // 6. Apply capability gates once health check resolves
   // ------------------------------------------------------------------
-  capabilitiesPromise.then((health) => {
-    if (health.status !== "ok") {
-      const unavailable = Object.entries(health.capabilities)
-        .filter(([, v]) => !v.available)
-        .map(([k]) => k)
-        .join(", ");
-      if (unavailable) {
-        capabilityBanner.textContent = `Some capabilities are currently unavailable: ${unavailable}.`;
-        capabilityBanner.style.display = "";
+  capabilitiesPromise
+    .then((health) => {
+      if (disposed) return;
+      if (health.status !== "ok") {
+        const unavailable = Object.entries(health.capabilities)
+          .filter(([, v]) => !v.available)
+          .map(([k]) => k)
+          .join(", ");
+        if (unavailable) {
+          capabilityBanner.textContent = `Some capabilities are currently unavailable: ${unavailable}.`;
+          capabilityBanner.style.display = "";
+        }
       }
-    }
 
-    // Hide calibration section if the capability is unavailable.
-    if (!isAvailable("calibration")) {
-      calibrationSection.style.display = "none";
-      setUtilityTabVisible("calibration", false);
-    }
+      // Hide calibration section if the capability is unavailable.
+      if (!isAvailable("calibration")) {
+        calibrationSection.style.display = "none";
+        setUtilityTabVisible("calibration", false);
+      }
 
-    if (!isAvailable("personalization")) {
-      personalizationSection.style.display = "none";
-      setUtilityTabVisible("training", false);
-    } else {
-      refreshPersonalization();
-    }
-  }).catch(() => {
-    capabilityBanner.textContent =
-      "Could not reach the backend. Some features may be unavailable.";
-    capabilityBanner.style.display = "";
-  });
+      if (!isAvailable("personalization")) {
+        personalizationSection.style.display = "none";
+        setUtilityTabVisible("training", false);
+      } else {
+        refreshPersonalization();
+      }
+    })
+    .catch(() => {
+      if (disposed) return;
+      capabilityBanner.textContent =
+        "Could not reach the backend. Some features may be unavailable.";
+      capabilityBanner.style.display = "";
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -706,11 +777,14 @@ function buildExportSection(
     await saveImageReviews(imageId, editor.getReviewPayload());
   };
 
-  const fetchText = async (format: "plain" | "markdown" | "pdf"): Promise<string> => {
+  let saveBeforeExport = true;
+  const fetchText = async (
+    format: "plain" | "markdown" | "pdf",
+  ): Promise<string> => {
     if (!isAvailable("export")) {
       throw new Error("Export capability is currently unavailable.");
     }
-    await persistReviews();
+    if (saveBeforeExport) await persistReviews();
     if (format === "pdf") {
       const blob = await exportPdf(imageId);
       return URL.createObjectURL(blob);
@@ -738,7 +812,8 @@ function buildExportSection(
       }
       const byteCharacters = atob(text);
       const byteNumbers = new Array(byteCharacters.length);
-      for (let i = 0; i < byteCharacters.length; i++) byteNumbers[i] = byteCharacters.charCodeAt(i);
+      for (let i = 0; i < byteCharacters.length; i++)
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
       blob = new Blob([new Uint8Array(byteNumbers)], { type: mime });
     } else if (format === "markdown") {
       mime = "text/markdown";
@@ -756,15 +831,22 @@ function buildExportSection(
     URL.revokeObjectURL(url);
   };
 
-  const buildActionBtn = (label: string, action: () => Promise<void>, testId: string): HTMLButtonElement => {
+  const buildActionBtn = (
+    label: string,
+    action: () => Promise<void>,
+    testId: string,
+  ): HTMLButtonElement => {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.textContent = label;
     btn.className = "export-btn";
     btn.setAttribute("data-testid", testId);
+    btn.dataset.exportAction = "true";
 
     btn.addEventListener("click", () => {
-      btn.disabled = true;
+      section
+        .querySelectorAll<HTMLButtonElement>("[data-export-action]")
+        .forEach((control) => (control.disabled = true));
       statusEl.textContent = "Processing…";
       action()
         .then(() => {
@@ -774,33 +856,70 @@ function buildExportSection(
           statusEl.textContent = `Error: ${err instanceof Error ? err.message : String(err)}`;
         })
         .finally(() => {
-          btn.disabled = false;
+          section
+            .querySelectorAll<HTMLButtonElement>("[data-export-action]")
+            .forEach((control) => (control.disabled = false));
         });
     });
 
     return btn;
   };
 
-  section.appendChild(buildActionBtn("Copy to Clipboard", async () => {
-    const text = await fetchText("plain");
-    await navigator.clipboard.writeText(text);
-  }, "export-btn-copy"));
-
-  section.appendChild(buildActionBtn("Email Notes", async () => {
-    const text = await fetchText("plain");
-    const mailto = `mailto:?subject=${encodeURIComponent("Digitized Notes")}&body=${encodeURIComponent(text)}`;
-    window.open(mailto, "_blank");
-  }, "export-btn-email"));
-
-  section.appendChild(buildActionBtn("Download Markdown (Obsidian)", async () => {
-    const text = await fetchText("markdown");
-    downloadFile(text, "markdown");
-  }, "export-btn-markdown"));
-
-  section.appendChild(buildActionBtn("Download PDF", async () => {
-    const text = await fetchText("pdf");
-    downloadFile(text, "pdf");
-  }, "export-btn-pdf"));
+  const format = document.createElement("select");
+  format.setAttribute("aria-label", "Export format");
+  for (const [value, label] of [
+    ["copy", "Plain text · Copy"],
+    ["email", "Plain text · Email"],
+    ["markdown", "Markdown (.md)"],
+    ["pdf", "PDF (.pdf)"],
+  ])
+    format.add(new Option(label, value));
+  try {
+    const last = localStorage.getItem("notes-image-export-format");
+    if (last && [...format.options].some((option) => option.value === last))
+      format.value = last;
+  } catch {
+    /* Use the default format. */
+  }
+  const runExport = async (): Promise<void> => {
+    const choice = format.value;
+    const text = await fetchText(
+      choice === "markdown" ? "markdown" : choice === "pdf" ? "pdf" : "plain",
+    );
+    if (choice === "copy") await navigator.clipboard.writeText(text);
+    else if (choice === "email")
+      window.open(
+        `mailto:?subject=${encodeURIComponent("Digitized Notes")}&body=${encodeURIComponent(text)}`,
+        "_blank",
+      );
+    else downloadFile(text, choice === "pdf" ? "pdf" : "markdown");
+    try {
+      localStorage.setItem("notes-image-export-format", choice);
+    } catch {
+      /* Export succeeded. */
+    }
+  };
+  note.textContent =
+    "Scope: this image. Save and export includes current corrections. Export last saved version leaves current drafts out. Excluded lines are omitted.";
+  section.append(
+    format,
+    buildActionBtn(
+      "Save and export",
+      async () => {
+        saveBeforeExport = true;
+        await runExport();
+      },
+      "export-confirm",
+    ),
+    buildActionBtn(
+      "Export last saved version",
+      async () => {
+        saveBeforeExport = false;
+        await runExport();
+      },
+      "export-saved",
+    ),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -861,8 +980,13 @@ function buildCalibrationSection(
         // that index, stringified — convert it back to a number here.
         calibrationUI.setOnSubmitSample(
           async (promptId: string, file: File) => {
-            if (!activeSessionId) throw new Error("No active calibration session.");
-            await submitCalibrationSample(activeSessionId, Number(promptId), file);
+            if (!activeSessionId)
+              throw new Error("No active calibration session.");
+            await submitCalibrationSample(
+              activeSessionId,
+              Number(promptId),
+              file,
+            );
             refreshPersonalization();
           },
         );
@@ -873,7 +997,8 @@ function buildCalibrationSection(
         );
       })
       .catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : "Failed to start calibration.";
+        const message =
+          err instanceof Error ? err.message : "Failed to start calibration.";
         statusEl.textContent = `Error: ${message}`;
         startBtn.disabled = false;
       });
@@ -891,10 +1016,11 @@ function buildCalibrationSection(
  */
 export async function start(root: HTMLElement): Promise<void> {
   let user: Awaited<ReturnType<typeof getCurrentUser>> = null;
+  let connectionFailed = false;
   try {
     user = await getCurrentUser();
   } catch {
-    user = null; // backend unreachable — fall through to the login gate
+    connectionFailed = true;
   }
 
   if (!user) {
@@ -903,6 +1029,20 @@ export async function start(root: HTMLElement): Promise<void> {
     title.className = "app-title";
     title.textContent = "Handwriting Notes Digitizer";
     root.appendChild(title);
+
+    if (connectionFailed) {
+      const status = document.createElement("p");
+      status.setAttribute("role", "status");
+      status.textContent =
+        "Cannot reach the server. Reconnect to reopen your web notebooks, then retry.";
+      const retry = document.createElement("button");
+      retry.textContent = "Retry connection";
+      retry.onclick = () => {
+        retry.disabled = true;
+        void start(root);
+      };
+      root.append(status, retry);
+    }
 
     const gateMount = document.createElement("div");
     root.appendChild(gateMount);
@@ -917,47 +1057,5 @@ export async function start(root: HTMLElement): Promise<void> {
     return;
   }
 
-  await bootstrap(root);
-  renderAccountBar(root, user.username);
-}
-
-/** Render a small "signed in as … / Log out" bar at the top of the app. */
-function renderAccountBar(root: HTMLElement, username: string): void {
-  const bar = document.createElement("div");
-  bar.className = "account-bar";
-  bar.setAttribute("data-testid", "account-bar");
-
-  const who = document.createElement("span");
-  who.className = "account-user";
-  who.textContent = `Signed in as ${username}`;
-  bar.appendChild(who);
-
-  const logoutBtn = document.createElement("button");
-  logoutBtn.type = "button";
-  logoutBtn.className = "account-logout";
-  logoutBtn.setAttribute("data-testid", "account-logout");
-  logoutBtn.textContent = "Log out";
-  logoutBtn.addEventListener("click", () => {
-    logoutBtn.disabled = true;
-    logout()
-      .catch(() => {
-        /* clearing local view regardless of network result */
-      })
-      .finally(() => {
-        void start(root);
-      });
-  });
-  bar.appendChild(logoutBtn);
-
-  root.insertBefore(bar, root.firstChild);
-}
-
-// ---------------------------------------------------------------------------
-// Auto-start when running in the browser
-// ---------------------------------------------------------------------------
-
-const appRoot = document.getElementById("app");
-if (appRoot) {
-  registerServiceWorker();
-  start(appRoot).catch(console.error);
+  await bootstrap(root, user.username);
 }

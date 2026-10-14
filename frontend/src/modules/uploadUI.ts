@@ -8,7 +8,11 @@
 // Task 19.1 — full implementation of upload → recognize flow.
 
 /** Formats the upload UI accepts; the backend remains the source of truth. */
-export const ACCEPTED_IMAGE_TYPES = ["image/png", "image/jpeg", "application/pdf"] as const;
+export const ACCEPTED_IMAGE_TYPES = [
+  "image/png",
+  "image/jpeg",
+  "application/pdf",
+] as const;
 
 /** Maximum accepted upload size in bytes (10 MB), per Req 1.3. */
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
@@ -36,6 +40,16 @@ export class UploadUI {
   private videoEl!: HTMLVideoElement;
   private canvasEl!: HTMLCanvasElement;
   private stream: MediaStream | null = null;
+  private previewUrl: string | null = null;
+  private preview!: HTMLImageElement;
+  private removeButton!: HTMLButtonElement;
+  public convertAfterImport = false;
+
+  public dispose(): void {
+    this.stopCamera();
+    if (this.previewUrl) URL.revokeObjectURL(this.previewUrl);
+    this.previewUrl = null;
+  }
 
   constructor(options: UploadUIOptions) {
     this.mount = options.mount;
@@ -49,6 +63,7 @@ export class UploadUI {
 
   /** Render the upload control into the mount element. */
   render(): void {
+    this.dispose();
     this.mount.replaceChildren();
 
     const wrapper = document.createElement("div");
@@ -119,7 +134,7 @@ export class UploadUI {
     this.submitButton.type = "button";
     this.submitButton.className = "upload-submit-btn";
     this.submitButton.setAttribute("data-testid", "upload-submit-btn");
-    this.submitButton.textContent = "Recognize";
+    this.submitButton.textContent = "Import notes";
     this.submitButton.disabled = true;
 
     this.submitButton.addEventListener("click", () => {
@@ -155,6 +170,39 @@ export class UploadUI {
     wrapper.appendChild(this.fileInput);
     wrapper.appendChild(this.videoEl);
     wrapper.appendChild(this.canvasEl);
+    this.preview = document.createElement("img");
+    this.preview.alt = "Selected image preview";
+    this.preview.className = "upload-preview";
+    this.preview.hidden = true;
+    this.removeButton = document.createElement("button");
+    this.removeButton.type = "button";
+    this.removeButton.textContent = "Remove selected file";
+    this.removeButton.hidden = true;
+    this.removeButton.onclick = () => {
+      this.selectedFile = null;
+      this.fileInput.value = "";
+      this.submitButton.disabled = true;
+      this.removeButton.hidden = true;
+      this.preview.hidden = true;
+      this.dispose();
+      this.updateStatus("", "info");
+    };
+    const conversion = document.createElement("label");
+    conversion.className = "math-notes-consent";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.dataset.testid = "upload-convert-after-import";
+    checkbox.onchange = () => {
+      this.convertAfterImport = checkbox.checked;
+      this.submitButton.textContent = checkbox.checked
+        ? "Import and convert"
+        : "Import notes";
+    };
+    conversion.append(
+      checkbox,
+      document.createTextNode("Convert images after import (optional)"),
+    );
+    wrapper.append(this.preview, this.removeButton, conversion);
     wrapper.appendChild(this.statusEl);
     wrapper.appendChild(btnWrapper);
     this.mount.appendChild(wrapper);
@@ -192,26 +240,35 @@ export class UploadUI {
     if (!ctx) return;
     ctx.drawImage(this.videoEl, 0, 0);
 
-    this.canvasEl.toBlob((blob) => {
-      if (!blob) return;
-      const file = new File([blob], "camera-capture.jpg", { type: "image/jpeg" });
-      this.stopCamera();
-      this.handleFileSelected(file);
-    }, "image/jpeg", 0.9);
+    this.canvasEl.toBlob(
+      (blob) => {
+        if (!blob) return;
+        const file = new File([blob], "camera-capture.jpg", {
+          type: "image/jpeg",
+        });
+        this.stopCamera();
+        this.handleFileSelected(file);
+      },
+      "image/jpeg",
+      0.9,
+    );
   }
 
-  private stopCamera(): void {
+  public stopCamera(): void {
     if (this.stream) {
       this.stream.getTracks().forEach((t) => t.stop());
       this.stream = null;
     }
+    if (!this.videoEl) return;
     this.videoEl.style.display = "none";
     this.dropZone.style.display = "flex";
     this.cameraBtn.textContent = "Take Photo";
   }
 
   private handleFileSelected(file: File): void {
-    const acceptedType = (ACCEPTED_IMAGE_TYPES as readonly string[]).includes(file.type);
+    const acceptedType = (ACCEPTED_IMAGE_TYPES as readonly string[]).includes(
+      file.type,
+    );
     const acceptedPdf = file.name.toLowerCase().endsWith(".pdf");
     if (!acceptedType && !acceptedPdf) {
       this.updateStatus(
@@ -232,13 +289,28 @@ export class UploadUI {
       return;
     }
     if (file.size === 0) {
-      this.updateStatus(`⚠ "${file.name}" is empty. Please choose a valid image.`, "error");
+      this.updateStatus(
+        `⚠ "${file.name}" is empty. Please choose a valid image.`,
+        "error",
+      );
       this.selectedFile = null;
       this.submitButton.disabled = true;
       return;
     }
 
+    this.dispose();
     this.selectedFile = file;
+    this.removeButton.hidden = false;
+    this.preview.hidden = true;
+    if (file.type.startsWith("image/")) {
+      try {
+        this.previewUrl = URL.createObjectURL(file);
+        this.preview.src = this.previewUrl;
+        this.preview.hidden = false;
+      } catch {
+        /* Filename remains visible. */
+      }
+    }
     this.updateStatus(`Selected: ${file.name}`, "info");
     this.submitButton.disabled = false;
   }
@@ -254,6 +326,9 @@ export class UploadUI {
       // After a successful submit the orchestrating code (main.ts) will call
       // render() on the Editor; we reset to allow another upload.
       this.selectedFile = null;
+      this.preview.hidden = true;
+      this.removeButton.hidden = true;
+      this.dispose();
       this.fileInput.value = "";
       this.updateStatus("Upload complete.", "success");
     } catch (err: unknown) {

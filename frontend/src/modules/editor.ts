@@ -84,12 +84,18 @@ export class Editor {
   private sortMode: "reading-order" | "confidence" = "reading-order";
   private currentResult?: RecognitionResult;
   private currentImageUrl?: string;
+  private stopDrag?: () => void;
 
   constructor(options: EditorOptions) {
     this.mount = options.mount;
     this.onCorrection = options.onCorrection;
     this.onLineCorrection = options.onLineCorrection;
     this.onReviewChange = options.onReviewChange;
+  }
+
+  dispose(): void {
+    this.stopDrag?.();
+    this.stopDrag = undefined;
   }
 
   /** Update the correction callback after construction (used by main.ts wiring). */
@@ -776,6 +782,7 @@ export class Editor {
 
       box.addEventListener("mousedown", (event: MouseEvent) => {
         if (event.button !== 0) return;
+        this.stopDrag?.();
         event.preventDefault();
         selectLine();
         const start = { x: event.clientX, y: event.clientY };
@@ -808,8 +815,10 @@ export class Editor {
         const onUp = (): void => {
           document.removeEventListener("mousemove", onMove);
           document.removeEventListener("mouseup", onUp);
+          this.stopDrag = undefined;
         };
 
+        this.stopDrag = onUp;
         document.addEventListener("mousemove", onMove);
         document.addEventListener("mouseup", onUp);
       });

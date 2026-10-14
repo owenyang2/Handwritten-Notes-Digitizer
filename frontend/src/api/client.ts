@@ -126,6 +126,7 @@ async function fetchJsonWithMeta<T>(
   const url = `${baseUrl}${path}`;
   const response = await fetch(url, {
     credentials: "include", // send session cookie
+    cache: "no-store", // Sessions and reviews must be fetched again, including after going offline.
     ...init,
     headers: {
       Accept: "application/json",
@@ -741,8 +742,8 @@ export async function createRecognitionJob(
   );
 }
 
-export async function getRecognitionJob(jobId: string): Promise<RecognitionJobDto> {
-  return fetchJson<RecognitionJobDto>(`/jobs/${encodeURIComponent(jobId)}`);
+export async function getRecognitionJob(jobId: string, signal?: AbortSignal): Promise<RecognitionJobDto> {
+  return fetchJson<RecognitionJobDto>(`/jobs/${encodeURIComponent(jobId)}`, { signal });
 }
 
 const TERMINAL_RECOGNITION_JOB_STATES = new Set([
@@ -757,11 +758,13 @@ export async function waitForRecognitionJob(
   jobId: string,
   onProgress?: (job: RecognitionJobDto) => void,
   maxWaitMs = 60_000,
+  signal?: AbortSignal,
 ): Promise<RecognitionJobDto> {
   const started = Date.now();
   let delay = 150;
   while (Date.now() - started <= maxWaitMs) {
-    const job = await getRecognitionJob(jobId);
+    signal?.throwIfAborted();
+    const job = await getRecognitionJob(jobId, signal);
     onProgress?.(job);
     if (TERMINAL_RECOGNITION_JOB_STATES.has(job.state)) return job;
     await new Promise<void>((resolve) => window.setTimeout(resolve, delay));
@@ -848,6 +851,7 @@ export interface DocumentResponse {
   pages?: DocumentPageSummary[];
   active_revision_id?: string | null;
   updated_at?: string;
+  is_favorite?: boolean;
   archived_at?: string | null;
   trashed_at?: string | null;
   sync_version?: number;
@@ -860,12 +864,13 @@ export interface DocumentListOptions {
   query?: string;
   includeArchived?: boolean;
   includeTrashed?: boolean;
-  view?: "active" | "archived" | "trash";
+  view?: "active" | "archived" | "trash" | "favorites";
   limit?: number;
   offset?: number;
 }
 
 export interface UpdateDocumentRequest {
+  is_favorite?: boolean;
   title?: string;
   archived?: boolean;
   default_language?: string;

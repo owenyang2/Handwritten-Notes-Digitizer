@@ -88,11 +88,11 @@ describe("AuthGate", () => {
     root.querySelector<HTMLButtonElement>("[data-testid='auth-toggle']")!.click();
     (root.querySelector("[data-testid='auth-username']") as HTMLInputElement).value = "bob";
     (root.querySelector("[data-testid='auth-email']") as HTMLInputElement).value = "bob@example.com";
-    (root.querySelector("[data-testid='auth-password']") as HTMLInputElement).value = "pw";
+    (root.querySelector("[data-testid='auth-password']") as HTMLInputElement).value = "password1";
     root.querySelector<HTMLFormElement>("[data-testid='auth-form']")!.requestSubmit();
 
     await vi.waitFor(() => expect(onAuthenticated).toHaveBeenCalledTimes(1));
-    expect(client.register).toHaveBeenCalledWith("bob", "bob@example.com", "pw");
+    expect(client.register).toHaveBeenCalledWith("bob", "bob@example.com", "password1");
   });
 
   it("shows the backend error message on failure and does not authenticate", async () => {
@@ -104,7 +104,7 @@ describe("AuthGate", () => {
 
     root.querySelector<HTMLButtonElement>("[data-testid='auth-toggle']")!.click();
     (root.querySelector("[data-testid='auth-username']") as HTMLInputElement).value = "bob";
-    (root.querySelector("[data-testid='auth-password']") as HTMLInputElement).value = "pw";
+    (root.querySelector("[data-testid='auth-password']") as HTMLInputElement).value = "password1";
     root.querySelector<HTMLFormElement>("[data-testid='auth-form']")!.requestSubmit();
 
     await vi.waitFor(() =>
