@@ -43,6 +43,8 @@ that the same models or services are present in a fresh checkout.
 
 | Report | What it establishes |
 | --- | --- |
+| [Final verification and Ponytail audit, October 14](release-evidence/VERIFICATION_AND_PONYTAIL_AUDIT_2026-10-14.md) | Final regression checks, production stack, SeaweedFS encryption and audit findings |
+| [UI revamp and follow-up checks, October 14](release-evidence/UI_REVAMP_2026-10-14.md) | Current React workspace, appearance, accessibility/recovery checks, local lab measurements and native validation limits |
 | [Local conversion, October 11](release-evidence/END_TO_END_LOCAL_2026-10-11.md) | Real-model website/simulator review, reopening, and export; recorded demo |
 | [Review fixes, October 11](release-evidence/REVIEW_FIXES_2026-10-11.md) | Sync-race and stale-source regressions; backend, web, and native test results |
 | [Commit validation, October 11](release-evidence/COMMIT_VALIDATION_2026-10-11.md) | Application checks at the documented commit batch |

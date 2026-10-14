@@ -1,6 +1,7 @@
 # Feature and evidence status
 
-Updated October 12, 2026 from dated October 11 reports. This is the maintained
+Updated October 14, 2026 with the UI revamp evidence; recognition and deployment
+evidence below retains its recorded dates. This is the maintained
 status summary. “Implemented” describes source behavior; automated coverage,
 live simulator checks, physical hardware, and deployment acceptance are separate
 levels of evidence. A recorded local environment is not supplied by a clean clone.
@@ -9,6 +10,7 @@ levels of evidence. A recorded local environment is not supplied by a clean clon
 
 | Capability | Automated evidence | Live local evidence | Remaining validation |
 | --- | --- | --- | --- |
+| Quiet Notebook workspace | Production browser workflows, keyboard/focus, light/dark desktop/phone accessibility scans, and offline/reauthentication checks | Actual Chrome 200% zoom and isolated live-API recovery in Chromium/Firefox/WebKit | Assistive-technology audit, physical devices, representative performance and five-user usability round |
 | PDF/image import, source retention, page rasterization | API/PDF/image fixtures | Website import and imported-library restore in simulator | Broader mixed-document/client import acceptance; physical share import |
 | Native notebooks, page edits, local ink persistence | Swift store/recovery and native app tests | Simulator offline creation/relaunch and page controls | Physical Pencil/palm rejection; long-session, accessibility, and resource checks |
 | Document sync, conflicts, tombstones, exact ink restoration | API/property tests and second-client/canvas-race tests | Website corrections visible in simulator; shared library restored | Complete live two-client offline/interruption/concurrent-edit journey |
@@ -28,25 +30,24 @@ levels of evidence. A recorded local environment is not supplied by a clean clon
 | Owner isolation and authentication | Ownership/property checks, session hashing, simulator sign-in | Broader live account separation, expiry, deletion, and production auth policy remain |
 | Shared contracts | Generated OpenAPI/error/ink artifacts and Swift boundary checks | Drift checks do not replace client/device acceptance |
 | SQLite | Fresh migration and schema checks; local app workflow | Local validation only |
-| PostgreSQL | Fresh migration failed on merged main; native-ALTER fix and integrity test prepared/tested locally | Fix is still uncommitted in this workspace; do not claim released production compatibility |
-| S3/MinIO | Filesystem/fake-client coverage; real service check blocked by registry downloads | No passing real S3 integration or production-stack acceptance |
-| Production operations | Optional Compose configuration exists | HTTPS/Linux deployment, secrets policy, backup/restore, and release drills incomplete |
+| PostgreSQL | Fresh PostgreSQL 16 migration, review foreign-key integrity and schema consistency pass in the production image | Local container evidence; deployment and backup/restore acceptance remain |
+| S3/SeaweedFS | Real encrypted put/get/head/delete and owner-prefix purge pass; anonymous reads and backend bucket administration denied; encrypted data survives storage restart | Single-node local profile; no replication or migration of existing MinIO volumes was performed |
+| Production operations | Complete PostgreSQL/Redis/SeaweedFS/API/nginx stack boots; import/review/reload/export/account purge and Redis outage/recovery pass | HTTPS, backup/restore, model runtime and release drills remain |
 | Physical iPad | No physical-device evidence recorded | Simulator results do not establish Pencil, signing/App Group, battery, or thermal behavior |
 
 ## Evidence register
 
 | Evidence | Environment / source | What it supports |
 | --- | --- | --- |
+| [UI revamp report](release-evidence/UI_REVAMP_2026-10-14.md) | October 14 local production web build and iOS 18.6 simulators; synthetic source fixtures | UI implementation, browser/native acceptance and explicitly remaining release gates |
 | [Local conversion report](release-evidence/END_TO_END_LOCAL_2026-10-11.md) and [manifest](release-evidence/END_TO_END_LOCAL_2026-10-11.json) | macOS arm64, iOS 18.6 simulator; source fingerprint and pinned model revisions recorded | Real-model workflow and demo, including source/output limits |
 | [Review fixes](release-evidence/REVIEW_FIXES_2026-10-11.md) | Source fingerprint `b385efbf…`; local backend/web/Swift/simulator checks | Sync races, source invalidation, and regression coverage |
 | [Commit validation](release-evidence/COMMIT_VALIDATION_2026-10-11.md) | Documented application commit batch, October 11 | Dated local automated validation |
 
-The pre-existing workspace report `release-evidence/MAIN_VERIFICATION_2026-10-11.md`
-records the later main verification and PostgreSQL/S3 findings. It and the
-migration fix are not yet committed; the table above records that limitation
-without promoting them to shipped evidence. Remote legacy status and PR-workflow
-queries returned no results during this presentation pass; no CI-passing claim
-is made from those queries.
+The historical [main verification report](release-evidence/MAIN_VERIFICATION_2026-10-11.md)
+records the earlier PostgreSQL/S3 failures. The [final October 14 verification](release-evidence/VERIFICATION_AND_PONYTAIL_AUDIT_2026-10-14.md)
+records the migration repair, SeaweedFS replacement and current checks.
+These are local results; no remote CI or production release claim is made.
 
 Model weights and corpora are intentionally external. The demo's real-model
 conversion does not establish accuracy, and installed TrOCR does not enable

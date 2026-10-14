@@ -1,0 +1,11 @@
+{
+  "date": "2026-10-14",
+  "browser": "chromium",
+  "source": "Synthetic PNG/manual correction; no recognition evaluation",
+  "savedReviewReload": "passed",
+  "offlineDraftRetention": "passed while page remains open",
+  "offlineShellReload": "passed",
+  "reconnectSavedReview": "passed",
+  "privateApiCacheEntries": 0,
+  "unsavedDraftDurableAcrossReload": false
+}
