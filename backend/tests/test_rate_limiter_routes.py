@@ -51,6 +51,16 @@ def test_existing_auth_and_image_rules_still_match() -> None:
     assert _find_rule("POST", "/images/second/recognize") == ("/recognize", 5, 0.33)
 
 
+def test_expensive_routes_are_classified() -> None:
+    assert _find_rule("POST", "/auth/password-reset/request")[0] == "/auth/password-reset/request"
+    assert _find_rule("POST", "/auth/password-reset/confirm")[0] == "/auth/password-reset/confirm"
+    assert _find_rule("POST", "/documents/doc-1/exports")[0] == "/documents/*/exports"
+    assert _find_rule("POST", "/personalization/runs")[0] == "/personalization/runs"
+    assert _find_rule("POST", "/calibration/session")[0] == "/calibration"
+    assert _find_rule("POST", "/images/abc/corrections")[0] == "/corrections"
+    assert _find_rule("POST", "/jobs/job-1/retry")[0] == "/jobs/*/retry"
+
+
 def test_unrelated_gets_are_not_classified() -> None:
     assert _find_rule("GET", "/health") is None
     assert _find_rule("GET", "/documents/import") is None

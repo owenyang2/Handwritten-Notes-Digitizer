@@ -60,6 +60,9 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(320), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[_dt.datetime] = created_at_column()
+    disabled_at: Mapped[Optional[_dt.datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     images: Mapped[list["Image"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"

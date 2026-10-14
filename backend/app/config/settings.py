@@ -16,8 +16,8 @@ import os
 import random
 from functools import lru_cache
 from pathlib import Path
-
 from typing import Literal
+from urllib.parse import unquote, urlparse
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -47,9 +47,16 @@ class Settings(BaseSettings):
     # --- Application metadata -------------------------------------------------
     app_name: str = "Handwriting Notes Digitizer"
     app_version: str = "0.1.0"
-    environment: str = Field(
+    environment: Literal["development", "test", "production"] = Field(
         default="development",
         description="Deployment environment: development | test | production.",
+    )
+    expose_reset_tokens: bool = Field(
+        default=False,
+        description=(
+            "When true, password-reset responses include the raw token for local "
+            "debugging. Startup refuses to boot if this is set in production."
+        ),
     )
 
     # --- Reproducibility / determinism ---------------------------------------
@@ -248,3 +255,49 @@ def configure_determinism(settings: Settings | None = None) -> int:
             pass
 
     return applied_seed
+
+
+# Credentials that must never be accepted once the process claims to be production.
+_INSECURE_CREDENTIALS = frozenset({"", "hnd", "minioadmin", "password", "changeme"})
+
+
+def _database_password(database_url: str) -> str | None:
+    """Return the URL password, or None when the URL has no credential."""
+    if database_url.startswith("sqlite"):
+        return None
+    parsed = urlparse(database_url)
+    if parsed.password is None:
+        return ""
+    return unquote(parsed.password)
+
+
+def assert_production_safe(settings: Settings | None = None) -> None:
+    """Refuse to serve production with debug tokens or well-known credentials.
+
+    Development and test keep their local defaults. Production images set
+    ``HND_ENVIRONMENT`` explicitly; unknown environment names fail settings
+    validation.
+    """
+    if settings is None:
+        settings = get_settings()
+    if settings.environment != "production":
+        return
+
+    problems: list[str] = []
+    if settings.expose_reset_tokens:
+        problems.append("HND_EXPOSE_RESET_TOKENS must not be enabled in production")
+
+    database_password = _database_password(settings.database_url)
+    if database_password is not None and database_password.strip() in _INSECURE_CREDENTIALS:
+        problems.append("database password is empty or a known default")
+
+    if settings.object_store_backend == "s3":
+        access_key = (settings.s3_access_key or "").strip()
+        secret_key = (settings.s3_secret_key or "").strip()
+        if access_key in _INSECURE_CREDENTIALS or secret_key in _INSECURE_CREDENTIALS:
+            problems.append("S3 credentials are empty or a known default")
+
+    if problems:
+        raise RuntimeError(
+            "Refusing to boot in production: " + "; ".join(problems) + "."
+        )

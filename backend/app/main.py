@@ -17,11 +17,13 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.config import configure_determinism, get_settings
+from app.config.settings import assert_production_safe
 from app.middleware.rate_limiter import RateLimitMiddleware
 from app.middleware.request_limits import RequestSizeLimitMiddleware
 from app.observability import (
     MetricsMiddleware,
     configure_observability,
+    install_redacting_filter,
     metrics_enabled,
     metrics_endpoint,
 )
@@ -73,6 +75,7 @@ async def lifespan(app: FastAPI):
     Shutdown: stop the worker thread cleanly.
     """
     settings = get_settings()
+    assert_production_safe(settings)
     configure_determinism(settings)
     from app.services.auth_api import _default_session_factory
 
@@ -87,7 +90,11 @@ async def lifespan(app: FastAPI):
     # lifespan independently testable with a lightweight initialization stub
     # and avoids invoking worker recovery before the persistence layer exists.
     if callable(session_factory):
+        from app.services.auth import SessionStore
         from app.services.jobs import recover_orphaned_runs
+
+        with session_factory() as maintenance:
+            SessionStore(maintenance).purge_expired()
         recover_orphaned_runs(session_factory)
         recover_stale_jobs(session_factory)
         from app.services.images_api import get_object_store
@@ -105,47 +112,64 @@ async def lifespan(app: FastAPI):
         yield
 
 
+def _capability_snapshot() -> dict[str, bool]:
+    """Public capability booleans, with recognition gated on a loaded model."""
+    model_status = get_loaded_model_status()
+    capabilities = dict(get_capability_availability())
+    if not model_status.loaded:
+        capabilities["recognition"] = False
+        capabilities["calibration"] = False
+    return capabilities
+
+
+def _health_details() -> dict:
+    """Operator diagnostic. Not part of the public health contract."""
+    model_status = get_loaded_model_status()
+    return {
+        "status": "ok",
+        "capabilities": _capability_snapshot(),
+        "model_status": model_status.health_label,
+        "model": {
+            "backend": model_status.backend,
+            "loaded": model_status.loaded,
+            "artifact_path": model_status.artifact_path,
+            "probe_ok": model_status.probe_ok,
+            "reason": model_status.reason,
+        },
+        "formula_model": get_formula_engine_status(),
+        "prose_model": get_prose_engine_status(),
+    }
+
+
 def create_app() -> FastAPI:
     """Application factory so tests can build isolated app instances."""
     settings = get_settings()
+    # Interactive docs and the schema disclose route shapes. Production hides
+    # them; nginx also denies the public paths.
+    public_docs = settings.environment != "production"
     app = FastAPI(
         title=settings.app_name,
         version=settings.app_version,
         lifespan=lifespan,
+        docs_url="/docs" if public_docs else None,
+        redoc_url="/redoc" if public_docs else None,
+        openapi_url="/openapi.json" if public_docs else None,
     )
 
     @app.get("/health", tags=["health"])
     def health() -> dict:
-        """Capability-aware health probe (Req 11.5).
+        """Public liveness probe (Req 11.5).
 
-        Returns HTTP 200 with a JSON object containing:
-        - ``status``: always ``"ok"`` (the endpoint itself is always up)
-        - ``capabilities``: a dict mapping each capability name to a boolean
-          indicating whether all its required components are currently available.
-        - ``model_status``: ``loaded`` when a trained artifact passed its
-          inference check, otherwise ``unavailable``. Recognition never
-          silently falls back to random weights.
+        Returns ``status`` and capability booleans only. Model paths and
+        exception text live on ``GET /health/details``, which nginx does not
+        expose through the public frontend.
         """
-        model_status = get_loaded_model_status()
-        formula_status = get_formula_engine_status()
-        capabilities = dict(get_capability_availability())
-        if not model_status.loaded:
-            capabilities["recognition"] = False
-            capabilities["calibration"] = False
-        return {
-            "status": "ok",
-            "capabilities": capabilities,
-            "model_status": model_status.health_label,
-            "model": {
-                "backend": model_status.backend,
-                "loaded": model_status.loaded,
-                "artifact_path": model_status.artifact_path,
-                "probe_ok": model_status.probe_ok,
-                "reason": model_status.reason,
-            },
-            "formula_model": formula_status,
-            "prose_model": get_prose_engine_status(),
-        }
+        return {"status": "ok", "capabilities": _capability_snapshot()}
+
+    @app.get("/health/details", include_in_schema=False, tags=["health"])
+    def health_details() -> dict:
+        """Internal model and capability report for operators on the Docker network."""
+        return _health_details()
 
     # Auth + Session layer: /auth/login and the auth gate used by protected
     # capability routers (Req 10.1, 10.4).
@@ -195,6 +219,7 @@ def create_app() -> FastAPI:
     # (Req 10.5). Route handlers may also raise isolation.ResourceNotFound
     # directly, which FastAPI already renders as a 404.
     register_isolation_handlers(app)
+    install_redacting_filter()
 
     # Outermost middleware runs last-registered first in Starlette's chain,
     # so rate limiting is applied before any route handler or dependency.

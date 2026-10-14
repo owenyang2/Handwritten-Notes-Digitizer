@@ -137,11 +137,22 @@ class SyncPullResponse(BaseModel):
     has_more: bool
 
 
+_MAX_CONFLICT_DETAILS_BYTES = 4096
+
+
 class ResolveConflictRequest(BaseModel):
     """Record a client decision without silently applying note content."""
 
     decision: Literal["keep_server", "retry_as_new"]
     details: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("details")
+    @classmethod
+    def bound_details(cls, value: dict[str, Any]) -> dict[str, Any]:
+        encoded = json.dumps(value, separators=(",", ":"), default=str).encode("utf-8")
+        if len(encoded) > _MAX_CONFLICT_DETAILS_BYTES:
+            raise ValueError("details exceed 4096 bytes")
+        return value
 
 
 class SyncClientRegisterRequest(BaseModel):

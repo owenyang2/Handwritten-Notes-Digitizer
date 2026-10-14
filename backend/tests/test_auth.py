@@ -365,7 +365,7 @@ def test_register_creates_user_and_sets_session_cookie(client) -> None:
 
     resp = c.post(
         "/auth/register",
-        json={"username": "carol", "email": "carol@example.com", "password": "s3cret"},
+        json={"username": "carol", "email": "carol@example.com", "password": "s3cret-ok"},
     )
     assert resp.status_code == status.HTTP_201_CREATED
     body = resp.json()
@@ -384,7 +384,7 @@ def test_register_rejects_duplicate_username(client) -> None:
 
     resp = c.post(
         "/auth/register",
-        json={"username": "dave", "email": "dave2@example.com", "password": "other"},
+        json={"username": "dave", "email": "dave2@example.com", "password": "other-password"},
     )
     assert resp.status_code == status.HTTP_409_CONFLICT
 
@@ -396,7 +396,7 @@ def test_register_rejects_duplicate_email(client) -> None:
 
     resp = c.post(
         "/auth/register",
-        json={"username": "dave-other", "email": "dave@example.com", "password": "other"},
+        json={"username": "dave-other", "email": "dave@example.com", "password": "other-password"},
     )
     assert resp.status_code == status.HTTP_409_CONFLICT
     assert "email" in resp.json()["detail"].lower()

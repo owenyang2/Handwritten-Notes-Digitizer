@@ -135,3 +135,35 @@ def test_invalid_references_rejected(
 ) -> None:
     with pytest.raises(InvalidReferenceError):
         store.put(bad_reference, b"data")
+
+
+def test_delete_owner_handles_pagination_and_preserves_other_accounts(store, fake_client, monkeypatch):
+    first = store.put_image_bytes("alice", b"one", name="1")
+    second = store.put_image_bytes("alice", b"two", name="2")
+    other = store.put_image_bytes("bob", b"other", name="1")
+
+    def listing(*, Bucket, Prefix, ContinuationToken=None):
+        if Prefix != "prod/images/alice/":
+            return {}
+        if ContinuationToken is None:
+            return {"Contents": [{"Key": store._key(first)}], "IsTruncated": True, "NextContinuationToken": "next"}
+        assert ContinuationToken == "next"
+        return {"Contents": [{"Key": store._key(second)}]}
+
+    def deletion(*, Bucket, Delete):
+        for item in Delete["Objects"]:
+            fake_client.delete_object(Bucket=Bucket, Key=item["Key"])
+        return {}
+
+    monkeypatch.setattr(fake_client, "list_objects_v2", listing, raising=False)
+    monkeypatch.setattr(fake_client, "delete_objects", deletion, raising=False)
+    store.delete_owner("alice")
+    assert not store.exists(first) and not store.exists(second)
+    assert store.get(other) == b"other"
+
+
+def test_delete_owner_rejects_partial_s3_failure(store, fake_client, monkeypatch):
+    monkeypatch.setattr(fake_client, "list_objects_v2", lambda **kwargs: {"Contents": [{"Key": "prod/images/alice/1"}]}, raising=False)
+    monkeypatch.setattr(fake_client, "delete_objects", lambda **kwargs: {"Errors": [{"Code": "AccessDenied"}]}, raising=False)
+    with pytest.raises(ObjectStoreError, match="every account object"):
+        store.delete_owner("alice")

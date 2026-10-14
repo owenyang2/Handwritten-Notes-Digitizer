@@ -139,7 +139,7 @@ class CompactMathEngine:
         if self.model is not None:
             self.model.eval()
             return self.model
-        payload = torch.load(self.checkpoint, map_location="cpu", weights_only=False)
+        payload = torch.load(self.checkpoint, map_location="cpu", weights_only=True)
         if not isinstance(payload, dict):
             raise RuntimeError("Compact math checkpoint must be a mapping.")
         config_data = payload.get("config") or {}

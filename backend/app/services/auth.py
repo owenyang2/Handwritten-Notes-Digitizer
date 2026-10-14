@@ -44,7 +44,7 @@ import uuid
 from typing import Optional
 import datetime as _dt
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 from app.data.models import User, UserSession
 from app.data.base import utcnow
@@ -213,6 +213,19 @@ class SessionStore:
         self._db_session.commit()
         return True
 
+    def revoke_all(self, user_id: uuid.UUID) -> int:
+        """Revoke every live session for ``user_id``. Returns the row count."""
+        result = self._db_session.execute(
+            update(UserSession)
+            .where(
+                UserSession.user_id == user_id,
+                UserSession.revoked_at.is_(None),
+            )
+            .values(revoked_at=utcnow())
+        )
+        self._db_session.commit()
+        return int(result.rowcount or 0)
+
     def purge_expired(self) -> int:
         """Remove all expired tokens. Returns the count of removed entries.
 
@@ -268,6 +281,8 @@ class AuthService:
             verify_password(password, _DUMMY_HASH)
             raise InvalidCredentials("invalid username or password")
         if not verify_password(password, user.password_hash):
+            raise InvalidCredentials("invalid username or password")
+        if getattr(user, "disabled_at", None) is not None:
             raise InvalidCredentials("invalid username or password")
         return user
 

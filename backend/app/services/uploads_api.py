@@ -20,11 +20,13 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.config.settings import get_settings
 from app.data.base import utcnow
+from app.data.enums import ImageFormat
 from app.data.models import UploadPart, UploadSession, User
 from app.data.object_store import ObjectStore
 from app.data.repositories import RepositoryFactory
 from app.services.auth_api import get_current_user, get_repositories
 from app.services.assets_api import persist_ink_bundle, validate_ink_payload
+from app.services.image_validator import validate_image
 from app.services.images_api import get_object_store
 from app.services.upload_limits import UploadTooLarge, read_request_stream_bounded
 
@@ -35,6 +37,21 @@ MIN_PART_SIZE = 256 * 1024
 MAX_PART_SIZE = 8 * 1024 * 1024
 SESSION_TTL = timedelta(hours=24)
 _SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+
+
+def _store_validated_bytes(store: ObjectStore, user: User, payload: bytes) -> str:
+    """Store assembled asset bytes only after magic-byte checks.
+
+    The client content type and filename are not trusted. PDFs must start with
+    the ``%PDF`` header; images must decode as PNG or JPEG.
+    """
+    if payload.startswith(b"%PDF-"):
+        return store.put_document_bytes(str(user.user_id), payload, suffix=".pdf")
+    validated = validate_image(payload)
+    if not validated.accepted or validated.image_format is None:
+        raise ValueError(validated.message or "The file is not a valid image.")
+    suffix = ".jpg" if validated.image_format == ImageFormat.JPEG else ".png"
+    return store.put_image_bytes(str(user.user_id), payload, suffix=suffix)
 
 
 def _error(status_code: int, code: str, message: str) -> HTTPException:
@@ -217,7 +234,7 @@ def create_upload(
                 )
             return _session_response(
                 existing,
-                list(repos.uploads.list_parts(existing.upload_id)),
+                list(repos.uploads.list_parts(user.user_id, existing.upload_id)),
                 idempotent=True,
             )
 
@@ -268,7 +285,7 @@ def get_upload(
     session = repos.uploads.get(user.user_id, upload_id)
     if session is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-    return _session_response(session, list(repos.uploads.list_parts(upload_id)))
+    return _session_response(session, list(repos.uploads.list_parts(user.user_id, upload_id)))
 
 
 @router.put("/{upload_id}/parts/{part_number}", response_model=UploadSessionResponse)
@@ -345,7 +362,7 @@ async def put_upload_part(
             "Part body digest does not match X-Part-SHA256",
         )
 
-    existing = repos.uploads.get_part(upload_id, part_number)
+    existing = repos.uploads.get_part(user.user_id, upload_id, part_number)
     if existing is not None:
         if existing.sha256 != digest or existing.size_bytes != len(data):
             raise _error(
@@ -355,7 +372,7 @@ async def put_upload_part(
             )
         return _session_response(
             session,
-            list(repos.uploads.list_parts(upload_id)),
+            list(repos.uploads.list_parts(user.user_id, upload_id)),
             idempotent=True,
         )
 
@@ -383,7 +400,7 @@ async def put_upload_part(
     session.received_size += len(data)
     session.updated_at = utcnow()
     repos.session.commit()
-    return _session_response(session, list(repos.uploads.list_parts(upload_id)))
+    return _session_response(session, list(repos.uploads.list_parts(user.user_id, upload_id)))
 
 
 @router.post("/{upload_id}/complete", response_model=UploadSessionResponse)
@@ -395,7 +412,7 @@ def complete_upload(
 ) -> UploadSessionResponse:
     session = _require_open_session(repos, user, upload_id)
     if session.status == "completed":
-        return _session_response(session, list(repos.uploads.list_parts(upload_id)))
+        return _session_response(session, list(repos.uploads.list_parts(user.user_id, upload_id)))
     if session.status != "open":
         raise _error(
             status.HTTP_409_CONFLICT,
@@ -403,7 +420,7 @@ def complete_upload(
             f"Upload session is {session.status}",
         )
 
-    parts = list(repos.uploads.list_parts(upload_id))
+    parts = list(repos.uploads.list_parts(user.user_id, upload_id))
     if not parts:
         raise _error(
             status.HTTP_400_BAD_REQUEST,
@@ -507,20 +524,18 @@ def complete_upload(
         assembled_ref = asset.object_ref
         session.ink_bundle_id = ink_response.bundle_id
     else:
-        filename = session.filename.lower()
-        content_type = (session.content_type or "").lower()
-        if content_type.endswith("pdf") or filename.endswith(".pdf"):
-            assembled_ref = store.put_document_bytes(
-                str(user.user_id), payload, suffix=".pdf"
-            )
-        elif content_type in {"image/jpeg", "image/jpg"} or filename.endswith((".jpg", ".jpeg")):
-            assembled_ref = store.put_image_bytes(
-                str(user.user_id), payload, suffix=".jpg"
-            )
-        else:
-            assembled_ref = store.put_image_bytes(
-                str(user.user_id), payload, suffix=".png"
-            )
+        try:
+            assembled_ref = _store_validated_bytes(store, user, payload)
+        except ValueError as exc:
+            session.status = "failed"
+            session.error_code = "invalid_image"
+            session.error_message = str(exc)
+            repos.session.commit()
+            raise _error(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                session.error_code,
+                session.error_message,
+            ) from exc
 
     session.assembled_ref = assembled_ref
     session.parts_manifest = [

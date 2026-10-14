@@ -9,6 +9,7 @@ library state.
 from __future__ import annotations
 
 import hashlib
+import logging
 import uuid
 from datetime import datetime
 from typing import Any, Optional
@@ -21,12 +22,16 @@ from app.data.base import utcnow
 from app.data.models import DeletionJob, Document, UploadSession, User, UserSession
 from app.data.object_store import ObjectStore
 from app.data.repositories import RepositoryFactory
+from app.services.account_purge import purge_account
+from app.services.auth import SessionStore
 from app.services.auth_api import (
     SESSION_COOKIE_NAME,
     get_current_user,
     get_repositories,
 )
 from app.services.images_api import get_object_store
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/account", tags=["account"])
 
@@ -148,6 +153,20 @@ def revoke_account_session(
     else:
         repos.session.delete(target)
     repos.session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/sessions/revoke-all",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    summary="Sign out every session for the current account",
+)
+def revoke_all_account_sessions(
+    user: User = Depends(get_current_user),
+    repos: RepositoryFactory = Depends(get_repositories),
+) -> Response:
+    SessionStore(repos.session).revoke_all(user.user_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -274,6 +293,8 @@ def delete_account(
             }
         )
 
+    now = utcnow()
+    user.disabled_at = now
     job = DeletionJob(
         user_id=user.user_id,
         status="pending",
@@ -283,50 +304,30 @@ def delete_account(
     )
     repos.deletion_jobs.add(job)
     repos.session.flush()
+    job_id = job.job_id
+    # Commit the disable and session revocation before the purge. A crash while
+    # bytes are being removed still leaves the account unable to log back in.
+    SessionStore(repos.session).revoke_all(user.user_id)
 
-    deleted = 0
     try:
-        now = utcnow()
-        for document in documents:
-            if document.deleted_at is None:
-                document.deleted_at = now
-            deleted += 1
-        for image in images:
-            try:
-                store.delete(image.storage_path)
-            except Exception:
-                pass
-            repos.session.delete(image)
-            deleted += 1
-        for upload in uploads:
-            if upload.assembled_ref:
-                try:
-                    store.delete(upload.assembled_ref)
-                except Exception:
-                    pass
-            for part in repos.uploads.list_parts(upload.upload_id):
-                try:
-                    store.delete(part.storage_path)
-                except Exception:
-                    pass
-            repos.session.delete(upload)
-            deleted += 1
-        for row in sessions:
-            if hasattr(row, "revoked_at"):
-                row.revoked_at = row.revoked_at or now
-            else:
-                repos.session.delete(row)
-            deleted += 1
+        deleted = purge_account(repos.session, store, user.user_id)
+        repos.session.expire(job)
+        repos.session.refresh(job)
         job.deleted_count = deleted
         job.status = "completed"
-        job.completed_at = now
-        repos.session.commit()
-    except Exception as exc:  # pragma: no cover - defensive path
-        job.status = "failed"
-        job.error_message = str(exc)
-        job.deleted_count = deleted
         job.completed_at = utcnow()
+        job.user_id = None
         repos.session.commit()
+    except Exception:
+        logger.exception("Account purge failed")
+        repos.session.rollback()
+        failed = repos.session.get(DeletionJob, job_id)
+        if failed is not None:
+            failed.status = "failed"
+            failed.error_message = "Account purge failed"
+            failed.completed_at = utcnow()
+            repos.session.commit()
+            job = failed
 
     return DeletionJobResponse(
         job_id=job.job_id,

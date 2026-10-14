@@ -59,6 +59,55 @@ def test_spoofed_forwarded_for_does_not_reset_a_client_bucket(monkeypatch) -> No
     assert response.status_code == 429
 
 
+def test_distinct_bearer_tokens_share_one_login_bucket(monkeypatch) -> None:
+    monkeypatch.setenv("HND_ENVIRONMENT", "development")
+    monkeypatch.setattr(rate_limiter, "_store", _TokenBucketStore())
+    monkeypatch.setattr(rate_limiter, "_redis_client", None)
+    monkeypatch.setattr(rate_limiter, "_redis_init_attempted", True)
+    monkeypatch.setattr(rate_limiter, "_redis_unavailable", False)
+    app = FastAPI()
+    app.add_middleware(RateLimitMiddleware)
+
+    @app.post("/auth/login")
+    def login() -> dict[str, bool]:
+        return {"ok": True}
+
+    with TestClient(app) as client:
+        for index in range(5):
+            response = client.post(
+                "/auth/login",
+                headers={"Authorization": f"Bearer forged-{index}"},
+                json={"username": "alice", "password": "guess"},
+            )
+            assert response.status_code == 200
+        blocked = client.post(
+            "/auth/login",
+            headers={"Authorization": "Bearer forged-extra"},
+            json={"username": "alice", "password": "guess"},
+        )
+
+    assert blocked.status_code == 429
+
+
+def test_production_auth_limit_fails_closed_when_redis_is_down(monkeypatch) -> None:
+    monkeypatch.setenv("HND_ENVIRONMENT", "production")
+    monkeypatch.setattr(rate_limiter, "_store", _TokenBucketStore())
+    monkeypatch.setattr(rate_limiter, "_redis_client", None)
+    monkeypatch.setattr(rate_limiter, "_redis_init_attempted", True)
+    monkeypatch.setattr(rate_limiter, "_redis_unavailable", True)
+    app = FastAPI()
+    app.add_middleware(RateLimitMiddleware)
+
+    @app.post("/auth/login")
+    def login() -> dict[str, bool]:
+        return {"ok": True}
+
+    with TestClient(app) as client:
+        response = client.post("/auth/login", json={"username": "alice", "password": "x"})
+
+    assert response.status_code == 503
+
+
 def test_redis_errors_fall_back_to_in_memory_buckets(monkeypatch) -> None:
     class _BoomRedis:
         def incr(self, key: str) -> int:

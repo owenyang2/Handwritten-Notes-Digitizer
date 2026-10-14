@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import logging
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -28,6 +29,8 @@ from app.data.object_store import ObjectStore
 from app.data.repositories import RepositoryFactory
 from app.services.auth_api import get_current_user, get_repositories
 from app.services.images_api import get_object_store
+
+logger = logging.getLogger(__name__)
 from app.services.isolation import get_or_404
 from app.services.layout import crop_png, detect_page_regions
 
@@ -477,7 +480,8 @@ def submit_page_recognition_job(
             region_ids = [region.region_id for region in _create_auto_regions(user_id=user.user_id, page=page, repos=repos, store=store, content_type="text" if body.mode == "prose" else "math_display")]
         except Exception as exc:
             repos.session.rollback()
-            raise HTTPException(status_code=422, detail=f"Automatic layout failed: {exc}") from exc
+            logger.exception("Automatic layout failed")
+            raise HTTPException(status_code=422, detail="Automatic layout failed.") from exc
     else:
         raise HTTPException(status_code=422, detail="Provide region_ids or set auto_layout=true.")
 

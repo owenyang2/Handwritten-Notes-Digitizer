@@ -12,7 +12,7 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session
 
 from app.data.base import Base
-from app.data import migrations, User
+from app.data import migrations
 from app.data.migrations import upgrade_database
 import app.data.models  # Register every ORM table in Base.metadata.
 
@@ -87,13 +87,23 @@ def test_raw_session_tokens_are_hashed_during_upgrade(tmp_path: Path) -> None:
     _run_alembic(database, "upgrade", "d9e4b5c6a7f8")
     engine = create_engine(database_url)
     with Session(engine) as session:
-        user = User(
-            username="legacy-session-user",
-            email="legacy-session@example.com",
-            password_hash="test-only",
+        # This revision predates users.disabled_at, so insert with the columns
+        # that existed then instead of the current ORM shape.
+        session.execute(
+            text(
+                "INSERT INTO users (user_id, username, email, password_hash, created_at) "
+                "VALUES (:user_id, :username, :email, :password_hash, :created_at)"
+            ),
+            {
+                "user_id": "11111111-1111-4111-8111-111111111111",
+                "username": "legacy-session-user",
+                "email": "legacy-session@example.com",
+                "password_hash": "test-only",
+                "created_at": "2026-01-01 00:00:00.000000",
+            },
         )
-        session.add(user)
         session.commit()
+        user_id = "11111111-1111-4111-8111-111111111111"
         session.execute(
             text(
                 "INSERT INTO user_sessions "
@@ -104,7 +114,7 @@ def test_raw_session_tokens_are_hashed_during_upgrade(tmp_path: Path) -> None:
             ),
             {
                 "token": token,
-                "user_id": str(user.user_id),
+                "user_id": user_id,
                 "expires_at": "2099-01-01 00:00:00.000000",
                 "created_at": "2026-01-01 00:00:00.000000",
             },

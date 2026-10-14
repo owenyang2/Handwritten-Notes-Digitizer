@@ -119,7 +119,8 @@ class UserRepository(_ScopedRepository):
         return self._session.scalars(stmt).one_or_none()
 
     def get_by_email(self, email: str) -> Optional[User]:
-        stmt = select(User).where(User.email == email)
+        normalized = email.strip().lower()
+        stmt = select(User).where(func.lower(User.email) == normalized)
         return self._session.scalars(stmt).one_or_none()
 
 
@@ -1575,11 +1576,16 @@ class UploadRepository(_ScopedRepository):
         return session
 
     def get_part(
-        self, upload_id: UUIDLike | str, part_number: int
+        self, user_id: UUIDLike | str, upload_id: UUIDLike | str, part_number: int
     ) -> Optional[UploadPart]:
-        stmt = select(UploadPart).where(
-            UploadPart.upload_id == _as_uuid(upload_id),
-            UploadPart.part_number == part_number,
+        stmt = (
+            select(UploadPart)
+            .join(UploadSession, UploadPart.upload_id == UploadSession.upload_id)
+            .where(
+                UploadSession.user_id == _as_uuid(user_id),
+                UploadPart.upload_id == _as_uuid(upload_id),
+                UploadPart.part_number == part_number,
+            )
         )
         return self._session.scalars(stmt).one_or_none()
 
@@ -1588,10 +1594,16 @@ class UploadRepository(_ScopedRepository):
         self._session.flush()
         return part
 
-    def list_parts(self, upload_id: UUIDLike | str) -> Sequence[UploadPart]:
+    def list_parts(
+        self, user_id: UUIDLike | str, upload_id: UUIDLike | str
+    ) -> Sequence[UploadPart]:
         stmt = (
             select(UploadPart)
-            .where(UploadPart.upload_id == _as_uuid(upload_id))
+            .join(UploadSession, UploadPart.upload_id == UploadSession.upload_id)
+            .where(
+                UploadSession.user_id == _as_uuid(user_id),
+                UploadPart.upload_id == _as_uuid(upload_id),
+            )
             .order_by(UploadPart.part_number)
         )
         return list(self._session.scalars(stmt).all())
@@ -1785,6 +1797,26 @@ class PasswordResetRepository(_ScopedRepository):
 
     def get(self, token_hash: str) -> Optional[PasswordResetToken]:
         return self._session.get(PasswordResetToken, token_hash)
+
+    def consume_outstanding(
+        self,
+        user_id: UUIDLike | str,
+        *,
+        used_at: _dt.datetime,
+        keep_hash: str | None = None,
+    ) -> int:
+        """Mark every other unused reset token for this user as used."""
+        stmt = select(PasswordResetToken).where(
+            PasswordResetToken.user_id == _as_uuid(user_id),
+            PasswordResetToken.used_at.is_(None),
+        )
+        consumed = 0
+        for row in self._session.scalars(stmt):
+            if keep_hash is not None and row.token_hash == keep_hash:
+                continue
+            row.used_at = used_at
+            consumed += 1
+        return consumed
 
 
 class RepositoryFactory:

@@ -160,6 +160,37 @@ class S3CompatibleObjectStore(ObjectStore):
                 return
             raise
 
+    def delete_owner(self, user_id: str) -> None:
+        """Delete every key under this user's kind prefixes."""
+        from app.data.object_store import ObjectKind, _validate_segment
+
+        owner = _validate_segment(user_id, field="user_id")
+        for kind in ObjectKind:
+            prefix = self._key(f"{kind.value}/{owner}").rstrip("/") + "/"
+            token: str | None = None
+            while True:
+                kwargs: dict[str, Any] = {"Bucket": self._bucket, "Prefix": prefix}
+                if token:
+                    kwargs["ContinuationToken"] = token
+                page = self._client.list_objects_v2(**kwargs)
+                keys = [
+                    item["Key"]
+                    for item in page.get("Contents") or []
+                    if item.get("Key")
+                ]
+                if keys:
+                    result = self._client.delete_objects(
+                        Bucket=self._bucket,
+                        Delete={"Objects": [{"Key": key} for key in keys], "Quiet": True},
+                    )
+                    if result.get("Errors"):
+                        raise ObjectStoreError("S3 could not delete every account object.")
+                if not page.get("IsTruncated"):
+                    break
+                token = page.get("NextContinuationToken")
+                if not token:
+                    raise ObjectStoreError("S3 returned a truncated listing without a cursor.")
+
 
 # Alias used by other production-profile call sites.
 S3ObjectStore = S3CompatibleObjectStore

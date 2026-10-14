@@ -97,13 +97,23 @@ def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _png_bytes() -> bytes:
+    from io import BytesIO
+
+    from PIL import Image
+
+    buffer = BytesIO()
+    Image.new("RGB", (2, 2), (10, 20, 30)).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
 def test_resumable_upload_create_part_complete_and_idempotency(upload_client) -> None:
     client, session_factory, store, object_store = upload_client
     user, token = _user_and_token(session_factory, store, "alice")
 
-    part_a = b"hello "
-    part_b = b"world!"
-    payload = part_a + part_b
+    payload = _png_bytes()
+    part_a = payload[:8]
+    part_b = payload[8:]
     expected_sha = _sha256(payload)
     idempotency_key = str(uuid.uuid4())
 
@@ -434,3 +444,31 @@ def test_resumable_ink_upload_publishes_one_immutable_revision(upload_client) ->
         assert bundle is not None
         assert bundle.page_id == page_id
         assert bundle.revision_number == 1
+
+
+def test_asset_completion_rejects_bytes_that_do_not_match_a_real_image(upload_client) -> None:
+    client, session_factory, store, _object_store = upload_client
+    _user, token = _user_and_token(session_factory, store, "spoof")
+    payload = b"not-a-png"
+    created = client.post(
+        "/uploads",
+        json={
+            "filename": "note.png",
+            "content_type": "image/png",
+            "expected_size": len(payload),
+            "expected_sha256": _sha256(payload),
+            "part_size": 256 * 1024,
+        },
+        headers=_auth(token),
+    )
+    assert created.status_code == 201, created.text
+    upload_id = created.json()["upload_id"]
+    uploaded = client.put(
+        f"/uploads/{upload_id}/parts/1",
+        content=payload,
+        headers={**_auth(token), "X-Part-SHA256": _sha256(payload)},
+    )
+    assert uploaded.status_code == 200, uploaded.text
+    completed = client.post(f"/uploads/{upload_id}/complete", headers=_auth(token))
+    assert completed.status_code == 422
+    assert completed.json()["detail"]["code"] == "invalid_image"
