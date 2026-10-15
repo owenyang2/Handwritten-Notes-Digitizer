@@ -26,12 +26,6 @@ These images demonstrate the interface; real-model validation is linked from
 - **Sync and export:** native local storage and pending operations; saved
   document exports as Markdown, LaTeX, HTML, and controlled PDF on the web.
 
-**Local alpha.** Real-model web and simulator conversion has been demonstrated.
-Representative handwriting accuracy, physical Pencil/device acceptance, full
-live two-client recovery, and public deployment acceptance remain open.
-A clean checkout includes no model weights. See [current status](docs/STATUS.md)
-for evidence and limits.
-
 ## Architecture
 
 ```mermaid
