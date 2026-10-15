@@ -17,7 +17,7 @@ acceptance summary. The project is a local alpha.
 
 ## Reference
 
-- [Architecture and engineering decisions](reference/architecture.md)
+- [Architecture diagram and engineering case study](reference/architecture.md)
 - [UI design and tokens](reference/design.md)
 - [API and shared client contracts](reference/api-contract.md)
 - [Model artifacts and data boundaries](reference/model-artifacts.md)

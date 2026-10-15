@@ -5,6 +5,9 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before changing the application.
 - Keep documentation in the same change as a feature or fix. Follow the
   [documentation standard](docs/development/documentation.md) and update the
   canonical page instead of adding a dated handoff or duplicate setup guide.
+- Preserve the README's architecture diagram, technology stack and concrete
+  engineering highlights for recruiters. Keep deeper diagrams and supporting
+  code/test evidence in the architecture reference; update visuals with behavior.
 - Update [docs/STATUS.md](docs/STATUS.md) when behavior, acceptance evidence or
   known limits change. Preserve the distinction between implemented, automated,
   simulator, hardware and deployment evidence.

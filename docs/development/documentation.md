@@ -8,7 +8,7 @@ Use Markdown in the repository; no separate documentation platform is required.
 
 | Information | Home |
 | --- | --- |
-| What the product does and shortest local start | [Root README](../../README.md) |
+| Product overview, architecture diagram, engineering highlights and shortest local start | [Root README](../../README.md) |
 | Navigation to maintained information | [Documentation index](../README.md) |
 | Capabilities, acceptance gaps and next work | [Status and roadmap](../STATUS.md) |
 | Setup, workflow, model installation, training, deployment | Existing page in `docs/guides/` |
@@ -23,6 +23,20 @@ from the documentation index. Use lowercase filenames with dashes. Keep the
 root README short; leave full setup, matrices, test counts and long plans in
 their canonical homes. A current instruction must not depend on an archived
 runbook. History may link back to maintained instructions.
+
+## Recruiter-facing overview
+
+The README is also a portfolio entry point. Keep a visible system architecture
+diagram, the technology stack, and a few concrete engineering highlights that
+link to the [case study](../reference/architecture.md). Preserve useful technical
+visuals when consolidating documentation. Put deeper diagrams, tradeoffs and
+code/test evidence in the architecture reference so readers can inspect the work.
+
+Use Mermaid for small architecture diagrams so they render on GitHub and stay
+editable beside the code. Keep diagrams aligned with implementation, including
+local versus optional deployment services and process boundaries. Distinguish
+project-built systems from integrated pretrained models, and keep acceptance
+limits visible. Prefer demonstrated decisions over promotional claims.
 
 ## Writing and evidence
 

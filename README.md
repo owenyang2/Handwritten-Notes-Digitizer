@@ -4,7 +4,10 @@ Turn handwritten notes and PDFs into reviewed text and editable LaTeX while
 keeping the original source. Web and native iPhone/iPad clients share a FastAPI
 backend; the native app is currently named **Personalized Notes**.
 
+SwiftUI / PencilKit · React / TypeScript / Vite · FastAPI / PyTorch
+
 [Get started](docs/guides/getting-started.md) ·
+[Architecture and case study](docs/reference/architecture.md) ·
 [Documentation](docs/README.md) · [Status and roadmap](docs/STATUS.md) ·
 [Contributing](CONTRIBUTING.md)
 
@@ -28,6 +31,43 @@ Representative handwriting accuracy, physical Pencil/device acceptance, full
 live two-client recovery, and public deployment acceptance remain open.
 A clean checkout includes no model weights. See [current status](docs/STATUS.md)
 for evidence and limits.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    native["iPhone / iPad · SwiftUI / PencilKit"] --> local["Local SQLite + ink files"]
+    local <-->|"pending operations / ink revisions"| api["FastAPI"]
+    web["Web · React / TypeScript / Vite"] -->|"HTTP API"| api
+    api --> db["SQLite · documents, jobs, reviews"]
+    api --> store["Filesystem object store · originals, crops, ink"]
+    api --> worker["Recognition worker · process-local"]
+    worker --> db
+    worker --> store
+    worker --> models["UniMERNet / TrOCR · external weights"]
+```
+
+The local stack uses SQLite and filesystem storage. The optional
+[deployment profile](docs/guides/deployment.md) adds PostgreSQL, Redis rate
+limits and encrypted SeaweedFS storage. Recognition runs inside the API process.
+
+## Engineering highlights
+
+- **Protect edits during sync.** Native edits persist locally; pending operations
+  survive relaunch. Remote ink installation rechecks local revisions to protect
+  a drawing made while a download is running.
+- **Keep recognition and exports tied to their source.** Frozen crops and model
+  provenance identify each prediction. Version-checked, immutable reviews keep
+  saved corrections and exported snapshots consistent.
+- **Connect native, web and ML boundaries.** OpenAPI, error codes and canonical
+  ink fixtures define shared contracts. Property, integration and simulator
+  tests cover recovery, ownership and serialization.
+
+The project implements the clients, sync, review/export pipeline, model adapters
+and training/evaluation tooling. Demonstrated recognition uses pretrained
+UniMERNet-small and TrOCR; representative accuracy remains unmeasured.
+The [engineering case study](docs/reference/architecture.md) explains the
+tradeoffs and links each decision to implementation and regression tests.
 
 ## Run locally
 
