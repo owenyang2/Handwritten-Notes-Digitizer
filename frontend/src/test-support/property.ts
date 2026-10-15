@@ -18,7 +18,7 @@
 //     // Feature: handwriting-notes-digitizer, Property {number}: {property_text}
 //
 // placed directly above the test. This links the test back to the numbered
-// property in design.md. See `PROPERTY_TESTING.md` at the repo root area for
+// property in design.md. See `docs/development/testing.md` from the repo root for
 // the full convention.
 
 import type { Parameters as FcParameters } from "fast-check";

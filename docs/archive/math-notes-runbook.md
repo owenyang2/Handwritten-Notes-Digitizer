@@ -1,7 +1,9 @@
+> Historical document. Use [current status](../STATUS.md) and the [documentation index](../README.md) for maintained instructions.
+
 # Math-notes implementation runbook
 
 For a complete first-time setup, artifact installation procedure, and explicit
-list of external requirements, see [MATH_NOTES_SETUP_GUIDE.md](MATH_NOTES_SETUP_GUIDE.md).
+list of external requirements, see [MATH_NOTES_SETUP_GUIDE.md](math-notes-setup-guide.md).
 
 ## Fast checks
 

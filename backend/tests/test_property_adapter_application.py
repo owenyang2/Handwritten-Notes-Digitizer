@@ -11,7 +11,7 @@ Design property under test:
 **Validates: Requirements 5.4, 5.5**
 
 This is a single Hypothesis property test running ≥100 iterations (the project's
-``default`` profile; see ``tests/conftest.py`` and ``PROPERTY_TESTING.md``).
+``default`` profile; see ``tests/conftest.py`` and ``docs/development/testing.md``).
 
 Strategy
 --------

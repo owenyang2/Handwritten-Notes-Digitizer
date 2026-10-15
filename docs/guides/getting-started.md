@@ -1,8 +1,8 @@
 # Getting started
 
 Handwriting Notes Digitizer has a web/API stack and an optional native iPad
-client. Start with the [demo](../demos/README.md) to inspect the product without
-installing dependencies.
+client. See [the workflow and current screenshots](using-the-app.md) to inspect the
+product before installing dependencies.
 
 ## Choose a setup
 
@@ -44,7 +44,7 @@ Model absence should appear as unavailable; a healthy HTTP endpoint alone does
 not establish that recognition is ready.
 
 The recorded demo used UniMERNet-small and TrOCR in a separate macOS arm64
-Python 3.12 environment. Follow [recognition and iPad setup](MODEL_AND_IPAD_SETUP.md)
+Python 3.12 environment. Follow [recognition and iPad setup](recognition-and-ipad.md)
 for pinned snapshots, runtime installation, and model-health checks. The Linux
 Docker image does not install that optional runtime, and a macOS virtual
 environment cannot be reused inside a Linux container. Linux inference still
@@ -88,9 +88,9 @@ Use ignored local configuration for credentials or private service addresses.
 ## Native iPad client
 
 The current Xcode target/app name is `PersonalizedNotes`. See the
-[iPad guide](../ios/README.md) for module layout and test boundaries, then the
-[simulator setup](MODEL_AND_IPAD_SETUP.md#simulator-setup) or
-[physical-device setup](MODEL_AND_IPAD_SETUP.md#your-physical-ipad).
+[iPad guide](../../ios/README.md) for module layout and test boundaries, then the
+[simulator setup](recognition-and-ipad.md#simulator-setup) or
+[physical-device setup](recognition-and-ipad.md#your-physical-ipad).
 The simulator's default backend is `http://127.0.0.1:8000`. A physical device
 needs a reachable host address and correctly configured signing/App Groups.
 
@@ -131,7 +131,7 @@ run from `backend/`:
 .venv/bin/alembic check
 ```
 
-See the [testing guide](../PROPERTY_TESTING.md) for test and contract commands.
-Use the [feature matrix](FEATURE_STATUS_MATRIX.md) to distinguish local checks
-from deployment acceptance. The [optional production profile](PRODUCTION_PROFILE.md)
-still has service-integration and release gaps.
+See the [testing guide](../development/testing.md) for test and contract commands.
+Use the [feature matrix](../STATUS.md) to distinguish local checks
+from deployment acceptance. The [optional production profile](deployment.md)
+still needs deployment acceptance; see [status](../STATUS.md).

@@ -79,6 +79,6 @@ it does not cover unreferenced remote history or certify application security.
   [third-party notices](../../THIRD_PARTY_NOTICES.md).
 - Physical iPad, representative recognition quality, full live two-client
   interruption/conflict, and measured personalization improvement remain in
-  the [active checklist](../../TODO-2026-10-11.md).
+  the [active checklist](../archive/remaining-work-2026-10-11.md).
 
-[Project overview](../../README.md) · [Feature status](../FEATURE_STATUS_MATRIX.md)
+[Project overview](../../README.md) · [Feature status](../STATUS.md)

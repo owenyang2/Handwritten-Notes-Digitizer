@@ -38,7 +38,7 @@ remain.
 The prior real-model UI recording was not repeated for this commit batch.
 Physical-device, representative handwriting quality, and full two-device
 interruption/conflict acceptance remain listed in the
-[dated TODO](../../TODO-2026-10-11.md).
+[dated TODO](../archive/remaining-work-2026-10-11.md).
 
 ## Commit contents
 

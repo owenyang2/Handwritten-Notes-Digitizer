@@ -13,7 +13,7 @@ CONTRACTS = ROOT / "contracts"
 CHECK_GENERATED = ROOT / "scripts" / "check_generated_contracts.py"
 CHECK_OPENAPI = ROOT / "scripts" / "check_openapi_compatibility.py"
 CHECK_SWIFT_MODELS = ROOT / "scripts" / "check_swift_api_models.py"
-CONTRACT_BOUNDARY = ROOT / "docs" / "API_CONTRACT_BOUNDARY.md"
+CONTRACT_BOUNDARY = ROOT / "docs" / "reference" / "api-contract.md"
 
 
 def _run(script: Path, *args: str) -> subprocess.CompletedProcess[str]:

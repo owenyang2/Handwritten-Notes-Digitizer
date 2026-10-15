@@ -5,8 +5,8 @@ crops, reviews prose or editable LaTeX, and exports saved corrections through
 the shared FastAPI backend. KaTeX renders formula previews; prose stays literal
 text. This is the web interface to the same documents used by the native iPhone/iPad client.
 
-[Product demo](../demos/README.md) · [Current status](../docs/FEATURE_STATUS_MATRIX.md) ·
-[First-time setup](../docs/GETTING_STARTED.md)
+[Current UI and workflow](../docs/guides/using-the-app.md) · [Current status](../docs/STATUS.md) ·
+[First-time setup](../docs/guides/getting-started.md)
 
 ## Develop locally
 
@@ -42,7 +42,7 @@ the checked-in lockfile.
 
 The current document-conversion paths use UniMERNet/TrOCR when installed. Legacy
 CRNN calibration/personalization needs its own compatible trained artifact;
-TrOCR availability does not enable it. See [model setup](../docs/MODEL_AND_IPAD_SETUP.md).
+TrOCR availability does not enable it. See [model setup](../docs/guides/recognition-and-ipad.md).
 
 ## Checks
 
@@ -77,10 +77,9 @@ separate capability.
 The [UI revamp evidence](../docs/release-evidence/UI_REVAMP_2026-10-14.md) records
 the new shell, native alignment, browser checks, and remaining physical-device gates.
 
-The [October 11 review report](../docs/release-evidence/REVIEW_FIXES_2026-10-11.md)
-records 175 website tests passing. The demo records live source preview,
-formula correction/reopening, and Markdown download. Wider sync, accuracy, and
-deployment checks remain separate. Property-test conventions are in the
-[testing guide](../PROPERTY_TESTING.md).
+Use [status](../docs/STATUS.md) for current acceptance gaps and dated reports.
+Property-test conventions are in the [testing guide](../docs/development/testing.md).
+Refresh public screenshots after implementation changes with `make docs-screenshots`
+from the repository root; see the [documentation standard](../docs/development/documentation.md).
 
 [Project overview](../README.md) · [Documentation index](../docs/README.md)

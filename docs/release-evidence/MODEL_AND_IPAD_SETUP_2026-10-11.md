@@ -136,4 +136,4 @@ plan; this setup made no website or Swift source changes.
 - Representative handwritten notes and labels are required to measure quality.
 - This Mac environment does not install the optional model runtime in Docker.
 
-The [setup guide](../MODEL_AND_IPAD_SETUP.md) contains restart and device steps.
+The [setup guide](../guides/recognition-and-ipad.md) contains restart and device steps.

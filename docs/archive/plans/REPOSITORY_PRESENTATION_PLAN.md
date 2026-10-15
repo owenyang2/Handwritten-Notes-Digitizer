@@ -1,7 +1,9 @@
+> Historical document. Use [current status](../../STATUS.md) and the [documentation index](../../README.md) for maintained instructions.
+
 # Repository presentation and documentation plan
 
 Drafted October 12, 2026. Implementation authorized October 12; see the
-[presentation check report](../release-evidence/PRESENTATION_2026-10-12.md) for
+[presentation check report](../../release-evidence/PRESENTATION_2026-10-12.md) for
 delivered work and remaining publication checks. The findings below describe
 the repository before this presentation pass.
 
@@ -30,20 +32,20 @@ Suggested introductory copy:
 
 ## Findings that shape the plan
 
-- The [root README](../../README.md) opens with a dated TODO and describes a web
+- The [root README](../../../README.md) opens with a dated TODO and describes a web
   app. It does not introduce the iPad client in its opening or repository map.
-- The [demo page](../../demos/README.md) links to an 84-second video that exists
+- The [demo page](../../../demos/README.md) links to an 84-second video that exists
   locally but is excluded by `demos/.gitignore`. That link will break for a
   visitor to a clean clone or the remote repository.
 - Three useful screenshots are already tracked in `demos/`. The current formula
   sample is printed, and the prose prediction needs correction; these are
   workflow examples, not evidence of handwriting accuracy.
-- The [feature matrix](../FEATURE_STATUS_MATRIX.md) and the final section of the
-  [history/runbook](../archive/IMPLEMENTATION_HISTORY_AND_RUNBOOK.md) describe a
-  September state with absent models. [October's acceptance report](../release-evidence/END_TO_END_LOCAL_2026-10-11.md)
+- The [feature matrix](../../STATUS.md) and the final section of the
+  [history/runbook](../IMPLEMENTATION_HISTORY_AND_RUNBOOK.md) describe a
+  September state with absent models. [October's acceptance report](../../release-evidence/END_TO_END_LOCAL_2026-10-11.md)
   records real-model website and simulator workflows. These claims need dates
   and one maintained current status page.
-- A clean checkout has no model weights. The [model setup guide](../MODEL_AND_IPAD_SETUP.md)
+- A clean checkout has no model weights. The [model setup guide](../../guides/recognition-and-ipad.md)
   also explains that the demonstrated macOS recognition environment is not
   included in the Linux Docker image. Starting containers and reproducing
   recognition need separate instructions.

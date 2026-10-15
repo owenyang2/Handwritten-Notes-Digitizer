@@ -1,3 +1,5 @@
+> Historical document. Use [current status](../../STATUS.md) and the [documentation index](../../README.md) for maintained instructions.
+
 # End-to-end testing plan
 
 Prepared: 2026-10-11
@@ -24,8 +26,8 @@ are recorded below; unchecked acceptance steps remain outstanding.
   The app launches with local signing. Physical-device acceptance is outstanding.
 
 These checks were run in this chat on 2026-10-11. See the
-[completed local setup and remaining device inputs](../MODEL_AND_IPAD_SETUP.md)
-and [final local evidence](../release-evidence/END_TO_END_LOCAL_2026-10-11.md).
+[completed local setup and remaining device inputs](../../guides/recognition-and-ipad.md)
+and [final local evidence](../../release-evidence/END_TO_END_LOCAL_2026-10-11.md).
 The existing September simulator acceptance report remains historical evidence.
 
 ## 1. Start the website and backend
@@ -177,7 +179,7 @@ artifacts are separate; installing one does not enable the other task.
 inputs. Missing or incompatible task models remain visibly unavailable.
 
 Model download/training commands are in the
-[setup guide](../MATH_NOTES_SETUP_GUIDE.md). Model weights and licensed datasets
+[setup guide](../math-notes-setup-guide.md). Model weights and licensed datasets
 are external inputs; neither is bundled in Git.
 
 ## 5. Run the complete journey with real models

@@ -2,9 +2,9 @@
 
 > **Historical document.** Retained for design rationale and development history.
 > Its checkboxes, machine paths, and capability statements describe an earlier
-> stage; use the [current status](../FEATURE_STATUS_MATRIX.md),
-> [active remaining work](../../TODO-2026-10-11.md), and
-> [setup guide](../GETTING_STARTED.md) for the maintained project state.
+> stage; use the [current status](../STATUS.md),
+> [active remaining work](remaining-work-2026-10-11.md), and
+> [setup guide](../guides/getting-started.md) for the maintained project state.
 
 Prepared September 10, 2026, from repository inspection and primary research/model documentation. Models have not been downloaded, trained, or benchmarked on the user's notes or hardware. Estimates below are planning assumptions, not measured performance.
 

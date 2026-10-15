@@ -86,7 +86,7 @@ over 322 source files. **This fix is not yet on origin/main.**
 - Physical Apple Pencil behavior, representative accuracy, the complete live
   two-client interruption/conflict journey, HTTPS/Linux production deployment,
   backup/restore, and resource/battery measurements remain in the
-  [dated TODO](../../TODO-2026-10-11.md).
+  [dated TODO](../archive/remaining-work-2026-10-11.md).
 - GitHub's legacy commit-status query returned no statuses; these results are
   local verification, not a claim that remote CI passed.
 

@@ -63,7 +63,7 @@ inside the same production image; real local databases, credentials, model
 weights and caches are excluded. Initial native failures and interrupted keyboard
 runs are diagnostics, not passing evidence.
 
-Reproducible production setup is in [the profile guide](../PRODUCTION_PROFILE.md).
+Reproducible production setup is in [the profile guide](../guides/deployment.md).
 `scripts/smoke_production.py` performs the API journey against a disposable stack.
 `backend/tests/test_production_integrations.py` covers real database/S3 endpoints;
 set `HND_TEST_S3_REQUIRE_ENCRYPTION=1` to require AES256 metadata. Credential values

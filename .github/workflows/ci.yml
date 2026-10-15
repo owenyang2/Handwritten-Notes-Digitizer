@@ -5,6 +5,18 @@ on:
   pull_request:
 
 jobs:
+  documentation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m unittest discover -s scripts -p 'test_docs.py'
+      - run: make docs-check
+
   frontend:
     runs-on: ubuntu-latest
     defaults:

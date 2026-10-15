@@ -104,9 +104,9 @@ authentication rate limiting returns 503 rather than bypassing the quota.
 
 ## Deployment acceptance
 
-See the dated verification report and [feature matrix](FEATURE_STATUS_MATRIX.md)
+See the dated verification report and [feature matrix](../STATUS.md)
 for actual test results. A local stack smoke test does not establish internet
 or hardware readiness. Still required: TLS configuration, database least
 privilege, backup/restore drills, representative model quality and Linux model
 runtime checks, workload capacity, physical-device acceptance, and the remaining
-items in the [deployment checklist](../TODO-2026-10-11.md#6-before-a-staging-or-beta-release).
+items in the [deployment checklist](../STATUS.md#next-acceptance-work).

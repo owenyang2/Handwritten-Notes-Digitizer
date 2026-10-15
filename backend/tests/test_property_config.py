@@ -2,7 +2,7 @@
 iteration floor and that a tagged property test runs end to end.
 
 These guard the project convention that every property-based test runs a
-minimum of 25 iterations (see PROPERTY_TESTING.md).
+minimum of 25 iterations (see docs/development/testing.md).
 """
 
 from hypothesis import given, settings

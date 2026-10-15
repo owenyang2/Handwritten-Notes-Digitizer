@@ -1,10 +1,12 @@
+> Historical document. Use [current status](../STATUS.md) and the [documentation index](../README.md) for maintained instructions.
+
 # Legacy prose recognition and Docker wiring
 
 This document describes the original CRNN line/word workflow. The current
 document-conversion demo uses separate UniMERNet formula and TrOCR prose
-adapters. Start with [getting started](GETTING_STARTED.md),
-[current model setup](MODEL_AND_IPAD_SETUP.md), and
-[feature status](FEATURE_STATUS_MATRIX.md) for the maintained product state.
+adapters. Start with [getting started](../guides/getting-started.md),
+[current model setup](../guides/recognition-and-ipad.md), and
+[feature status](../STATUS.md) for the maintained product state.
 
 ## Runtime Path
 

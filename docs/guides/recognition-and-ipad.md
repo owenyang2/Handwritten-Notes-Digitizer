@@ -1,54 +1,14 @@
 # Local model and iPad setup
 
-**Start here:** [First-time application setup](GETTING_STARTED.md) ·
-[Current feature status](FEATURE_STATUS_MATRIX.md) ·
-[Remaining work](../TODO-2026-10-11.md).
-
-Setup evidence: 2026-10-11. Documentation clarified: 2026-10-12. This records
-the setup completed on the test Mac and the inputs still needed for
-physical-device and quality testing. These installed artifacts and running
-services are not included in a clean checkout. The complete acceptance
-sequence is in [the end-to-end plan](plans/END_TO_END_TESTING_PLAN.md).
-
-## Ready now
-
-- Website: <http://127.0.0.1:5173>.
-- Backend: <http://127.0.0.1:8000/health>. The website proxies `/api` to it.
-- Formula recognition: official UniMERNet-small weights installed and verified
-  through a live import → region → durable job → review → reopen → LaTeX export.
-- Prose recognition: official Microsoft TrOCR handwritten model installed;
-  live conversion → saved review → reopen → Markdown export passed.
-- Native conversion runs now execute through the durable worker. The website
-  renders saved native ink, and the iPad has source-linked review and converted
-  Markdown, HTML and LaTeX exports.
-- iPad simulator: Personalized Notes installed and launched on the existing
-  iPad Pro 13-inch (M4), iOS 18.6. Xcode and Simulator are open.
-- Validation: 900 backend tests passed, two skipped; 174 website tests and the
-  production build passed; 29 Swift package tests, 27 native app tests and
-  six earlier iPad UI tests passed. The final real-model UI acceptance passed
-  both formula and prose review/reopen/Markdown sharing, and the original PDF
-  export UI check passed against the final build. The skipped backend checks
-  need PostgreSQL and S3.
-
-The [recorded demo](../demos/end-to-end-demo.mp4) is ready. The
-[final local test report](release-evidence/END_TO_END_LOCAL_2026-10-11.md)
-records what was tested and what remains.
-
-The later [commit validation](release-evidence/COMMIT_VALIDATION_2026-10-11.md)
-passed 901 backend tests, 175 website tests, 29 Swift package tests, 27 native
-app tests, and a fresh signed simulator build. Two service integration checks
-remain skipped.
-
-The local services were left running at the recorded setup completion; those
-historical addresses do not establish that they are running now. Start them
-with the instructions below. Open the simulator app and
-choose **Continue Offline** to try local note creation without an account. For
-sync, use an account on the local backend; the simulator's default backend is
-`http://127.0.0.1:8000`.
+Install the [application dependencies](getting-started.md) first. A clean
+checkout contains no weights or optional model runtime. The pinned macOS arm64
+setup below was exercised in the [October 11 acceptance](../release-evidence/END_TO_END_LOCAL_2026-10-11.md);
+installed services, simulator IDs and local test counts are historical evidence.
+Use [status](../STATUS.md) for current capability limits.
 
 ## Formula artifact and runtime
 
-| Item | Installed value |
+| Item | Verified configuration |
 | --- | --- |
 | Upstream snapshot | [wanderkid/unimernet_small](https://huggingface.co/wanderkid/unimernet_small) |
 | Resolved revision | `82cb85440138c2038680fca410c8f70bb7343d6d` |
@@ -68,7 +28,7 @@ and forwards token/beam limits and truncation. Failed probes and timeouts return
 unavailable results.
 
 First install the Python 3.12 API environment using
-[local development setup](GETTING_STARTED.md#local-development). To reproduce
+[local development setup](getting-started.md#local-development). To reproduce
 this setup on macOS arm64, run from the repository root:
 
 ```sh
@@ -89,17 +49,12 @@ HND_FORMULA_ENGINE=unimernet make dev-backend
 make dev-frontend
 ```
 
-Verify <http://127.0.0.1:5173/api/health>: `formula_model.loaded` should be true
-and its backend should be `unimernet-small`. `prose_model.loaded` should also be
-true, with backend `trocr-handwritten`. The legacy CRNN `model_status` remains
-unavailable, so the original image-recognition/calibration workflow and CRNN
-personalization still require their own trained artifact. Use document import
-and **Convert Prose** for the installed TrOCR model. The first
-formula probe takes several seconds to load the weights; subsequent requests
-reuse the process. A generated printed `x + y = 2` smoke fixture returned
-`\mathbf { x } + \mathbf { y } = 2`, without truncation. One direct CPU measurement
-was approximately 8.8 seconds to load and 0.55 seconds to infer. This establishes
-working inference, not accuracy on real handwriting or a latency distribution.
+Verify <http://127.0.0.1:5173/api/health>: `formula_model.loaded` should be
+true, with backend `unimernet-small`. After the TrOCR installation below,
+`prose_model.loaded` should be true with backend `trocr-handwritten`. The
+legacy CRNN `model_status` stays unavailable without its separate artifact.
+First-load probes can take several seconds; subsequent inference reuses the
+worker. See the dated acceptance report for recorded smoke results and timings.
 
 This optional environment was tested on macOS arm64. The Linux Docker image
 does not install it, and a Mac virtual environment cannot be reused in a Linux
@@ -107,7 +62,7 @@ container. Docker model setup needs a compatible Linux environment separately.
 
 ## Handwritten prose artifact
 
-The installed [Microsoft TrOCR model](https://huggingface.co/microsoft/trocr-base-handwritten)
+The [Microsoft TrOCR model](https://huggingface.co/microsoft/trocr-base-handwritten)
 uses revision `eaacaf452b06415df8f10bb6fad3a4c11e609406`, tree SHA-256
 `66074482f479dc42847eb1fd948ac8e75b9fcd8ed743a31cfec292c5c6db6a6e` and the
 upstream MIT license. It shares the isolated Torch/Transformers environment
@@ -119,12 +74,10 @@ backend/.venv/bin/python scripts/download_trocr.py \
   --revision eaacaf452b06415df8f10bb6fad3a4c11e609406
 ```
 
-It is a line recognizer; select **Handwritten prose** on the website or
-**Convert Prose** in the iPad editor. A public IAM-derived functional fixture
-inferred in about 0.8–0.9 seconds after a 17-second cold load. Its prediction
-(`indus the`) requires human correction. This sample is not an independent
-quality benchmark. Model setup now precedes the worker's inference deadline,
-including recovered queued jobs after restart.
+It is a line recognizer. Select **Handwritten prose** on the website, then
+**Convert page** or **Convert crop**; the native editor uses **Convert Prose**.
+Human review is required. The dated fixture's incorrect prediction is documented
+in [status](../STATUS.md), and does not establish representative quality.
 
 ## Simulator setup
 
@@ -139,15 +92,13 @@ xcodegen generate
 open PersonalizedNotes.xcodeproj
 ```
 
-Choose the `PersonalizedNotes` scheme, an iPad simulator, and Run. The installed
-test device's ID is `EE5A4848-3E5B-415A-B7A0-C36D91A6A369`. The build used
-`/private/tmp/hnd-ipad-setup-derived` as Derived Data. Simulator tests establish
-automated UI behavior; Pencil input and actual hardware behavior need an iPad.
+Choose the `PersonalizedNotes` scheme, an iPad simulator, and Run. Simulator
+tests establish automated UI behavior; Pencil input and actual hardware behavior need an iPad.
 
 ## Your physical iPad
 
-No physical device was visible to Xcode during setup, and no valid development
-signing identity was present. These are the remaining interactive setup steps:
+Physical installation needs an unlocked device and an Apple development
+signing identity. Follow these steps:
 
 1. Connect and unlock the iPad, accept **Trust This Computer** if shown, and
    enable Developer Mode if Xcode requests it.
@@ -180,7 +131,7 @@ Optional CRNN personalization requires the project's trained files:
 `backend/var/objectstore/models/base_model/base_model.pt` and
 `base_model.meta.json`. A generic pretrained OCR download does not match this
 architecture. Provide a verified compatible checkpoint, or obtain the real IAM
-dataset and use [the real-data training instructions](MATH_NOTES_SETUP_GUIDE.md).
+dataset and use [the real-data training instructions](training.md).
 The formula model is a separate task model and cannot substitute for this base.
 
 For meaningful quality testing, prepare representative handwritten notes and
@@ -193,8 +144,8 @@ API journeys pass for both tasks. Full two-device conflict/interruption testing,
 representative handwriting quality measurements and physical Pencil testing
 remain separate acceptance gates; simulator setup does not establish them.
 
-See [the setup evidence](release-evidence/MODEL_AND_IPAD_SETUP_2026-10-11.md)
+See [the setup evidence](../release-evidence/MODEL_AND_IPAD_SETUP_2026-10-11.md)
 for the commands, results, and boundaries of this validation.
-Current live results are in
-[the final local acceptance report](release-evidence/END_TO_END_LOCAL_2026-10-11.md)
-and [the conversion API evidence](release-evidence/LIVE_CONVERSION_2026-10-11.json).
+The recorded results are in
+[the final local acceptance report](../release-evidence/END_TO_END_LOCAL_2026-10-11.md)
+and [the conversion API evidence](../release-evidence/LIVE_CONVERSION_2026-10-11.json).

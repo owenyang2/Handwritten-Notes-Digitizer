@@ -1,14 +1,13 @@
-# Handwriting Notes Digitizer — iPad client
+# Handwriting Notes Digitizer — native client
 
 The SwiftUI/PencilKit client provides notebooks, offline local storage, page ink,
 PDF/image import, synchronization, source-linked conversion review, and export.
 Its current app and Xcode target name is **Personalized Notes**.
 
-This is an **iPad alpha**. A signed simulator app and real-model backend journey
-were exercised on October 11, 2026; physical Apple Pencil/device acceptance
-remains outstanding. See the [demo](../demos/README.md),
-[feature matrix](../docs/FEATURE_STATUS_MATRIX.md), and
-[remaining work](../TODO-2026-10-11.md).
+This is a **local alpha** with a universal iPhone/iPad target. Real-model
+simulator workflows and later native regression suites are recorded in
+[status and roadmap](../docs/STATUS.md). Physical Apple Pencil/device acceptance
+remains outstanding.
 
 ## Source map
 
@@ -40,17 +39,17 @@ open PersonalizedNotes.xcodeproj
 Choose the `PersonalizedNotes` scheme and an iPad simulator. Keep local ad-hoc
 signing enabled: the recorded setup found that disabling signing prevented
 normal Keychain use. No Apple developer account was needed for that simulator
-setup. The app is iPad-only, targets iOS 17+, and uses Swift 6.
+setup. The app supports iPhone and iPad, targets iOS 17+, and uses Swift 6.
 
-Run the API using [getting started](../docs/GETTING_STARTED.md), and install
-models using the [recorded macOS setup](../docs/MODEL_AND_IPAD_SETUP.md) for
+Run the API using [getting started](../docs/guides/getting-started.md), and install
+models using the [recorded macOS setup](../docs/guides/recognition-and-ipad.md) for
 automatic conversion. The simulator's default backend is
 `http://127.0.0.1:8000`. Choose **Continue Offline** for local notebook creation;
 sign in to the local backend to sync.
 
 ## Physical-device setup
 
-Follow the [physical iPad instructions](../docs/MODEL_AND_IPAD_SETUP.md#your-physical-ipad)
+Follow the [physical iPad instructions](../docs/guides/recognition-and-ipad.md#your-physical-ipad)
 for the signing team, reachable backend host, and App Group. Current identifiers:
 
 - App: `com.handwrittennotes.digitizer`
@@ -93,31 +92,18 @@ UI test targets in the generated Xcode project for simulator coverage. The
 real-model `LiveConversionDemoUITests` journey is opt-in and requires models
 and disposable demo credentials; keep raw sign-in logs out of Git.
 
-The [October 11 regression report](../docs/release-evidence/REVIEW_FIXES_2026-10-11.md)
-records 30 shared-kit and 33 native app tests passing. The
-[local acceptance report](../docs/release-evidence/END_TO_END_LOCAL_2026-10-11.md)
-records the simulator recognition → review → save/reopen → Markdown-sharing
-journey. Broader two-client interruption/conflict and physical testing remain.
+See [current status and evidence](../docs/STATUS.md) for the latest recorded
+results and open acceptance work. The final October 14 report records app and
+UI suites passing on iPhone and iPad simulators, including the compact Tools
+menu. These checks do not establish physical-device readiness.
+
+## Appearance and adaptive review
+
+Settings persists System / Light / Dark appearance. Conversion review adapts
+to available width and guards unsaved dismissal. PencilKit and local ink
+persistence keep their existing contracts. Use
+[the design reference](../docs/reference/design.md) for shared UI roles and labels.
+Compact toolbars can move actions into the system More menu; simulator UI tests
+must open that menu and scroll action lists before selecting an item.
 
 [Project overview](../README.md) · [Documentation index](../docs/README.md)
-
-## Quiet Notebook UI alignment (October 14, 2026)
-
-The generated target now supports iPhone and iPad. Settings persists System / Light / Dark appearance; conversion review adapts to available width and guards unsaved dismissal. PencilKit and local ink persistence retain their existing contracts. Universal compilation is not a claim of physical iPhone or Pencil readiness. See the [UI revamp evidence](../docs/release-evidence/UI_REVAMP_2026-10-14.md) for simulator results, screenshots, and remaining device gates.
-
-The October 14 follow-up also checks the largest accessibility Dynamic Type
-size on iPhone, including scrolling to Continue Offline, changing appearance,
-and creating a notebook with the keyboard open. The appearance picker uses a
-full row to avoid splitting its label/value into narrow columns. This targeted
-reachability check does not replace a complete Dynamic Type or VoiceOver audit.
-Compact native toolbars can move actions into the system More menu; UI tests
-must open that menu and scroll long action lists before selecting an item.
-The initial expanded iPhone run exposed a Tools-menu failure at Toggle Ruler;
-the final verification below resolves it and records complete green suites.
-
-The [final October 14 verification](../docs/release-evidence/VERIFICATION_AND_PONYTAIL_AUDIT_2026-10-14.md)
-records 33 native app tests and all eight UI tests passing on both iPhone and
-iPad simulators. UI-test launch mode disables UIKit animations to keep those
-functional checks deterministic; production retains normal animations. The
-earlier compact Tools-menu failure is resolved, and page-deletion confirmation
-retains its target correctly. Physical-device and broader accessibility gates remain.

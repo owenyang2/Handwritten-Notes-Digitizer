@@ -22,7 +22,7 @@
 # Required secrets have no defaults in this file. Compose refuses to start
 # unless HND_POSTGRES_PASSWORD, HND_S3_ADMIN_ACCESS_KEY, HND_S3_ADMIN_SECRET_KEY, HND_S3_ENCRYPTION_KEY,
 # HND_S3_ACCESS_KEY, and HND_S3_SECRET_KEY are set. TLS, backups, and trained
-# model artifacts are still required (see docs/PRODUCTION_PROFILE.md).
+# model artifacts are still required (see docs/guides/deployment.md).
 
 volumes:
   postgres_data:

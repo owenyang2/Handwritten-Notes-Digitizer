@@ -1,4 +1,7 @@
-# Product demo
+# Historical demo — October 11, 2026
+
+> This recording and the screenshots below predate the Quiet Notebook UI redesign.
+> See [the current interface and workflow](../docs/guides/using-the-app.md).
 
 [Watch or download the 82-second demo](end-to-end-demo.mp4) — 1.3 MB, H.264,
 768 × 1024, no audio. Browser playback reports 82.375 seconds; the older
@@ -41,6 +44,6 @@ two-device interruption/conflict journey remain unverified.
 
 - [Recorded local acceptance report](../docs/release-evidence/END_TO_END_LOCAL_2026-10-11.md)
 - [Model and recording provenance](../docs/release-evidence/END_TO_END_LOCAL_2026-10-11.json)
-- [Current feature status](../docs/FEATURE_STATUS_MATRIX.md)
+- [Current feature status](../docs/STATUS.md)
 - [Media and third-party boundaries](../THIRD_PARTY_NOTICES.md)
 - [Back to the project](../README.md)

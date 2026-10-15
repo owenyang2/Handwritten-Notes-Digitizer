@@ -105,7 +105,7 @@ test("live API: saved review, offline draft, shell reload, reconnect and cache i
     unsavedDraftDurableAcrossReload: false,
   };
   await writeFile(
-    `../docs/release-evidence/ui-revamp/live-offline-${browserName}.json`,
+    testInfo.outputPath(`live-offline-${browserName}.json`),
     JSON.stringify(evidence, null, 2),
   );
   await testInfo.attach("live-offline-evidence", {

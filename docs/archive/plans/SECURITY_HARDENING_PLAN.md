@@ -1,3 +1,5 @@
+> Historical document. Use [current status](../../STATUS.md) and the [documentation index](../../README.md) for maintained instructions.
+
 # Security Hardening Plan
 
 Review date: 2026-10-14. Scope: `backend/app`, `frontend/`, `ios/`, `nginx.conf`,
