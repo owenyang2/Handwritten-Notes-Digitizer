@@ -1,9 +1,11 @@
+> Historical document. Use [current status](../STATUS.md) and the [documentation index](../README.md) for maintained instructions.
+
 # Math Notes setup and operations guide
 
-For first-time application setup, start with [getting started](GETTING_STARTED.md).
+For first-time application setup, start with [getting started](../guides/getting-started.md).
 This document is the deeper formula/training operations reference. Its local
 model-installation entries describe the recorded Mac setup, not a clean clone.
-The [feature matrix](FEATURE_STATUS_MATRIX.md) is the maintained evidence summary.
+The [feature matrix](../STATUS.md) is the maintained evidence summary.
 
 This guide answers two separate questions:
 
@@ -39,7 +41,7 @@ Manual crop selection and LaTeX review work without a formula model.
 The plan deliberately forbids claiming recognition accuracy from the checked-in
 placeholder/synthetic fixtures. Without a compatible formula artifact, /health
 reports formula recognition as unavailable and the UI allows manual LaTeX entry.
-The completed Mac setup is recorded in [Model and iPad setup](MODEL_AND_IPAD_SETUP.md);
+The completed Mac setup is recorded in [Model and iPad setup](../guides/recognition-and-ipad.md);
 its real-model smoke checks establish functional inference, not accuracy on a
 held-out set.
 
@@ -282,7 +284,7 @@ different artifact contract.
 
 The official snapshot uses an upstream `.pth` checkpoint. Install its compatible
 runtime as well as the weights: the verified Mac setup, pinned dependencies,
-and iPad instructions are in [MODEL_AND_IPAD_SETUP.md](MODEL_AND_IPAD_SETUP.md).
+and iPad instructions are in [MODEL_AND_IPAD_SETUP.md](../guides/recognition-and-ipad.md).
 The adapter runs that optional environment in a separate cached process and
 checks real inference before reporting the model as loaded. For local
 development, restart the backend after completing both installations.
@@ -523,10 +525,10 @@ Normal docker compose down preserves the database and object store.
 
 ## Related files
 
-- [Implementation plan](archive/MATH_NOTES_IMPLEMENTATION_PLAN.md)
-- [Existing runbook](MATH_NOTES_RUNBOOK.md)
-- [Data card](MATH_NOTES_DATA_CARD.md)
-- [Model card](MATH_NOTES_MODEL_CARD.md)
-- [Benchmark guide](../benchmarks/README.md)
-- [Legacy prose training procedure](../backend/app/ml/BASE_MODEL_TRAINING.md)
-- [General evaluation set](../backend/app/ml/GENERAL_EVAL_SET.md)
+- [Implementation plan](MATH_NOTES_IMPLEMENTATION_PLAN.md)
+- [Existing runbook](math-notes-runbook.md)
+- [Data card](../reference/data-card.md)
+- [Model card](../reference/model-card.md)
+- [Benchmark guide](../../benchmarks/README.md)
+- [Legacy prose training procedure](../../backend/app/ml/BASE_MODEL_TRAINING.md)
+- [General evaluation set](../../backend/app/ml/GENERAL_EVAL_SET.md)

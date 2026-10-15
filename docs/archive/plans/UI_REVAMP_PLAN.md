@@ -1,10 +1,12 @@
+> Historical document. Use [current status](../../STATUS.md) and the [documentation index](../../README.md) for maintained instructions.
+
 # Web and Mobile UI Revamp
 
-Implementation started October 14, 2026. The web workspace and native alignment are implemented; acceptance evidence and remaining release gates are tracked in [UI_REVAMP_2026-10-14.md](../release-evidence/UI_REVAMP_2026-10-14.md). The sections below retain the agreed scope and acceptance criteria.
+Implementation started October 14, 2026. The web workspace and native alignment are implemented; acceptance evidence and remaining release gates are tracked in [UI_REVAMP_2026-10-14.md](../../release-evidence/UI_REVAMP_2026-10-14.md). The sections below retain the agreed scope and acceptance criteria.
 
 ## 1. Recommendation
 
-Build the web experience with **React + TypeScript + Vite + Tailwind + selected shadcn/ui components**, retaining the existing API, recognition, and sync contracts. Keep **SwiftUI + PencilKit** for native iPhone/iPad. Use [DESIGN.md](../../DESIGN.md) as the shared visual and interaction specification.
+Build the web experience with **React + TypeScript + Vite + Tailwind + selected shadcn/ui components**, retaining the existing API, recognition, and sync contracts. Keep **SwiftUI + PencilKit** for native iPhone/iPad. Use [DESIGN.md](../../reference/design.md) as the shared visual and interaction specification.
 
 React is justified by the requested scope: a library, adaptive notebook workspace, coordinated source/result selection, forms, overlays, and asynchronous review states. It should reduce duplicated view-state handling. It does not itself make an interface fast or attractive; the redesign needs deliberate hierarchy and performance validation.
 
@@ -172,4 +174,4 @@ The highest risks are lost drafts during React remounts, broken source coordinat
 
 Keep the existing implementation recoverable through normal version control and reversible delivery slices until acceptance. Avoid retaining a permanent legacy mode or adding a feature-flag service just for this migration.
 
-The implementation now includes the React shell and appearance, Library/import, source-linked review/export, and native alignment. The remaining acceptance work is the physical-device, accessibility, performance, and usability evidence listed in the [implementation report](../release-evidence/UI_REVAMP_2026-10-14.md). Keep those release gates open until their results are recorded.
+The implementation now includes the React shell and appearance, Library/import, source-linked review/export, and native alignment. The remaining acceptance work is the physical-device, accessibility, performance, and usability evidence listed in the [implementation report](../../release-evidence/UI_REVAMP_2026-10-14.md). Keep those release gates open until their results are recorded.

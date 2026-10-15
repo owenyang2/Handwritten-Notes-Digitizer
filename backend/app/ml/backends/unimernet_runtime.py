@@ -49,7 +49,7 @@ class UniMERNetRuntime:
                 return True
             self.close()
             if not self.python.is_file():
-                raise RuntimeError("Install the isolated UniMERNet environment; see docs/MODEL_AND_IPAD_SETUP.md")
+                raise RuntimeError("Install the isolated UniMERNet environment; see docs/guides/recognition-and-ipad.md")
             self._errors = tempfile.TemporaryFile(mode="w+t")
             self._process = subprocess.Popen(
                 [str(self.python), "-u", str(self.worker), "--model-dir", str(self.model_dir)],

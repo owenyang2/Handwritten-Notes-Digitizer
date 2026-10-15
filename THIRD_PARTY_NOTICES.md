@@ -25,8 +25,8 @@ revision and digest.
 
 Training/evaluation tools expect independently supplied, appropriately licensed
 data. IAM, MathWriting, CROHME, and other external datasets are not licensed by
-the project's MIT grant. See the [data card](docs/MATH_NOTES_DATA_CARD.md) and
-[artifact/data boundary](docs/MODEL_ARTIFACTS_AND_DATA_BOUNDARY.md).
+the project's MIT grant. See the [data card](docs/reference/data-card.md) and
+[artifact/data boundary](docs/reference/model-artifacts.md).
 
 ## Demo material
 

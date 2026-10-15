@@ -45,4 +45,4 @@ SHA-256.
 
 The earlier live demo and real-model acceptance recording were not repeated.
 Physical iPad/Pencil, representative handwriting accuracy, and the broader live
-two-client acceptance journey remain in the [dated TODO](../../TODO-2026-10-11.md).
+two-client acceptance journey remain in the [dated TODO](../archive/remaining-work-2026-10-11.md).

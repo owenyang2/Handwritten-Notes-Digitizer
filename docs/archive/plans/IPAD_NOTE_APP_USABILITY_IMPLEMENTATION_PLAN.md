@@ -1,3 +1,5 @@
+> Historical document. Use [current status](../../STATUS.md) and the [documentation index](../../README.md) for maintained instructions.
+
 # iPad Note App Usability Implementation Plan
 
 Status: engineering alpha acceptance pass complete — iPad alpha foundation, resumable transfer durability, destination-aware import, mixed-source archive portability, normalized page-title search navigation, Pencil hardware actions, bounded notebook conversion, raster conversion fallback, contextual onboarding, normalized local revision/transfer persistence, and guarded second-client ink restoration completed
@@ -8,7 +10,7 @@ Audited branch: `platform-sync-uploads`
 
 Audited baseline: `67150d9`
 
-Related roadmap: [`PERSONALIZED_NOTES_PLATFORM_REMAINING_TASKS.md`](../archive/PERSONALIZED_NOTES_PLATFORM_REMAINING_TASKS.md)
+Related roadmap: [`PERSONALIZED_NOTES_PLATFORM_REMAINING_TASKS.md`](../PERSONALIZED_NOTES_PLATFORM_REMAINING_TASKS.md)
 
 ## 1. Executive decision
 

@@ -1,3 +1,5 @@
+> Historical document. Use [current status](../STATUS.md) and the [documentation index](../README.md) for maintained instructions.
+
 # Remaining work — October 11, 2026
 
 Created: **2026-10-11**
@@ -14,18 +16,18 @@ part of the behavior. Mark an item complete after recording its result.
 - [x] Website, backend, and iPad simulator set up for local testing.
 - [x] Real-model simulator recognition → review → save → reopen → Markdown export passed.
 - [x] Website formula correction, source preview, reopening, and Markdown download verified.
-- [x] Automated checks completed and the [84-second demo](demos/end-to-end-demo.mp4) recorded.
-- [x] Six code review issues fixed and regression-tested; see the [dated fix report](docs/release-evidence/REVIEW_FIXES_2026-10-11.md).
-- [x] Merged main checked with fresh automated, simulator UI, and real-model journeys; see [main verification](docs/release-evidence/MAIN_VERIFICATION_2026-10-11.md).
+- [x] Automated checks completed and the [84-second demo](../../demos/end-to-end-demo.mp4) recorded.
+- [x] Six code review issues fixed and regression-tested; see the [dated fix report](../release-evidence/REVIEW_FIXES_2026-10-11.md).
+- [x] Merged main checked with fresh automated, simulator UI, and real-model journeys; see [main verification](../release-evidence/MAIN_VERIFICATION_2026-10-11.md).
 
 **No further downloads are needed on the recorded test Mac.** A clean checkout
-needs the [model downloads and compatible runtime](docs/MODEL_AND_IPAD_SETUP.md).
+needs the [model downloads and compatible runtime](../guides/recognition-and-ipad.md).
 Physical iPad setup is one remaining step; accuracy and broader sync testing
 also remain.
 
 ## UI follow-up evidence — October 14
 
-The [UI report](docs/release-evidence/UI_REVAMP_2026-10-14.md) now records the
+The [UI report](../release-evidence/UI_REVAMP_2026-10-14.md) now records the
 redesigned workspace, browser accessibility/keyboard checks, actual Chrome 200%
 zoom, network-save retry, in-place session recovery, and live offline/reconnect
 checks in three browser engines. These targeted journeys do not complete the
@@ -86,7 +88,7 @@ website and second native client, and its saved corrections match its exports.
 
 ## 3. Install and test on a physical iPad
 
-Follow the [physical iPad setup instructions](docs/MODEL_AND_IPAD_SETUP.md#your-physical-ipad).
+Follow the [physical iPad setup instructions](../guides/recognition-and-ipad.md#your-physical-ipad).
 
 - [ ] Connect/unlock the iPad, trust the Mac, and enable Developer Mode if requested.
 - [ ] Configure signing for the app and share extension, including their shared App Group.
@@ -130,7 +132,7 @@ formula/prose conversion.
 - [ ] If choosing the compact formula model, train/install and evaluate a real
   compatible checkpoint. UniMERNet is already available for formula testing.
 
-See the [model setup and training guide](docs/MATH_NOTES_SETUP_GUIDE.md).
+See the [model setup and training guide](math-notes-setup-guide.md).
 
 ## 6. Before a staging or beta release
 
@@ -143,23 +145,23 @@ See the [model setup and training guide](docs/MATH_NOTES_SETUP_GUIDE.md).
 - [ ] Verify HTTPS login and a Linux-compatible recognition-model runtime.
 - [ ] Test backup/restore, long background transfers, low disk space, and large notebooks/libraries.
 - [ ] Measure memory, battery, and heat during longer runs on a physical iPad.
-- [ ] Review the remaining [iPad roadmap](docs/plans/IPAD_NOTE_APP_USABILITY_IMPLEMENTATION_PLAN.md)
+- [ ] Review the remaining [iPad roadmap](plans/IPAD_NOTE_APP_USABILITY_IMPLEMENTATION_PLAN.md)
   before calling the app beta-ready.
 
 ## Keep evidence with each completed item
 
 Record the date, client/device, input notes, software/model version, result, and
-any remaining defect under [release evidence](docs/release-evidence/).
+any remaining defect under [release evidence](../release-evidence).
 
 | Completed date | Checklist item | Result or evidence link |
 | --- | --- | --- |
-| 2026-10-11 | Merged main local verification | [App/website/model journeys pass; PostgreSQL fix prepared; S3 unverified](docs/release-evidence/MAIN_VERIFICATION_2026-10-11.md) |
+| 2026-10-11 | Merged main local verification | [App/website/model journeys pass; PostgreSQL fix prepared; S3 unverified](../release-evidence/MAIN_VERIFICATION_2026-10-11.md) |
 
 ## Quick links
 
-- [Current setup and restart instructions](docs/MODEL_AND_IPAD_SETUP.md)
-- [Completed local test report](docs/release-evidence/END_TO_END_LOCAL_2026-10-11.md)
-- [Commit validation results](docs/release-evidence/COMMIT_VALIDATION_2026-10-11.md)
-- [Merged main verification and discovered startup issue](docs/release-evidence/MAIN_VERIFICATION_2026-10-11.md)
-- [Detailed end-to-end plan](docs/plans/END_TO_END_TESTING_PLAN.md)
-- [Recorded demo](demos/end-to-end-demo.mp4)
+- [Current setup and restart instructions](../guides/recognition-and-ipad.md)
+- [Completed local test report](../release-evidence/END_TO_END_LOCAL_2026-10-11.md)
+- [Commit validation results](../release-evidence/COMMIT_VALIDATION_2026-10-11.md)
+- [Merged main verification and discovered startup issue](../release-evidence/MAIN_VERIFICATION_2026-10-11.md)
+- [Detailed end-to-end plan](plans/END_TO_END_TESTING_PLAN.md)
+- [Recorded demo](../../demos/end-to-end-demo.mp4)

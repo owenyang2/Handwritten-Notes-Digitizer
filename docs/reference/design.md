@@ -46,7 +46,7 @@ spacing:
 
 # Quiet Notebook
 
-Implemented foundation dated October 14, 2026. Web tokens, the React shell, and native appearance follow this guide. See [implementation evidence](docs/release-evidence/UI_REVAMP_2026-10-14.md) for verified behavior and remaining device/release gates. This document borrows the token-plus-rationale approach of [Google's DESIGN.md format](https://github.com/google-labs-code/design.md); schema conformance has not been tested.
+Implemented foundation dated October 14, 2026. Web tokens, the React shell, and native appearance follow this guide. See [implementation evidence](../release-evidence/UI_REVAMP_2026-10-14.md) for verified behavior and remaining device/release gates. This document borrows the token-plus-rationale approach of [Google's DESIGN.md format](https://github.com/google-labs-code/design.md); schema conformance has not been tested.
 
 ## Product character
 

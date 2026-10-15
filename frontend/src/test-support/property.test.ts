@@ -1,7 +1,7 @@
 // Sanity tests confirming the fast-check toolchain enforces the >=100 iteration
 // floor via the global setup, and that the shared params expose the same floor.
 // Guards the project convention that every property test runs >=100 iterations
-// (see PROPERTY_TESTING.md).
+// (see docs/development/testing.md).
 
 import { describe, it, expect } from "vitest";
 import fc from "fast-check";

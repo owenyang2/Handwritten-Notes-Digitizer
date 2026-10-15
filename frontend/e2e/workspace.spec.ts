@@ -288,6 +288,14 @@ test("visual states reflow at 320–1440px in both appearances", async ({
     await expect(
       page.getByRole("heading", { name: notebook.title }),
     ).toBeVisible();
+    await expect
+      .poll(() => page.locator(".notebook-thumbnail img").evaluateAll(
+        (images) => images.length > 0 && images.every((image) =>
+          (image as HTMLImageElement).complete &&
+          (image as HTMLImageElement).naturalWidth > 0),
+      ))
+      .toBe(true);
+    await page.evaluate(() => document.fonts.ready);
     for (const width of [320, 640, 1024, 1440]) {
       await page.setViewportSize({ width, height: 900 });
       expect(
@@ -297,7 +305,9 @@ test("visual states reflow at 320–1440px in both appearances", async ({
       ).toBe(true);
       if (testInfo.project.name === "chromium" && [320, 1440].includes(width))
         await page.screenshot({
-          path: `../docs/release-evidence/ui-revamp/library-${theme}-${width}.png`,
+          path: process.env.DOCS_SCREENSHOTS_DIR
+            ? `${process.env.DOCS_SCREENSHOTS_DIR}/library-${theme}-${width}.png`
+            : testInfo.outputPath(`library-${theme}-${width}.png`),
           fullPage: true,
         });
     }
@@ -307,6 +317,20 @@ test("visual states reflow at 320–1440px in both appearances", async ({
     ).toBeVisible();
     for (const width of [1440, 320]) {
       await page.setViewportSize({ width, height: 900 });
+      // Capture each width from a fresh load so retained pane/scroll state from
+      // earlier narrow layouts doesn't hide the source in the documentation.
+      await page.reload();
+      await expect(page.getByRole("textbox", { name: "Corrected text" })).toBeVisible();
+      // The editor can be ready before its asynchronous source canvas paints.
+      await expect
+        .poll(() => page.getByTestId("page-viewer").evaluate(
+          (canvas) => (canvas as HTMLCanvasElement).getContext("2d")!
+            .getImageData(0, 0, 1, 1).data[3],
+        ))
+        .toBe(255);
+      if (width === 1440)
+        await expect(page.getByRole("button", { name: "Select original region 1" })).toBeVisible();
+      await page.evaluate(() => document.fonts.ready);
       expect(
         await page.evaluate(
           () => document.documentElement.scrollWidth <= innerWidth,
@@ -314,7 +338,9 @@ test("visual states reflow at 320–1440px in both appearances", async ({
       ).toBe(true);
       if (testInfo.project.name === "chromium")
         await page.screenshot({
-          path: `../docs/release-evidence/ui-revamp/review-${theme}-${width}.png`,
+          path: process.env.DOCS_SCREENSHOTS_DIR
+            ? `${process.env.DOCS_SCREENSHOTS_DIR}/review-${theme}-${width}.png`
+            : testInfo.outputPath(`review-${theme}-${width}.png`),
           fullPage: true,
         });
     }
@@ -439,7 +465,7 @@ test("accessibility scan covers Library, Settings, review and dialogs in both ap
   }
   if (testInfo.project.name === "chromium")
     await writeFile(
-      "../docs/release-evidence/ui-revamp/accessibility-results.json",
+      testInfo.outputPath("accessibility-results.json"),
       JSON.stringify(scans, null, 2),
     );
   await testInfo.attach("accessibility-results", {
@@ -627,7 +653,7 @@ test("record local lab render and interaction measurements", async ({
     samples,
   };
   await writeFile(
-    "../docs/release-evidence/ui-revamp/local-lab-performance.json",
+    testInfo.outputPath("local-lab-performance.json"),
     JSON.stringify(report, null, 2),
   );
   await testInfo.attach("local-lab-performance", {

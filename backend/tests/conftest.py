@@ -25,7 +25,7 @@ tagged with a comment in the form::
     # Feature: handwriting-notes-digitizer, Property {number}: {property_text}
 
 placed directly above the test function. This links the test back to the
-numbered property in design.md. See ``tests/PROPERTY_TESTING.md`` for the full
+numbered property in design.md. See ``docs/development/testing.md`` for the full
 convention.
 """
 
@@ -62,8 +62,7 @@ settings.register_profile(
     verbosity=Verbosity.normal,
 )
 
-# Load the requested profile (defaults to "default"); this applies the >=100
-# iteration floor across the whole test session.
+# Load the requested profile (25 examples by default, 500 in the ci profile).
 settings.load_profile(os.getenv("HYPOTHESIS_PROFILE", "default"))
 
 import pytest

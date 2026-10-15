@@ -10,7 +10,7 @@ Design property under test:
 **Validates: Requirements 10.5**
 
 This is a single Hypothesis property test (the project's ``default`` profile runs
->= 100 iterations, see ``tests/conftest.py`` and ``PROPERTY_TESTING.md``). It
+>= 100 iterations, see ``tests/conftest.py`` and ``docs/development/testing.md``). It
 stands up a small FastAPI app whose owned-resource endpoints funnel per-user
 scoped repository lookups through the real auth gate
 (:func:`app.services.auth_api.get_current_user`) and the isolation helpers

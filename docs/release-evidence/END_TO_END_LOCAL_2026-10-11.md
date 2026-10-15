@@ -102,8 +102,8 @@ local formula/prose conversion demonstrated here.
 - [Real-model API results](LIVE_CONVERSION_2026-10-11.json).
 - [Initial model/simulator setup evidence](MODEL_AND_IPAD_SETUP_2026-10-11.md)
   (historical setup stage).
-- [Current setup and physical-device instructions](../MODEL_AND_IPAD_SETUP.md).
-- [Acceptance plan](../plans/END_TO_END_TESTING_PLAN.md).
+- [Current setup and physical-device instructions](../guides/recognition-and-ipad.md).
+- [Acceptance plan](../archive/plans/END_TO_END_TESTING_PLAN.md).
 - [Demo explanation and screenshots](../../demos/README.md).
 - [Machine-readable source, model and video manifest](END_TO_END_LOCAL_2026-10-11.json).
 

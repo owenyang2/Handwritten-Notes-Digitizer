@@ -20,15 +20,30 @@ are separate:
 | Swift wire boundary | `backend/.venv/bin/python scripts/check_swift_api_models.py` | Swift DTO compatibility with OpenAPI |
 
 For UIKit/PencilKit app tests and UI tests, generate the project described in
-the [iPad guide](ios/README.md) and use its Xcode test targets. The opt-in
+the [iPad guide](../../ios/README.md) and use its Xcode test targets. The opt-in
 real-model simulator journey also needs installed models and disposable demo
 credentials; normal CI does not supply those. Simulator checks do not establish
 physical Apple Pencil behavior.
 
-The checked-in [CI workflow](.github/workflows/ci.yml) runs frontend, backend,
-and Swift package jobs. Local test counts and recorded workflows are listed in
-[dated evidence](docs/README.md#dated-evidence); those reports do not certify the
+The checked-in [CI workflow](../../.github/workflows/ci.yml) runs documentation, frontend,
+backend and Swift package jobs. Local test counts and recorded workflows are listed in
+[dated evidence](../release-evidence/README.md); those reports do not certify the
 current remote CI or model accuracy.
+
+## Documentation and browser media
+
+```bash
+make docs-check
+make docs-screenshots
+```
+
+The first command needs only Python 3.11+. The second needs the frontend npm
+dependencies and Playwright Chromium (`cd frontend && npx playwright install chromium`).
+It builds the production website, runs the existing responsive visual journey,
+and refreshes the documented screenshots and their source manifest. Normal
+browser tests write to ignored test output; dated evidence is preserved.
+
+See the [documentation standard](documentation.md) for PR impact checks.
 
 ## Property-based testing conventions
 
@@ -37,18 +52,18 @@ This project uses property-based testing on both stacks:
 - **Python backend** — [Hypothesis](https://hypothesis.readthedocs.io/) on top of pytest.
 - **TypeScript frontend** — [fast-check](https://fast-check.dev/) on top of Vitest.
 
-The design document's _Correctness Properties_ section defines numbered
+The [original design specification](../../.kiro/specs/handwriting-notes-digitizer/design.md)'s _Correctness Properties_ section defines numbered
 properties (Property 1, Property 2, ...). Each property is implemented as a
-**single** property-based test running a **minimum of 100 iterations**.
+**single** property-based test running the configured iteration floor.
 
-## Iteration floor (>= 100)
+## Iteration settings
 
-The 100-iteration minimum is enforced by shared configuration, so individual
-tests do not need to repeat it:
+Shared configuration defines the actual settings; individual tests inherit
+them unless they explicitly override them:
 
-- **Backend:** `backend/tests/conftest.py` registers and loads a Hypothesis
-  profile (`default`) with `max_examples = 100`. Override per session with the
-  `HYPOTHESIS_PROFILE` environment variable (`dev`, `default`, or `ci`).
+- **Backend:** `backend/tests/conftest.py` registers Hypothesis
+  profiles: `dev` and `default` use `max_examples = 25`; `ci` uses 500.
+  Select one with the `HYPOTHESIS_PROFILE` environment variable.
 - **Frontend:** `frontend/vitest.setup.ts` calls
   `fc.configureGlobal({ numRuns: 100 })`. The constant lives in
   `frontend/src/test-support/property.ts` (`PROPERTY_TEST_RUNS`,
@@ -63,7 +78,7 @@ in this exact form:
 Feature: handwriting-notes-digitizer, Property {number}: {property_text}
 ```
 
-- `{number}` is the property number from `design.md`.
+- `{number}` is the property number from the original design specification linked above.
 - `{property_text}` is the property's one-line statement.
 
 Use each stack's comment syntax:

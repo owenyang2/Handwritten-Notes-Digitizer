@@ -1,4 +1,4 @@
-.PHONY: doctor dev-backend dev-frontend test-backend test-frontend test docker-up docker-down docker-logs docker-smoke
+.PHONY: docs-check docs-screenshots doctor dev-backend dev-frontend test-backend test-frontend test docker-up docker-down docker-logs docker-smoke
 
 doctor:
 	backend/.venv/bin/python scripts/doctor.py
@@ -29,3 +29,12 @@ docker-logs:
 docker-smoke:
 	docker compose up -d --build --wait --wait-timeout 120
 	backend/.venv/bin/python scripts/doctor.py
+
+# Documentation checks need only Python 3; capture also needs frontend/Playwright.
+PYTHON ?= python3
+
+docs-check:
+	$(PYTHON) scripts/docs.py check
+
+docs-screenshots:
+	$(PYTHON) scripts/docs.py capture

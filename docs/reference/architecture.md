@@ -11,6 +11,24 @@ The application is a **local alpha**. Real-model website/simulator workflows
 were demonstrated on October 11, 2026; representative accuracy and physical
 iPad acceptance remain outstanding.
 
+## System map
+
+```mermaid
+flowchart LR
+    native["iPhone / iPad · SwiftUI / PencilKit"] --> local["Local SQLite + ink"]
+    local <-->|"pending operations / revisions"| api["FastAPI"]
+    web["Web · React / TypeScript / Vite"] --> api
+    api --> db["SQLite or PostgreSQL · documents, jobs, reviews"]
+    api --> store["Filesystem or S3 · originals, crops, ink"]
+    api --> worker["Process-local recognition worker"]
+    worker --> db
+    worker --> store
+    worker --> models["External UniMERNet / TrOCR weights"]
+```
+
+The [deployment profile](../guides/deployment.md) adds PostgreSQL, Redis and
+encrypted SeaweedFS storage. Recognition workers still run in the API process.
+
 ## 1. Preserve a drawing while remote sync is in flight
 
 **Problem.** Restoring notebook metadata alone can leave a second client with
@@ -28,14 +46,14 @@ tampered/cross-account data, and protecting pending drawings. The canvas also
 observes revision changes so synced ink becomes visible without navigation
 silently committing an old drawing.
 
-**Inspect:** [SQLite local store](../ios/Sources/PersonalizedNotesKit/SQLiteLocalStore.swift),
-[sync engine](../ios/Sources/PersonalizedNotesKit/SyncEngine.swift),
-[native ink restoration](../ios/Sources/PersonalizedNotesApp/AppModel.swift),
-[second-client tests](../ios/Tests/PersonalizedNotesAppTests/SecondClientBootstrapTests.swift),
-[canvas race tests](../ios/Tests/PersonalizedNotesAppTests/PencilCanvasSyncTests.swift).
-The [dated review report](release-evidence/REVIEW_FIXES_2026-10-11.md) records the
+**Inspect:** [SQLite local store](../../ios/Sources/PersonalizedNotesKit/SQLiteLocalStore.swift),
+[sync engine](../../ios/Sources/PersonalizedNotesKit/SyncEngine.swift),
+[native ink restoration](../../ios/Sources/PersonalizedNotesApp/AppModel.swift),
+[second-client tests](../../ios/Tests/PersonalizedNotesAppTests/SecondClientBootstrapTests.swift),
+[canvas race tests](../../ios/Tests/PersonalizedNotesAppTests/PencilCanvasSyncTests.swift).
+The [dated review report](../release-evidence/REVIEW_FIXES_2026-10-11.md) records the
 race conditions and fixes. Full live two-client interruption/conflict acceptance
-and hardware drawing tests remain in the [active checklist](../TODO-2026-10-11.md).
+and hardware drawing tests remain in the [status and roadmap](../STATUS.md).
 
 ## 2. Keep predictions and corrections attached to the right source
 
@@ -55,14 +73,14 @@ edit. Missing or incompatible models report unavailable. The real-model demo
 shows source-linked review, save/reopen, and Markdown export; automated tests
 cover additional export formats and failure paths.
 
-**Inspect:** [recognition jobs](../backend/app/services/jobs.py),
-[review revisions](../backend/app/services/document_review.py),
-[document export](../backend/app/services/document_export.py),
-[conversion regressions](../backend/tests/test_conversion_runs.py),
-[job recovery tests](../backend/tests/test_jobs_lifecycle.py),
-[review regressions](../backend/tests/test_review_regressions.py),
-[export goldens](../backend/tests/test_document_export_goldens.py).
-See [recorded acceptance](release-evidence/END_TO_END_LOCAL_2026-10-11.md).
+**Inspect:** [recognition jobs](../../backend/app/services/jobs.py),
+[review revisions](../../backend/app/services/document_review.py),
+[document export](../../backend/app/services/document_export.py),
+[conversion regressions](../../backend/tests/test_conversion_runs.py),
+[job recovery tests](../../backend/tests/test_jobs_lifecycle.py),
+[review regressions](../../backend/tests/test_review_regressions.py),
+[export goldens](../../backend/tests/test_document_export_goldens.py).
+See [recorded acceptance](../release-evidence/END_TO_END_LOCAL_2026-10-11.md).
 The database makes job state durable, but the worker is currently process-local;
 an independently deployed production queue has not been delivered.
 
@@ -83,13 +101,13 @@ missing capabilities. A signed simulator journey against the local backend
 exercised authentication, imported-source restoration, conversion, review,
 reopening, and sharing with real model connections.
 
-**Inspect:** [OpenAPI](../contracts/openapi-v1.json),
-[ink contract](../contracts/ink_v1/simple_stroke.json),
-[contract boundary](API_CONTRACT_BOUNDARY.md),
-[Swift contract checks](../scripts/check_swift_api_models.py),
-[frontend API client tests](../frontend/src/api/client.test.ts),
-[real-model simulator test](../ios/UITests/LiveConversionDemoUITests.swift),
-[training consent](../backend/app/services/document_review.py).
+**Inspect:** [OpenAPI](../../contracts/openapi-v1.json),
+[ink contract](../../contracts/ink_v1/simple_stroke.json),
+[contract boundary](api-contract.md),
+[Swift contract checks](../../scripts/check_swift_api_models.py),
+[frontend API client tests](../../frontend/src/api/client.test.ts),
+[real-model simulator test](../../ios/UITests/LiveConversionDemoUITests.swift),
+[training consent](../../backend/app/services/document_review.py).
 The runtime demonstration uses public/synthetic fixtures, so it establishes
 functioning integration rather than handwriting accuracy.
 
@@ -110,11 +128,9 @@ result supporting a representative accuracy claim.
 
 ## Validation evidence
 
-The [October 11 regression report](release-evidence/REVIEW_FIXES_2026-10-11.md)
-records **906 backend tests**, **175 website tests**, **30 Swift package tests**,
-and **33 native app tests** passing. Two backend service-integration checks were
-skipped. These are dated local checks at the report's source fingerprint, not a
-claim that current remote CI or deployment acceptance passed.
+Use [status and roadmap](../STATUS.md#evidence) for the maintained evidence
+summary. Test counts and real-model journeys belong in dated reports; they do
+not certify the current checkout or establish handwriting accuracy.
 
-[Demo](../demos/README.md) · [Current status](FEATURE_STATUS_MATRIX.md) ·
-[Setup](GETTING_STARTED.md) · [Project overview](../README.md)
+[Current workflow](../guides/using-the-app.md) ·
+[Setup](../guides/getting-started.md) · [Project overview](../../README.md)
