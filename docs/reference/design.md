@@ -235,6 +235,10 @@ first paint. Keep the same component and layout roles across appearances.
 the frontmatter. **Technical font:** platform monospace for editable LaTeX.
 Rendered formulas use the existing math renderer. Native keeps system fonts.
 
+Geist is an intentional choice from Taste Skill's Achromatic ledger direction
+(seed 244730145). The design detector's overused-font exception covers Geist
+only; other typefaces and design checks remain subject to review.
+
 The hierarchy is compact and editorial: medium weight titles, normal reading
 text and smaller supporting metadata. Screen headings use `headline`; notebook
 headings use `document-title`; both reduce to (1.5rem) below the phone breakpoint.

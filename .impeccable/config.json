@@ -1,1 +1,15 @@
-{"buildPath":"code"}
+{
+  "buildPath": "code",
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "geist",
+        "createdAt": "2026-10-20T18:45:00.565Z",
+        "reason": "Agent design decision: Taste Skill Achromatic ledger seed 244730145 explicitly deals Geist for this task-focused workspace; the choice is documented in the surface brief and canonical design guide."
+      }
+    ]
+  }
+}
