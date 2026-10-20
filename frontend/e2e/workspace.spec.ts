@@ -219,6 +219,20 @@ test("import → source selection → correction → explicit export; drafts sur
   ).toBe(true);
 });
 
+test("phone navigation hands off to import and restores reachable focus", async ({ page }) => {
+  await fixture(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/library");
+  const navigation = page.getByRole("button", { name: "Open navigation", exact: true });
+  await navigation.click();
+  await page.getByRole("button", { name: "New import", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Import notes", exact: true });
+  await expect(dialog).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(1);
+  await dialog.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(navigation).toBeFocused();
+});
+
 test("conflict retains the draft and exposes comparison; deep link and browser back preserve context", async ({
   page,
 }) => {
@@ -258,6 +272,7 @@ test("system appearance follows OS, overrides persist; failed import stays recov
   await page.getByRole("combobox", { name: "Appearance" }).selectOption("dark");
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute("content", "#161616");
   await page.getByRole("button", { name: "Import notes", exact: true }).click();
   await page.getByTestId("upload-file-input").setInputFiles({
     name: "bad.pdf",
@@ -372,8 +387,14 @@ test("returning to Library preserves search and scroll position", async ({
   await search.fill("notes");
   await filtered;
   await expect(page.locator(".gallery-document")).toHaveCount(25);
+  // Let font layout and browser scroll anchoring settle before recording the
+  // position. Firefox/WebKit also expose fractional scroll coordinates.
+  await page.evaluate(() => document.fonts.ready);
   await page.locator(".gallery-document").last().scrollIntoViewIfNeeded();
-  const position = await page.evaluate(() => scrollY);
+  await page.evaluate(() => new Promise<void>((resolve) =>
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+  ));
+  const position = await page.evaluate(() => Math.round(scrollY));
   expect(position).toBeGreaterThan(100);
   await page.locator(".gallery-document").last().click();
   await expect(
@@ -381,7 +402,7 @@ test("returning to Library preserves search and scroll position", async ({
   ).toBeVisible();
   await page.goBack();
   await expect(search).toHaveValue("notes");
-  await expect.poll(() => page.evaluate(() => scrollY)).toBe(position);
+  await expect.poll(() => page.evaluate(() => Math.round(scrollY))).toBe(position);
 });
 
 test("accessibility scan covers Library, Settings, review and dialogs in both appearances", async ({

@@ -14,6 +14,14 @@ The font remains under the [SIL Open Font License 1.1](backend/app/assets/fonts/
 which is included alongside it. The project MIT license does not replace the
 font license.
 
+## Bundled workspace font
+
+The web workspace bundles the variable **Geist** font from the
+[Google Fonts distribution](https://github.com/google/fonts/tree/main/ofl/geist).
+Its [SIL Open Font License 1.1](frontend/public/fonts/OFL.txt) is retained beside
+the font. It is served locally; opening the workspace makes no font request to
+Google or another font service.
+
 ## Models and datasets
 
 The recorded workflow integrates [UniMERNet-small](https://huggingface.co/wanderkid/unimernet_small)

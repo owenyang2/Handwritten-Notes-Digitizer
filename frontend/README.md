@@ -44,6 +44,11 @@ The current document-conversion paths use UniMERNet/TrOCR when installed. Legacy
 CRNN calibration/personalization needs its own compatible trained artifact;
 TrOCR availability does not enable it. See [model setup](../docs/guides/recognition-and-ipad.md).
 
+The web research folio uses a source-preview shelf/list, a compact conversion
+toolbar, and an inset source/result review desk. Geist is bundled locally with
+its open font license. [Design tokens and responsive behavior](../docs/reference/design.md)
+are maintained separately from the native app's existing appearance.
+
 ## Checks
 
 | Command | Coverage |

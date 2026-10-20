@@ -129,6 +129,19 @@ describe("Library", () => {
       "/notebooks/doc-1",
     );
   });
+  it("switches shelf layouts without reloading notebooks or changing their links", async () => {
+    mount();
+    await vi.waitFor(() => expect(root.querySelector(".gallery-document")).not.toBeNull());
+    const list = root.querySelector<HTMLButtonElement>('[aria-label="List view"]')!;
+    const grid = root.querySelector<HTMLButtonElement>('[aria-label="Grid view"]')!;
+    list.click();
+    await vi.waitFor(() => expect(root.querySelector(".notebook-grid")?.getAttribute("data-layout")).toBe("list"));
+    expect(list.getAttribute("aria-pressed")).toBe("true");
+    expect(root.querySelector(".gallery-document")?.getAttribute("href")).toBe("/notebooks/doc-1");
+    grid.click();
+    await vi.waitFor(() => expect(grid.getAttribute("aria-pressed")).toBe("true"));
+    expect(getDocumentsPage).toHaveBeenCalledOnce();
+  });
   it("keeps a readable failure and retry action without injecting error markup", async () => {
     vi.mocked(getDocumentsPage).mockRejectedValue(
       new Error("<strong>Request failed</strong>"),

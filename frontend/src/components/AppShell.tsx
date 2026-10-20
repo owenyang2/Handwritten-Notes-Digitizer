@@ -17,9 +17,12 @@ import {
 import * as Menu from "@radix-ui/react-dropdown-menu";
 import {
   BookOpen,
+  ArrowUpRight,
   ChevronRight,
   FileText,
+  Grid2X2,
   Library,
+  List,
   MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
@@ -125,8 +128,17 @@ function Shell({
   const libraryScroll = useRef(0);
   const libraryVisible = !documentId && !settings && !preview;
   useLayoutEffect(() => {
-    if (!libraryVisible) return;
+    // The Library restores its own position; native history restoration races it.
+    const previous = window.history.scrollRestoration;
+    window.history.scrollRestoration = "manual";
+    return () => { window.history.scrollRestoration = previous; };
+  }, []);
+  useLayoutEffect(() => {
     const scrolling = document.scrollingElement ?? document.documentElement;
+    if (!libraryVisible) {
+      scrolling.scrollTop = 0;
+      return;
+    }
     scrolling.scrollTop = libraryScroll.current;
     const remember = () => { libraryScroll.current = scrolling.scrollTop; };
     window.addEventListener("scroll", remember, { passive: true });
@@ -136,6 +148,7 @@ function Shell({
   const [current, setCurrent] = useState<DocumentResponse | null>(null);
   const [version, setVersion] = useState(0);
   const [query, setQuery] = useState("");
+  const [layout, setLayout] = useState<"grid" | "list">("grid");
   const [view, setView] = useState<"active" | "archived" | "trash">("active");
   const [status, setStatus] = useState("Loading notebooks…");
   const [error, setError] = useState("");
@@ -152,7 +165,7 @@ function Shell({
     const media = window.matchMedia?.("(max-width: 1023px)");
     const update = () => {
       setCompact(media?.matches ?? false);
-      if (media?.matches) setNavigationOpen(false);
+      setNavigationOpen(!media?.matches);
     };
     media?.addEventListener("change", update);
     return () => media?.removeEventListener("change", update);
@@ -231,7 +244,10 @@ function Shell({
     }
   };
   const openImport = (event: MouseEvent<HTMLButtonElement>) => {
-    importTrigger.current = event.currentTarget;
+    importTrigger.current = compact && navigationOpen
+      ? navigationTrigger.current
+      : event.currentTarget;
+    if (compact) setNavigationOpen(false);
     setImporting(true);
   };
   const notebookLink = (doc: DocumentResponse) =>
@@ -243,8 +259,8 @@ function Shell({
   const sidebarContents = (
     <>
       <div className="sidebar-brand">
-        <BookOpen size={23} />
-        <strong>Quiet Notebook</strong>
+        <BookOpen size={24} strokeWidth={1.6} />
+        <div className="brand-copy"><strong>Quiet Notebook</strong><span>Handwriting, made useful.</span></div>
         <Button
           variant="ghost"
           aria-label="Collapse navigation"
@@ -253,6 +269,9 @@ function Shell({
           <PanelLeftClose size={18} />
         </Button>
       </div>
+      <Button variant="secondary" className="sidebar-import" onClick={openImport}>
+        <Plus size={17} /> New import
+      </Button>
       <nav onClick={navigateCompact}>
         <Link
           className={
@@ -261,6 +280,7 @@ function Shell({
               : "nav-link"
           }
           to="/library"
+          aria-current={libraryVisible && !favorites ? "page" : undefined}
         >
           <Library size={18} />
           Library
@@ -268,6 +288,7 @@ function Shell({
         <Link
           className={favorites ? "nav-link active" : "nav-link"}
           to="/favorites"
+          aria-current={favorites ? "page" : undefined}
         >
           <Star size={18} />
           Favorites
@@ -290,6 +311,7 @@ function Shell({
           ))}
       </nav>
       <div className="sidebar-bottom">
+        <p className="sidebar-note">From the first rough idea<br />to notes you can use.</p>
         <Link
           to="/settings"
           className={`nav-link ${settings ? "active" : ""}`}
@@ -299,6 +321,7 @@ function Shell({
           Settings
         </Link>
         <div className="account-bar" data-testid="account-bar">
+          <span className="account-avatar" aria-hidden="true">{(username || "Q").slice(0, 1).toUpperCase()}</span>
           <span className="account-user">{username || "Your workspace"}</span>
           <Button
             variant="ghost"
@@ -349,7 +372,7 @@ function Shell({
           >
             <PanelLeftOpen size={18} />
           </Button>
-          <Link to="/library">Library</Link>
+          <Link to="/library">{settings ? "Settings" : favorites ? "Favorites" : "Library"}</Link>
           {documentId && (
             <>
               <ChevronRight size={14} />
@@ -409,9 +432,10 @@ function Shell({
           >
             <div className="screen-heading">
               <div>
-                <p className="eyebrow">Your workspace</p>
                 <h1>{favorites ? "Favorites" : "Library"}</h1>
+                <p className="screen-description">{favorites ? "The notebooks you want to keep close." : "Your handwriting. A little more possibility."}</p>
               </div>
+              <span className="workspace-label"><BookOpen size={16} /> Personal workspace</span>
             </div>
             <div className="library-controls">
               <label className="search-field">
@@ -424,6 +448,7 @@ function Shell({
                   onChange={(event) => setQuery(event.target.value)}
                 />
               </label>
+              <div className="library-view-controls">
               <select
                 aria-label="Document view"
                 value={view}
@@ -433,13 +458,22 @@ function Shell({
                 <option value="archived">Archived</option>
                 <option value="trash">Trash</option>
               </select>
+              <div className="view-switch" role="group" aria-label="Library layout">
+                <Button variant="ghost" aria-label="Grid view" aria-pressed={layout === "grid"} onClick={() => setLayout("grid")}><Grid2X2 size={17} /></Button>
+                <Button variant="ghost" aria-label="List view" aria-pressed={layout === "list"} onClick={() => setLayout("list")}><List size={18} /></Button>
+              </div>
+              </div>
             </div>
-            <p role="status" className="muted">
-              {status}
-            </p>
+            <div className="collection-heading">
+              <h2>{query ? "Search results" : favorites ? "Saved favorites" : view === "archived" ? "Archived notebooks" : view === "trash" ? "Trash" : "Your notebooks"}</h2>
+              <p role="status" className="collection-count">
+              {status || (error ? "" : `${documents.length}${hasMore ? "+" : ""} ${documents.length === 1 && !hasMore ? "notebook" : "notebooks"}`)}
+              </p>
+            </div>
+            {status && !documents.length && <div className="library-skeleton" aria-hidden="true"><span /><span /><span /></div>}
             {!status && !error && !documents.length && (
               <div className="library-empty">
-                <BookOpen size={38} strokeWidth={1.2} />
+                <div className="empty-mark" aria-hidden="true"><BookOpen size={40} strokeWidth={1.2} /></div>
                 <h2>
                   {query
                     ? "No matching notebooks"
@@ -457,14 +491,16 @@ function Shell({
                       : "Import handwritten pages to keep the original beside text you can correct and export."}
                 </p>
                 {view === "active" && !favorites && (
+                  !query &&
                   <Button onClick={openImport}>
                     <Upload size={16} />
                     Import notes
                   </Button>
                 )}
+                {!query && !favorites && view === "active" && <p className="empty-formats">PDF, PNG or JPEG · Originals stay alongside your corrections</p>}
               </div>
             )}
-            <ul className="notebook-grid">
+            <ul className="notebook-grid" data-layout={layout} aria-label="Notebooks">
               {documents.map((doc) => {
                 const firstPage = doc.pages?.[0];
                 const image = firstPage
@@ -496,6 +532,7 @@ function Shell({
                               })}
                         </p>
                       </div>
+                      <ArrowUpRight className="notebook-open" size={18} aria-hidden="true" />
                     </Link>
                     <Menu.Root modal={false}>
                       <Menu.Trigger asChild>
@@ -593,6 +630,7 @@ function Shell({
                 );
               })}
             </ul>
+            {!status && documents.length > 0 && <p className="library-footnote">Open a notebook to compare the original, refine the text, and export.</p>}
             {hasMore && (
               <Button
                 variant="secondary"
@@ -629,33 +667,42 @@ function Shell({
             className="document-screen"
             aria-label="Notebook workspace"
           >
+            <div className="document-heading">
             <h1>
               {current?.document_id === documentId
                 ? current.title
                 : "Opening notebook…"}
             </h1>
+            </div>
             <LegacyHost node={mounts.math} />
             <LegacyHost node={mounts.editor} />
           </section>
           <section hidden={!settings} className="settings-screen">
-            <h1>Settings</h1>
+            <div className="screen-heading"><h1>Settings</h1><p className="screen-description">Make room for the way you work.</p></div>
             <section className="settings-group">
+              <div className="settings-intro">
               <h2>Account</h2>
-              <p>{username}</p>
               <p className="muted">
                 If your session expires, sign in again here to keep your current
                 review open.
               </p>
+              </div>
+              <div className="settings-panel">
+              <p className="settings-username">{username}</p>
               <Button variant="secondary" onClick={() => setSigningIn(true)}>
                 Sign in again
               </Button>
+              </div>
             </section>
             <section className="settings-group">
+              <div className="settings-intro">
               <h2>Appearance</h2>
               <p className="muted">
                 Choose how your workspace looks. Original pages keep their
                 colors.
               </p>
+              </div>
+              <div className="settings-panel">
               <label>
                 Appearance{" "}
                 <select
@@ -672,6 +719,8 @@ function Shell({
                   <option value="dark">Dark</option>
                 </select>
               </label>
+              <div className="appearance-preview" aria-hidden="true"><span /><div><span /><span /><span /></div></div>
+              </div>
             </section>
             <section className="settings-group">
               <LegacyHost node={mounts.sync} />

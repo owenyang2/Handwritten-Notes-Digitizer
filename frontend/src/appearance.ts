@@ -16,6 +16,7 @@ export function applyAppearance(preference: Appearance): void {
     (preference === "system" &&
       window.matchMedia?.("(prefers-color-scheme: dark)").matches);
   document.documentElement.dataset.theme = dark ? "dark" : "light";
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#161616" : "#f2f4f7");
 }
 
 export function saveAppearance(preference: Appearance): void {

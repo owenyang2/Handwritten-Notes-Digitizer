@@ -125,13 +125,16 @@ export class MathNotesWorkspace {
     this.mount.replaceChildren(loading);
     this.mount.style.display = "";
     const content = document.createDocumentFragment();
+    const header = document.createElement("div");
+    header.className = "review-header";
     const heading = document.createElement("h2");
     heading.textContent = "Formula review";
     const help = document.createElement("p");
     help.className = "math-notes-help";
     help.textContent =
-      "Select a region in the original or result. Review your correction, then save. Training is always optional.";
-    content.append(heading, help);
+      "Select a region, compare it with the original, and save your correction.";
+    header.append(heading, help);
+    content.append(header);
     const toolbar = document.createElement("div");
     toolbar.className = "math-notes-layout-actions";
     const mode = document.createElement("select");
@@ -192,7 +195,7 @@ export class MathNotesWorkspace {
       pages.append(link);
     }
     pageRail.append(pages);
-    content.append(pageRail);
+    toolbar.prepend(pageRail);
     const paneSwitch = document.createElement("div");
     paneSwitch.className = "review-pane-switch";
     paneSwitch.setAttribute("aria-label", "Review pane");
@@ -225,7 +228,12 @@ export class MathNotesWorkspace {
         `${Number(slider.value) / 100}fr`,
       );
     balance.append(slider);
-    content.append(balance);
+    const viewOptions = document.createElement("details");
+    viewOptions.className = "review-view-options";
+    const viewSummary = document.createElement("summary");
+    viewSummary.textContent = "View options";
+    viewOptions.append(viewSummary, balance);
+    toolbar.append(viewOptions);
     const layout = document.createElement("div");
     layout.className = "math-notes-layout";
     content.append(layout);
@@ -234,6 +242,9 @@ export class MathNotesWorkspace {
     original.setAttribute("aria-label", "Original");
     const originalHeading = document.createElement("h3");
     originalHeading.textContent = "Original";
+    const originalHint = document.createElement("span");
+    originalHint.textContent = "Select a region to compare";
+    originalHeading.append(originalHint);
     original.append(originalHeading);
     const viewerMount = document.createElement("div");
     viewerMount.className = "math-notes-viewer";
@@ -303,6 +314,9 @@ export class MathNotesWorkspace {
     side.setAttribute("aria-label", "Result");
     const title = document.createElement("h3");
     title.textContent = "Result";
+    const resultHint = document.createElement("span");
+    resultHint.textContent = "Your editable notes";
+    title.append(resultHint);
     this.queueMount = document.createElement("div");
     this.editorMount = document.createElement("div");
     this.editorMount.textContent =

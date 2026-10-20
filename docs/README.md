@@ -19,6 +19,7 @@ acceptance summary. The project is a local alpha.
 
 - [Architecture diagram and engineering case study](reference/architecture.md)
 - [UI design and tokens](reference/design.md)
+- [Product context and constraints](../PRODUCT.md)
 - [API and shared client contracts](reference/api-contract.md)
 - [Model artifacts and data boundaries](reference/model-artifacts.md)
 - [Formula model card](reference/model-card.md) and [data card](reference/data-card.md)
