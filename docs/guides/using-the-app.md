@@ -50,8 +50,12 @@ with the saved review.
 
 ## Appearance and small screens
 
-Choose **Settings → Appearance → System / Light / Dark**. The preference is
+Use **Theme → System / Light / Dark** in the top toolbar or on the sign-in
+screen. **Settings → Appearance** offers the same choice. The preference is
 stored locally; changing it does not alter original scans, ink or exports.
+Light appearance uses warm paper and forest-green actions; dark appearance
+uses warm charcoal and soft green. Outlined navigation and filled selection
+buttons make the active notebook, layout and review pane easier to identify.
 On small screens, navigation collapses and review places the selected source
 above the correction. Use **Original / Result** to switch the main pane. Opening
 navigation presents a full-screen drawer on phones. Returning to desktop width

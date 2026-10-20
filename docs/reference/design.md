@@ -2,55 +2,61 @@
 name: Quiet Notebook — Research Folio
 description: The implemented web workspace keeps original handwriting beside corrections.
 colors:
-  bg: "#f2f4f7"
-  sidebar: "#f2f4f7"
-  panel: "#fff"
-  panel-soft: "#f2f4f7"
-  ink: "#22252b"
-  muted: "#606773"
-  line: "#e5e8ed"
-  line-strong: "#b9c0cc"
-  accent: "#25282f"
-  accent-strong: "#3e444e"
-  on-accent: "#fff"
-  focus: "#1d5fbf"
+  bg: "#f3f0e9"
+  sidebar: "#f3f0e9"
+  panel: "#fffdf8"
+  panel-soft: "#f4f1e9"
+  ink: "#342e29"
+  muted: "#70675d"
+  line: "#e4ddd1"
+  line-strong: "#b6aa99"
+  accent: "#365b45"
+  accent-strong: "#294836"
+  on-accent: "#fffdf8"
+  focus: "#38664b"
   green: "#256744"
   amber: "#855700"
   red: "#b42318"
-  blue-soft: "#edf3fc"
+  selection-soft: "#e3ecdf"
+  source-outline: "#326448"
+  source-fill: "#32644814"
+  source-selected: "#32644829"
   green-soft: "#e4f0e8"
   amber-soft: "#fff3d8"
   red-soft: "#fff0ed"
-  dark-bg: "#161616"
-  dark-sidebar: "#161616"
-  dark-panel: "#1e1e1e"
-  dark-panel-soft: "#282828"
-  dark-ink: "#efefef"
-  dark-muted: "#a8a8a8"
-  dark-line: "#343434"
-  dark-line-strong: "#666"
-  dark-accent: "#e8e8e8"
-  dark-accent-strong: "#fff"
-  dark-on-accent: "#191919"
-  dark-focus: "#a3baff"
+  dark-bg: "#201e1a"
+  dark-sidebar: "#201e1a"
+  dark-panel: "#292620"
+  dark-panel-soft: "#332f28"
+  dark-ink: "#f3ecdf"
+  dark-muted: "#bcb2a2"
+  dark-line: "#464035"
+  dark-line-strong: "#827766"
+  dark-accent: "#b9d2b5"
+  dark-accent-strong: "#d0e3ca"
+  dark-on-accent: "#223126"
+  dark-focus: "#b9d2b5"
   dark-green: "#92d5ad"
   dark-amber: "#f0c56a"
   dark-red: "#ffafa4"
-  dark-blue-soft: "#222e40"
+  dark-selection-soft: "#384735"
+  dark-source-outline: "#326448"
+  dark-source-fill: "#32644814"
+  dark-source-selected: "#32644829"
   dark-green-soft: "#1f3529"
   dark-amber-soft: "#392e1b"
   dark-red-soft: "#3c2622"
 typography:
   headline:
-    fontFamily: 'Geist, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+    fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif'
     fontSize: "2rem"
-    fontWeight: 550
+    fontWeight: 500
     lineHeight: 1.3
     letterSpacing: "-0.03em"
   document-title:
-    fontFamily: 'Geist, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+    fontFamily: '"Iowan Old Style", "Palatino Linotype", Georgia, serif'
     fontSize: "1.75rem"
-    fontWeight: 550
+    fontWeight: 500
     lineHeight: 1.3
     letterSpacing: "-0.03em"
   title:
@@ -89,7 +95,7 @@ rounded:
   control: "8px"
   group: "10px"
   panel: "12px"
-  sheet: "14px"
+  sheet: "18px"
   overlay: "16px"
 spacing:
   xs: "4px"
@@ -170,9 +176,11 @@ components:
 
 **Creative North Star: "Research Folio"**
 
-A cool desk surrounds an inset document sheet. Neutral ink controls and compact
-Geist typography provide order; real handwriting supplies character. The shell
-stays quiet while source, correction and save state remain easy to compare.
+Warm paper surrounds an inset notebook surface. Forest-green controls, serif
+headings and compact Geist text make the workspace feel personal. Real
+handwriting remains the focus; source, correction and save state stay easy to
+compare. This warmer treatment follows the user’s request for a cozier workspace
+and clearer selections.
 
 This is the current **web** system. Its source of truth is the
 [web stylesheet](../../frontend/src/styles.css),
@@ -191,26 +199,28 @@ The web palette, Geist font and folio geometry below do not migrate native UI.
 
 **Key Characteristics:**
 
-- A cool workspace around a clean document surface.
-- Neutral controls, blue focus and source selection, labeled feedback.
+- Warm paper, soft green accents and a comfortable notebook surface.
+- Forest-green actions, visibly selected controls and labeled feedback.
 - Real page previews and a visible source-to-correction relationship.
 - Explicit saving, recoverable drafts and deliberate training consent.
 
 ## Colors
 
-The palette is achromatic chrome with cool paper in light appearance and neutral
-dark surfaces at night. Use the existing semantic CSS variables in components.
+The palette uses warm paper in light appearance, brown-charcoal surfaces at
+night and forest-green actions. Use existing semantic CSS variables in components.
 
 ### Primary
 
-- **Ink action** (`accent`, `accent-strong`, `on-accent`): dominant task actions
+- **Forest action** (`accent`, `accent-strong`, `on-accent`): dominant task actions
   and their hover state; the matching foreground changes with appearance.
-- **Evidence blue** (`focus`, `blue-soft`): keyboard focus, caret, selection and
-  active review-region chips. It is an interaction cue, not a brand wash.
+- **Evidence green** (`focus`, `selection-soft`): keyboard focus, caret, selection and
+  active review-region chips. Source outlines use `source-outline` against
+  original paper in either appearance; `source-fill` and `source-selected`
+  distinguish available and selected regions without changing source pixels.
 
 ### Neutral
 
-- **Cool desk** (`bg`, `sidebar`): the workspace outside the inset sheet.
+- **Warm desk** (`bg`, `sidebar`): the workspace outside the inset sheet.
 - **Document sheet** (`panel`): content, controls and opaque floating surfaces.
 - **Recessed surface** (`panel-soft`): source surrounds, thumbnail stages and
   secondary groups.
@@ -226,20 +236,25 @@ stored ink, scan pixels or export content. Original crops retain their own
 colors and white paper. Notebook paper settings remain a separate concern.
 
 System / Light / Dark is one locally persisted appearance choice. System
-follows OS changes; explicit choices stay stable. Apply web appearance before
-first paint. Keep the same component and layout roles across appearances.
+follows OS changes in the workspace; explicit choices stay stable. **Theme**
+is visible in the main toolbar and on the sign-in screen, so dark mode does
+not require opening Settings. The existing Settings Appearance selector stays
+synchronized. Apply web appearance before first paint and preserve drafts and
+credentials during a theme change.
 
 ## Typography
 
-**Body and interface font:** locally served Geist with the system fallbacks in
-the frontmatter. **Technical font:** platform monospace for editable LaTeX.
+**Heading font:** Iowan Old Style / Palatino / Georgia, using local system
+serifs. **Body and interface font:** locally served Geist with system fallbacks.
+**Technical font:** platform monospace for editable LaTeX.
 Rendered formulas use the existing math renderer. Native keeps system fonts.
 
 Geist is an intentional choice from Taste Skill's Achromatic ledger direction
 (seed 244730145). The design detector's overused-font exception covers Geist
 only; other typefaces and design checks remain subject to review.
 
-The hierarchy is compact and editorial: medium weight titles, normal reading
+The hierarchy combines softer serif screen titles with practical sans controls,
+normal reading
 text and smaller supporting metadata. Screen headings use `headline`; notebook
 headings use `document-title`; both reduce to (1.5rem) below the phone breakpoint.
 Section titles use `title`, buttons use `label`, and counts/dates use `metadata`.
@@ -309,15 +324,17 @@ targets of at least (44×44px). Icon-only controls need accessible names.
 ### Inputs / Fields
 
 Fields use a stronger structural border on the document surface, rounded
-control corners and visible blue focus. Labels remain available to assistive
+control corners and visible green focus. Labels remain available to assistive
 technology. Search is a field inside the Library control group; its borderless
 interior must not remove the focus outline. The prose correction area is
 vertically resizable with a minimum height of (180px); LaTeX keeps monospace.
 
 ### Navigation
 
-Navigation links use muted text, a compact icon and a soft neutral active/hover
-surface. Indicate the current route semantically. The collapsible desktop rail
+Navigation links use muted text and a compact icon. Selected links have a green
+tonally filled surface, a visible outline and heavier text; hover alone remains
+subtle. Indicate the current route semantically. Grid/list and phone review
+selection use the filled action color, so the current choice is unmistakable. The collapsible desktop rail
 holds Library, Favorites, recent notebooks, Settings and account controls.
 Compact navigation uses a dialog with focus containment and restoration. Keep
 the skip link, keyboard order, Escape behavior and focus restoration intact.
@@ -325,7 +342,7 @@ the skip link, keyboard order, Escape behavior and focus restoration intact.
 ### Chips / Region Queue
 
 Region chips are horizontal, scrollable and text-bearing. Selection uses
-evidence blue and a stronger border; unresolved regions also have a visible
+evidence green and a stronger border; unresolved regions also have a visible
 marker. Preserve `aria-pressed` and a readable review count. The queue is a
 selection control, not a decorative tag cloud.
 

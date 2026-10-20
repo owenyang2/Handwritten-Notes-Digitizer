@@ -7,9 +7,10 @@ code-first implementation. Native iPhone/iPad is outside this change.
 
 **THESIS:** A research folio keeps each correction attached to its original.
 
-**OWN-WORLD:** A cool desk around a white document sheet, neutral ink controls,
-Geist typography and blue for source selection/focus. At night the same
-structure uses neutral dark surfaces. Real handwriting carries the visual
+**OWN-WORLD:** Warm paper around a notebook surface, forest-green controls,
+serif screen headings and Geist interface text. At night the same structure
+uses warm charcoal and soft green. The user requested this cozier treatment
+and more obvious selections after seeing the initial cool design. Real handwriting carries the visual
 character; the shell supplies order.
 
 **STORY:** Locate notebook → compare source/result → correct → explicitly save
@@ -29,6 +30,9 @@ drafts while switching routes, panes, appearance and layout.
 
 **SIGNATURE:** Selecting a recognized region connects its source outline,
 original crop and editable text. No decorative animation delays that action.
+Theme is visible on the sign-in screen and in the workspace toolbar. Active
+navigation has a clear outline; grid/list and phone-pane selections use a
+filled control, with semantic selection states preserved.
 
 ## Direction evidence
 

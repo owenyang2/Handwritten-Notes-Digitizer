@@ -9,7 +9,7 @@ Installed models and services on a test machine are not included in a clone.
 
 | Area | Available behavior / evidence | Remaining acceptance |
 | --- | --- | --- |
-| Web workspace | Research folio shell, source-preview shelf/list, search, compact page/conversion controls, source-linked prose/formula review, System/Light/Dark, explicit save/export; current synthetic screenshots and automated browser workflow/accessibility/recovery checks | Assistive technology, physical devices, representative performance and usability; current overhaul is web-only |
+| Web workspace | Warm paper/charcoal folio, stronger selected states, source-preview shelf/list, search, compact conversion controls, source-linked review, visible Theme control before/after sign-in, System/Light/Dark, explicit save/export; current synthetic screenshots and automated browser workflow/accessibility/recovery checks | Assistive technology, physical devices, representative performance and usability; current overhaul is web-only |
 | Native notebooks | Universal iPhone/iPad target, PencilKit, local SQLite/ink, import, page edits and appearance; app/UI simulator suites recorded green | Physical Pencil/palm rejection, signing/App Groups, share import, accessibility, battery and thermals |
 | Sync and recovery | Pending operations, conflicts, tombstones, exact ink restore, revision checks; automated races/recovery and partial live journeys | Complete live two-client offline/interruption/concurrent-edit journey |
 | Recognition | UniMERNet-small formulas and TrOCR prose; real-model local web/simulator review → save → reopen → Markdown demonstrated | Representative handwritten prose/formula evaluation; Linux inference runtime |

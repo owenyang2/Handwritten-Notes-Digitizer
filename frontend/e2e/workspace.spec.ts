@@ -272,7 +272,7 @@ test("system appearance follows OS, overrides persist; failed import stays recov
   await page.getByRole("combobox", { name: "Appearance" }).selectOption("dark");
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute("content", "#161616");
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute("content", "#201e1a");
   await page.getByRole("button", { name: "Import notes", exact: true }).click();
   await page.getByTestId("upload-file-input").setInputFiles({
     name: "bad.pdf",
@@ -288,6 +288,36 @@ test("system appearance follows OS, overrides persist; failed import stays recov
   await expect(
     page.getByRole("button", { name: "Import notes", exact: true }),
   ).toBeFocused();
+});
+
+test("Theme is visible before sign-in and changes appearance without losing a review draft", async ({ page }) => {
+  await fixture(page);
+  let signedOut = true;
+  await page.route("**/api/auth/me", (route) => signedOut
+    ? route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ detail: "Not signed in" }) })
+    : route.fallback());
+  await page.goto("/");
+  const theme = page.getByRole("combobox", { name: "Theme", exact: true });
+  await page.getByRole("textbox", { name: "Username" }).fill("Notebook reader");
+  await theme.selectOption("dark");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await expect(page.getByRole("textbox", { name: "Username" })).toHaveValue("Notebook reader");
+  const authScan = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
+  expect(authScan.violations).toEqual([]);
+  await page.reload();
+  await expect(theme).toHaveValue("dark");
+  signedOut = false;
+  await page.goto("/notebooks/doc-1/pages/page-1?region=region-1");
+  const correction = page.getByRole("textbox", { name: "Corrected text" });
+  await correction.fill("This thought is still mine.");
+  await theme.selectOption("light");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  await expect(correction).toHaveValue("This thought is still mine.");
+  await page.setViewportSize({ width: 320, height: 900 });
+  await expect(theme).toBeVisible();
+  await theme.selectOption("dark");
+  await expect(correction).toHaveValue("This thought is still mine.");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
 test("visual states reflow at 320–1440px in both appearances", async ({

@@ -5,6 +5,7 @@ import { Editor } from "./modules/editor.js";
 import { CalibrationUI } from "./modules/calibrationUI.js";
 import { BeforeAfterView } from "./modules/beforeAfterView.js";
 import { AuthGate } from "./modules/authGate.js";
+import { readAppearance, saveAppearance, type Appearance } from "./appearance.js";
 import { mountShell, type ShellHandle } from "./components/AppShell.js";
 import type { MathNotesWorkspace } from "./modules/mathNotes.js";
 import { BatchImportUI } from "./modules/batchImportUI.js";
@@ -1025,10 +1026,38 @@ export async function start(root: HTMLElement): Promise<void> {
 
   if (!user) {
     root.replaceChildren();
+    const header = document.createElement("header");
+    header.className = "welcome-header";
+    const brand = document.createElement("a");
+    brand.href = "/";
+    brand.className = "welcome-brand";
+    const mark = document.createElement("img");
+    mark.src = "/icon.svg";
+    mark.alt = "";
+    mark.width = 36;
+    mark.height = 36;
+    brand.append(mark, "Quiet Notebook");
+    const theme = document.createElement("label");
+    theme.className = "appearance-control";
+    const themeLabel = document.createElement("span");
+    themeLabel.textContent = "Theme";
+    const themeSelect = document.createElement("select");
+    themeSelect.setAttribute("aria-label", "Theme");
+    for (const [value, label] of [["system", "System"], ["light", "Light"], ["dark", "Dark"]])
+      themeSelect.add(new Option(label, value));
+    themeSelect.value = readAppearance();
+    themeSelect.onchange = () => saveAppearance(themeSelect.value as Appearance);
+    theme.append(themeLabel, themeSelect);
+    header.append(brand, theme);
+    root.append(header);
     const title = document.createElement("h1");
     title.className = "app-title";
-    title.textContent = "Handwriting Notes Digitizer";
+    title.textContent = "Make room for your ideas.";
     root.appendChild(title);
+    const intro = document.createElement("p");
+    intro.className = "welcome-intro";
+    intro.textContent = "A quiet place for handwritten notes, clear thoughts, and everything in between.";
+    root.append(intro);
 
     if (connectionFailed) {
       const status = document.createElement("p");

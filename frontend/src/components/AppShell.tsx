@@ -171,6 +171,10 @@ function Shell({
     return () => media?.removeEventListener("change", update);
   }, []);
   const [appearance, setAppearance] = useState<Appearance>(readAppearance);
+  const changeAppearance = (value: Appearance) => {
+    saveAppearance(value);
+    setAppearance(value);
+  };
   const libraryGeneration = useRef(0);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -304,6 +308,7 @@ function Shell({
               key={doc.document_id}
               to={notebookLink(doc)}
               className={`nav-link ${documentId === doc.document_id ? "active" : ""}`}
+              aria-current={documentId === doc.document_id ? "page" : undefined}
             >
               <FileText size={16} />
               <span>{doc.title}</span>
@@ -316,6 +321,7 @@ function Shell({
           to="/settings"
           className={`nav-link ${settings ? "active" : ""}`}
           onClick={navigateCompact}
+          aria-current={settings ? "page" : undefined}
         >
           <Settings size={18} />
           Settings
@@ -384,6 +390,18 @@ function Shell({
             </>
           )}
           <div className="topbar-actions">
+            <label className="appearance-control">
+              <span>Theme</span>
+              <select
+                aria-label="Theme"
+                value={appearance}
+                onChange={(event) => changeAppearance(event.target.value as Appearance)}
+              >
+                <option value="system">System</option>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+              </select>
+            </label>
             {documentId ? (
               <Button
                 variant="secondary"
@@ -709,9 +727,7 @@ function Shell({
                   aria-label="Appearance"
                   value={appearance}
                   onChange={(event) => {
-                    const value = event.target.value as Appearance;
-                    saveAppearance(value);
-                    setAppearance(value);
+                    changeAppearance(event.target.value as Appearance);
                   }}
                 >
                   <option value="system">System</option>
