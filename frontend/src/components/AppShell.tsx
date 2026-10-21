@@ -44,6 +44,7 @@ import {
 import { AuthGate } from "../modules/authGate.js";
 import {
   applyAppearance,
+  listenToSystemAppearance,
   readAppearance,
   saveAppearance,
   type Appearance,
@@ -195,12 +196,7 @@ function Shell({
 
   useEffect(() => {
     applyAppearance(appearance);
-    const media = window.matchMedia?.("(prefers-color-scheme: dark)");
-    const update = () => {
-      if (appearance === "system") applyAppearance("system");
-    };
-    media?.addEventListener("change", update);
-    return () => media?.removeEventListener("change", update);
+    return listenToSystemAppearance(() => appearance);
   }, [appearance]);
 
   useEffect(() => {
@@ -738,14 +734,17 @@ function Shell({
               <div className="appearance-preview" aria-hidden="true"><span /><div><span /><span /><span /></div></div>
               </div>
             </section>
-            <section className="settings-group">
+            <section className="settings-group settings-sync">
               <LegacyHost node={mounts.sync} />
             </section>
             <details className="settings-group">
               <summary>Privacy and optional personalization</summary>
               <LegacyHost node={mounts.privacy} />
-              <LegacyHost node={mounts.training} />
               <LegacyHost node={mounts.calibration} />
+              <details className="settings-details">
+                <summary>Training and model details</summary>
+                <LegacyHost node={mounts.training} />
+              </details>
             </details>
             <details className="settings-group">
               <summary>Advanced</summary>

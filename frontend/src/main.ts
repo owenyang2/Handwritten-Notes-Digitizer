@@ -5,7 +5,7 @@ import { Editor } from "./modules/editor.js";
 import { CalibrationUI } from "./modules/calibrationUI.js";
 import { BeforeAfterView } from "./modules/beforeAfterView.js";
 import { AuthGate } from "./modules/authGate.js";
-import { readAppearance, saveAppearance, type Appearance } from "./appearance.js";
+import { listenToSystemAppearance, readAppearance, saveAppearance, type Appearance } from "./appearance.js";
 import { mountShell, type ShellHandle } from "./components/AppShell.js";
 import type { MathNotesWorkspace } from "./modules/mathNotes.js";
 import { BatchImportUI } from "./modules/batchImportUI.js";
@@ -1025,6 +1025,7 @@ export async function start(root: HTMLElement): Promise<void> {
   }
 
   if (!user) {
+    cleanups.get(root)?.();
     root.replaceChildren();
     const header = document.createElement("header");
     header.className = "welcome-header";
@@ -1047,6 +1048,7 @@ export async function start(root: HTMLElement): Promise<void> {
       themeSelect.add(new Option(label, value));
     themeSelect.value = readAppearance();
     themeSelect.onchange = () => saveAppearance(themeSelect.value as Appearance);
+    cleanups.set(root, listenToSystemAppearance(() => themeSelect.value as Appearance));
     theme.append(themeLabel, themeSelect);
     header.append(brand, theme);
     root.append(header);

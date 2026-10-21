@@ -27,3 +27,12 @@ export function saveAppearance(preference: Appearance): void {
   }
   applyAppearance(preference);
 }
+
+export function listenToSystemAppearance(preference: () => Appearance): () => void {
+  const media = window.matchMedia?.("(prefers-color-scheme: dark)");
+  const update = () => {
+    if (preference() === "system") applyAppearance("system");
+  };
+  media?.addEventListener("change", update);
+  return () => media?.removeEventListener("change", update);
+}

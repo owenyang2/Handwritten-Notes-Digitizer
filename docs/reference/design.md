@@ -236,7 +236,7 @@ stored ink, scan pixels or export content. Original crops retain their own
 colors and white paper. Notebook paper settings remain a separate concern.
 
 System / Light / Dark is one locally persisted appearance choice. System
-follows OS changes in the workspace; explicit choices stay stable. **Theme**
+follows OS changes before and after sign-in; explicit choices stay stable. **Theme**
 is visible in the main toolbar and on the sign-in screen, so dark mode does
 not require opening Settings. The existing Settings Appearance selector stays
 synchronized. Apply web appearance before first paint and preserve drafts and
@@ -262,6 +262,19 @@ Muted supporting copy also uses (0.875rem). Preserve prose line height and allow
 long titles and status messages to wrap. Readable transcription lines should
 stay around 65–75 characters where space permits; this is a reading goal, not
 an implemented width cap.
+
+Settings uses Geist consistently for section headings (1rem, weight 600),
+supporting copy and controls (0.875rem, line height 1.6). The same roles apply to
+Account, Appearance, Sync and the optional sections. Serif type stays on page
+titles; dense accuracy-table values use the smaller metadata role. The
+[October 20 fixes](../release-evidence/ui-fixes-2026-10-20.md) verify the drift
+identified in the earlier audit.
+
+Single-choice selects share a 44px height and 0.875rem type. Their chevron sits
+12px inside the right edge with 40px reserved on that side for clear text/arrow
+separation. The control retains native select behavior; forced-colors mode uses
+the browser decoration. Avoid local padding or font overrides that undo these
+shared rules.
 
 **The Content Type Rule.** Prose corrections use the interface face; LaTeX uses
 monospace. Do not make ordinary notes look like source code.

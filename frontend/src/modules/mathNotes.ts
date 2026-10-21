@@ -725,6 +725,10 @@ export class MathNotesWorkspace {
     note.textContent = this.hasUnsavedChanges()
       ? "You have unsaved corrections. Save them with your export, or export the last saved version."
       : "Exports use the saved document revision. Excluded regions are omitted.";
+    const close = button("", () => dialog.close());
+    close.className = "dialog-close ui-button-ghost";
+    close.setAttribute("aria-label", "Close");
+    close.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
     const context = document.createElement("p");
     context.className = "muted";
     context.textContent = `Scope: entire notebook · ${this.activeDocumentRevisionId ? `Saved revision ${this.activeDocumentRevisionId}` : "Latest saved revision"}`;
@@ -806,7 +810,7 @@ export class MathNotesWorkspace {
         () => void run(false),
         "math-notes-export-saved",
       ),
-      button("Close", () => dialog.close()),
+      close,
     );
     this.mount.append(dialog);
     dialog.showModal();

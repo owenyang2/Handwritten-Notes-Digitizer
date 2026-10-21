@@ -90,7 +90,7 @@ async function fixture(
         status: "ok",
         capabilities: Object.fromEntries(
           [
-            "upload",
+            "image_upload",
             "recognition",
             "correction",
             "export",
@@ -98,7 +98,7 @@ async function fixture(
             "personalization",
           ].map((key) => [
             key,
-            { available: !["calibration", "personalization"].includes(key) },
+            !["calibration", "personalization"].includes(key),
           ]),
         ),
       });
@@ -147,7 +147,18 @@ async function fixture(
       });
     if (path.endsWith("recognition-jobs"))
       return json({ job_id: "job-1", state: "queued" });
-    if (path.startsWith("/consent")) return json({ granted: false });
+    if (path === "/personalization/consent") return json({ detail: "No consent recorded" }, 404);
+    if (path === "/personalization/status") return json({
+      training_state: "none", adapter_active: false, last_run_outcome: null,
+      reject_reason: null, notification: null, unused_training_pairs: 0,
+      training_trigger_threshold: 20, max_training_epochs: 50,
+    });
+    if (path === "/personalization/evaluation") return json({
+      availability: "unavailable", before_cer: null, before_wer: null,
+      after_cer: null, after_wer: null, delta_cer: null, delta_wer: null,
+      unavailable_reason: "No evaluation recorded.",
+    });
+    if (path === "/personalization/assignments") return json([]);
     return json({ items: [], conflicts: [], has_more: false, next_cursor: 0 });
   });
   return { saved, exported };
@@ -298,10 +309,24 @@ test("Theme is visible before sign-in and changes appearance without losing a re
     : route.fallback());
   await page.goto("/");
   const theme = page.getByRole("combobox", { name: "Theme", exact: true });
+  await page.emulateMedia({ colorScheme: "light" });
+  await theme.selectOption("system");
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await theme.selectOption("light");
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   await page.getByRole("textbox", { name: "Username" }).fill("Notebook reader");
+  await expect(page.locator(".auth-form > label").filter({ hasText: "Username" })).toBeVisible();
+  await page.getByRole("button", { name: "Need an account? Sign up", exact: true }).click();
+  await expect(page.getByText("Use at least 8 characters.", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Password", { exact: true })).toHaveAttribute("aria-describedby", "auth-password-help");
+  await page.getByRole("button", { name: "Already have an account? Log in", exact: true }).click();
   await theme.selectOption("dark");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await expect(page.getByRole("textbox", { name: "Username" })).toHaveValue("Notebook reader");
+  await page.locator(".auth-toggle").evaluate(element => Promise.all(element.getAnimations().map(animation => animation.finished)));
   const authScan = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
   expect(authScan.violations).toEqual([]);
   await page.reload();
@@ -318,6 +343,68 @@ test("Theme is visible before sign-in and changes appearance without losing a re
   await theme.selectOption("dark");
   await expect(correction).toHaveValue("This thought is still mine.");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("Settings controls, typography and expanded details stay consistent across themes and widths", async ({ page }, testInfo) => {
+  await fixture(page);
+  await page.route("**/api/health", route => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({ status: "ok", capabilities: {
+      image_upload: true, recognition: true, correction: true, export: true,
+      calibration: true, personalization: true,
+    } }),
+  }));
+  for (const width of [1440, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const theme of ["light", "dark"]) {
+      await page.addInitScript(value => localStorage.setItem("notes-appearance", value), theme);
+      await page.goto("/settings");
+      await expect(page.getByRole("combobox", { name: "Appearance", exact: true })).toBeVisible();
+      await page.getByText("Privacy and optional personalization", { exact: true }).click();
+      await page.getByText("Training and model details", { exact: true }).click();
+      await expect(page.getByRole("table", { name: "Before and after personalization accuracy metrics" })).toBeVisible();
+      const geometry = await page.evaluate(() => {
+        const visible = (element: Element) => element.checkVisibility({ checkVisibilityCSS: true });
+        const select = [...document.querySelectorAll<HTMLSelectElement>("select")].filter(visible).map(element => ({
+          height: element.getBoundingClientRect().height,
+          rightPadding: parseFloat(getComputedStyle(element).paddingRight),
+        }));
+        const headings = [...document.querySelectorAll(".settings-group h2, .settings-group h3")].filter(visible).map(element => getComputedStyle(element).fontSize);
+        return { select, headings, width: innerWidth, scrollWidth: document.documentElement.scrollWidth };
+      });
+      expect(geometry.select.every(control => control.height >= 44 && control.rightPadding >= 36)).toBe(true);
+      expect(new Set(geometry.headings)).toEqual(new Set(["16px"]));
+      expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.width);
+      const scan = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze();
+      expect(scan.violations).toEqual([]);
+      if (testInfo.project.name === "chromium") {
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await page.screenshot({ path: testInfo.outputPath(`settings-expanded-${theme}-${width}.png`), fullPage: true });
+        await page.getByText("Privacy and optional personalization", { exact: true }).click();
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await page.screenshot({ path: testInfo.outputPath(`settings-${theme}-${width}.png`), fullPage: true });
+      }
+    }
+  }
+});
+
+test("older image-review warnings remain readable in both themes", async ({ page }) => {
+  await fixture(page);
+  await page.route("**/api/documents/doc-1", route => route.fulfill({ contentType: "application/json", body: JSON.stringify({ ...notebook, pages: [] }) }));
+  await page.route("**/api/images/image-1/result", route => route.fulfill({
+    contentType: "application/json", body: JSON.stringify({
+      image_id: "image-1", status: "recognized", image_width: 600, image_height: 800,
+      lines: [{ line_index: 0, text: "Eigenvectors", region: { x: 60, y: 80, width: 480, height: 70 },
+        words: [{ word_index: 0, line_index: 0, text: "Eigenvectors", confidence: 0.62, region: { x: 60, y: 80, width: 170, height: 40 } }] }],
+    }),
+  }));
+  for (const theme of ["light", "dark"]) {
+    await page.addInitScript(value => localStorage.setItem("notes-appearance", value), theme);
+    await page.goto("/notebooks/doc-1");
+    await expect(page.locator(".editor-line-warning")).toBeVisible();
+    const scan = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
+    expect(scan.violations).toEqual([]);
+  }
 });
 
 test("visual states reflow at 320–1440px in both appearances", async ({
