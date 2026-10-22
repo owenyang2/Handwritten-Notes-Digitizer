@@ -1,4 +1,4 @@
-// Owned shadcn/ui primitives, adapted to Quiet Notebook tokens.
+// Owned shadcn/ui primitives, adapted to the notebook tokens.
 import * as React from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { Slot } from "@radix-ui/react-slot";

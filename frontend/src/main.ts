@@ -1027,6 +1027,7 @@ export async function start(root: HTMLElement): Promise<void> {
   if (!user) {
     cleanups.get(root)?.();
     root.replaceChildren();
+    document.title = "Notebook";
     const header = document.createElement("header");
     header.className = "welcome-header";
     const brand = document.createElement("a");
@@ -1037,7 +1038,7 @@ export async function start(root: HTMLElement): Promise<void> {
     mark.alt = "";
     mark.width = 36;
     mark.height = 36;
-    brand.append(mark, "Quiet Notebook");
+    brand.append(mark, "Notebook");
     const theme = document.createElement("label");
     theme.className = "appearance-control";
     const themeLabel = document.createElement("span");
@@ -1054,12 +1055,8 @@ export async function start(root: HTMLElement): Promise<void> {
     root.append(header);
     const title = document.createElement("h1");
     title.className = "app-title";
-    title.textContent = "Make room for your ideas.";
+    title.textContent = "Handwritten notes";
     root.appendChild(title);
-    const intro = document.createElement("p");
-    intro.className = "welcome-intro";
-    intro.textContent = "A quiet place for handwritten notes, clear thoughts, and everything in between.";
-    root.append(intro);
 
     if (connectionFailed) {
       const status = document.createElement("p");

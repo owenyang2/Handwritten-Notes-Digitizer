@@ -291,8 +291,7 @@ summary {
   display: grid;
   gap: 2px;
 }
-.brand-copy strong { font-size: 0.875rem; font-weight: 600; }
-.brand-copy span { font-size: 0.6875rem; color: var(--muted); white-space: nowrap; }
+.brand-copy strong { font-size: 0.875rem; font-weight: 600; overflow-wrap: anywhere; }
 .sidebar-import { width: 100%; justify-content: flex-start; margin-bottom: 1.25rem; }
 .sidebar-brand button {
   padding: 0.4rem;
@@ -332,7 +331,6 @@ summary {
   font-size: 0.75rem;
   margin: 2rem 0.75rem 0.65rem;
 }
-.sidebar-note { color: var(--muted); font-size: 0.75rem; line-height: 1.6; padding: 0.75rem; margin-bottom: 1rem; }
 .recent-notebooks {
   overflow-y: auto;
 }
@@ -342,7 +340,7 @@ summary {
 }
 .account-bar {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: center;
   gap: 0.5rem;
   border-top: 1px solid var(--line);
@@ -356,11 +354,18 @@ summary {
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+  max-width: 100%;
+  font-size: 0.875rem;
+  text-align: left;
 }
+.account-controls { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
 .account-bar button {
   font-size: 0.75rem;
   white-space: nowrap;
   flex-shrink: 0;
+  padding-inline: 0;
+  min-width: 44px;
+  justify-content: flex-start;
 }
 .notebook-main {
   min-width: 0;
@@ -415,7 +420,6 @@ summary {
 }
 .screen-heading h1 { margin-bottom: 0.5rem; }
 .screen-description { margin: 0; color: var(--muted); font-size: 0.9375rem; }
-.workspace-label { display: flex; gap: 0.5rem; align-items: center; font-size: 0.75rem; color: var(--muted); }
 .library-controls {
   display: flex;
   gap: 0.75rem;
@@ -461,7 +465,6 @@ summary {
 }
 .empty-mark { color: var(--ink); }
 .library-empty h2 { font-size: 1.5rem; font-weight: 500; letter-spacing: -0.025em; }
-.library-empty .empty-formats { margin: 1.5rem 0 0; max-width: none; font-size: 0.75rem; }
 .library-skeleton { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
 .library-skeleton span { height: 240px; background: var(--panel-soft); border-radius: 12px; }
 .library-empty h2 {
@@ -541,7 +544,6 @@ summary {
   bottom: 0.75rem;
 }
 .notebook-open { display: none; }
-.library-footnote { color: var(--muted); font-size: 0.75rem; margin: 1.5rem 0 0; }
 .notebook-grid[data-layout="list"] { grid-template-columns: minmax(0, 1fr); gap: 0.75rem; }
 .notebook-grid[data-layout="list"] .gallery-document { display: flex; align-items: center; }
 .notebook-grid[data-layout="list"] .notebook-thumbnail { width: 100px; height: 100px; flex-shrink: 0; }
@@ -710,7 +712,6 @@ summary {
 .welcome-header { display: flex; justify-content: space-between; align-items: center; gap: 1rem; max-width: 1120px; padding: 1.5rem 2rem; margin: auto; }
 .welcome-brand { display: flex; align-items: center; gap: 0.5rem; font-size: 0.9375rem; font-weight: 600; }
 .welcome-brand img { border-radius: 8px; }
-.welcome-intro { max-width: 42ch; padding: 0 1rem; margin: 0.75rem auto 0; text-align: center; color: var(--muted); font-size: 0.9375rem; }
 .auth-heading { font-size: 1.5rem; font-weight: 500; letter-spacing: -0.025em; }
 .auth-submit { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 .auth-submit:hover:not(:disabled) { background: var(--accent-strong); color: var(--on-accent); }
@@ -1653,7 +1654,6 @@ summary {
   .notebook-main, .notebook-app[data-navigation="closed"] .notebook-main { margin: 0; border: 0; border-radius: 0; min-height: 100dvh; }
   .notebook-topbar { border-radius: 0; }
   .math-notes-original, .math-notes-side { padding: 1rem; }
-  .workspace-label { display: none; }
 }
 @media (min-width: 640px) {
   /* A single notebook uses the full shelf; multiple notebooks share equal columns. */

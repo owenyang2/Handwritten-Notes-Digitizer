@@ -166,12 +166,17 @@ async function fixture(
 
 test("import → source selection → correction → explicit export; drafts survive layout and theme changes", async ({
   page,
-}) => {
+}, testInfo) => {
   const { saved, exported } = await fixture(page, { empty: true });
   await page.goto("/library");
   await expect(
-    page.getByRole("heading", { name: "Your next idea starts here" }),
+    page.getByRole("heading", { name: "No notebooks yet" }),
   ).toBeVisible();
+  if (testInfo.project.name === "chromium") {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.evaluate(() => document.fonts.ready);
+    await page.screenshot({ path: testInfo.outputPath("empty-library.png"), fullPage: true });
+  }
   await page
     .getByRole("button", { name: "Import notes", exact: true })
     .first()
@@ -822,6 +827,13 @@ test.describe("offline shell recovery", () => {
       )
       .toBe(true);
     await page.reload(); // Warm the assets through the active worker, including the deferred review chunk.
+    await page.evaluate(async () => {
+      const name = (await caches.keys()).find(value => value.startsWith("notes-digitizer-"))!;
+      const cache = await caches.open(name);
+      await cache.put("/appearance.js", new Response("stale-ui-sentinel"));
+    });
+    const appearanceScript = await page.evaluate(async () => (await fetch("/appearance.js")).text());
+    expect(appearanceScript).not.toContain("stale-ui-sentinel");
     const text = page.getByRole("textbox", { name: "Corrected text" });
     await expect(text).toBeVisible();
     await text.fill("Keep my in-memory correction while offline.");

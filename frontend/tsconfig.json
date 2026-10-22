@@ -26,7 +26,7 @@
     "exactOptionalPropertyTypes": false,
 
     /* Test globals */
-    "types": ["vitest/globals", "node"]
+    "types": ["vitest/globals", "node", "vite/client"]
   },
   "include": ["src", "vite.config.ts", "vitest.setup.ts"]
 }

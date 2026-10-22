@@ -1,6 +1,6 @@
 # Status and roadmap
 
-Reviewed October 20, 2026 against source and the recorded reports below.
+Reviewed October 22, 2026 against source and the recorded reports below.
 **Local alpha:** implemented behavior, automated tests, simulator journeys,
 physical hardware and deployment acceptance are separate evidence levels.
 Installed models and services on a test machine are not included in a clone.
@@ -9,7 +9,7 @@ Installed models and services on a test machine are not included in a clone.
 
 | Area | Available behavior / evidence | Remaining acceptance |
 | --- | --- | --- |
-| Web workspace | Warm paper/charcoal folio, stronger selected states, source-preview shelf/list, search, compact conversion controls, source-linked review, visible Theme control, System/Light/Dark before/after sign-in, explicit save/export; [UI consistency fixes](release-evidence/ui-fixes-2026-10-20.md) cover Settings type, selects, phone spacing, warning contrast, forms and dialogs with synthetic browser checks | Assistive technology, physical devices, representative performance/usability and non-Mac font rendering; overhaul is web-only |
+| Web workspace | Warm paper/charcoal folio, personalized notebook name, concise copy, left-aligned account actions, source-preview shelf/list, search, compact conversion controls, source-linked review, visible System/Light/Dark control and explicit save/export; [UI consistency fixes](release-evidence/ui-fixes-2026-10-20.md) cover shared controls and Settings; [preview recovery](release-evidence/preview-ui-fixes-2026-10-22.md) addresses stale cached styling/modules | Assistive technology, physical devices, representative performance/usability and non-Mac font rendering; overhaul is web-only |
 | Native notebooks | Universal iPhone/iPad target, PencilKit, local SQLite/ink, import, page edits and appearance; app/UI simulator suites recorded green | Physical Pencil/palm rejection, signing/App Groups, share import, accessibility, battery and thermals |
 | Sync and recovery | Pending operations, conflicts, tombstones, exact ink restore, revision checks; automated races/recovery and partial live journeys | Complete live two-client offline/interruption/concurrent-edit journey |
 | Recognition | UniMERNet-small formulas and TrOCR prose; real-model local web/simulator review → save → reopen → Markdown demonstrated | Representative handwritten prose/formula evaluation; Linux inference runtime |
@@ -41,6 +41,10 @@ environment, input/model identity, command or journey, outcome and limits.
   Settings, the older image-review warning and live System appearance before
   sign-in. Physical-device, screen-reader and broader real-content acceptance
   remain separate.
+- [x] **Preview freshness:** remove legacy development workers before importing
+  application code and fetch mutable production assets from the network first.
+  The [October 22 checks](release-evidence/preview-ui-fixes-2026-10-22.md) cover
+  stale module recovery, retained appearance preferences and the revised shell.
 - [ ] **Import/review/export fidelity:** multipage PDF and image imports through
   actual clients; mixed pages, split/merge/reorder/exclude/retry, saved reviews
   reopened on another client, and comparison of all export formats.
@@ -65,6 +69,7 @@ still do not establish physical-device readiness.
 
 | Report | Scope |
 | --- | --- |
+| [October 22 preview and UI fixes](release-evidence/preview-ui-fixes-2026-10-22.md) | Personalized name, concise copy, account alignment and cache recovery; current web media refreshed with synthetic inputs |
 | [October 20 UI fixes](release-evidence/ui-fixes-2026-10-20.md) | Implemented audit corrections, browser checks, Settings screenshots and refreshed current web media; synthetic inputs |
 | [October 20 web UI audit](release-evidence/ui-audit-2026-10-20.md) | Source `76a78ea`; cross-browser typography/control geometry, synthetic screenshots, expanded/older screen accessibility findings and local lab performance; audit only, fixes outstanding |
 | [Final October 14 verification](release-evidence/VERIFICATION_AND_PONYTAIL_AUDIT_2026-10-14.md) | Latest recorded regression/native suites and local production/storage checks |

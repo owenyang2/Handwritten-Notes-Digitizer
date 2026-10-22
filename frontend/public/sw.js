@@ -1,4 +1,4 @@
-const CACHE_NAME = 'notes-digitizer-v5';
+const CACHE_NAME = 'notes-digitizer-v6';
 const ASSETS = [
   '/',
   '/index.html',
@@ -26,7 +26,9 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const request = event.request;
   const url = new URL(request.url);
-  if (request.method !== 'GET' || url.origin !== self.location.origin || url.pathname.startsWith('/api/')) {
+  if (request.method !== 'GET' || url.origin !== self.location.origin ||
+      url.pathname.startsWith('/api/') || url.pathname.startsWith('/src/') ||
+      url.pathname.startsWith('/@') || url.pathname.startsWith('/node_modules/')) {
     return;
   }
 
@@ -37,16 +39,14 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) return cached;
-      return fetch(request).then((response) => {
-        if (response.ok) {
-          const copy = response.clone();
-          void caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
-        }
-        return response;
-      });
-    })
-  );
+  const fromNetwork = () => fetch(request).then((response) => {
+    if (response.ok) {
+      const copy = response.clone();
+      void caches.open(CACHE_NAME).then((cache) => cache.put(request, copy)).catch(() => {});
+    }
+    return response;
+  });
+  event.respondWith(url.pathname.startsWith('/assets/')
+    ? caches.match(request).then((cached) => cached || fromNetwork())
+    : fromNetwork().catch(() => caches.match(request)));
 });

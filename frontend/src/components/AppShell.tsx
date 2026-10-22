@@ -255,19 +255,23 @@ function Shell({
   const navigateCompact = () => {
     if (window.innerWidth < 1024) setNavigationOpen(false);
   };
+  const workspaceName = username ? `${username}’s notebook` : "Notebook";
+  const recentDocuments = documents.filter((doc) => !doc.trashed_at && !doc.archived_at).slice(0, 7);
+
+  useEffect(() => { document.title = workspaceName; }, [workspaceName]);
 
   const sidebarContents = (
     <>
       <div className="sidebar-brand">
         <BookOpen size={24} strokeWidth={1.6} />
-        <div className="brand-copy"><strong>Quiet Notebook</strong><span>Handwriting, made useful.</span></div>
-        <Button
+        <div className="brand-copy"><strong title={workspaceName}>{workspaceName}</strong></div>
+        {!compact && <Button
           variant="ghost"
           aria-label="Collapse navigation"
           onClick={() => setNavigationOpen(false)}
         >
           <PanelLeftClose size={18} />
-        </Button>
+        </Button>}
       </div>
       <Button variant="secondary" className="sidebar-import" onClick={openImport}>
         <Plus size={17} /> New import
@@ -294,12 +298,10 @@ function Shell({
           Favorites
         </Link>
       </nav>
+      {recentDocuments.length > 0 && <>
       <p className="nav-caption">Recent notebooks</p>
       <nav className="recent-notebooks" onClick={navigateCompact}>
-        {documents
-          .filter((doc) => !doc.trashed_at && !doc.archived_at)
-          .slice(0, 7)
-          .map((doc) => (
+        {recentDocuments.map((doc) => (
             <Link
               key={doc.document_id}
               to={notebookLink(doc)}
@@ -311,8 +313,8 @@ function Shell({
             </Link>
           ))}
       </nav>
+      </>}
       <div className="sidebar-bottom">
-        <p className="sidebar-note">From the first rough idea<br />to notes you can use.</p>
         <Link
           to="/settings"
           className={`nav-link ${settings ? "active" : ""}`}
@@ -323,8 +325,9 @@ function Shell({
           Settings
         </Link>
         <div className="account-bar" data-testid="account-bar">
-          <span className="account-avatar" aria-hidden="true">{(username || "Q").slice(0, 1).toUpperCase()}</span>
-          <span className="account-user">{username || "Your workspace"}</span>
+          <span className="account-avatar" aria-hidden="true">{(username || "N").slice(0, 1).toUpperCase()}</span>
+          <div className="account-controls">
+          <span className="account-user" title={username}>{username || "Account"}</span>
           <Button
             variant="ghost"
             data-testid="account-logout"
@@ -332,6 +335,7 @@ function Shell({
           >
             Log out
           </Button>
+          </div>
         </div>
       </div>
     </>
@@ -367,6 +371,7 @@ function Shell({
         <header className="notebook-topbar">
           <Button
             ref={navigationTrigger}
+            hidden={navigationOpen && !compact}
             variant="ghost"
             aria-label={navigationOpen ? "Close navigation" : "Open navigation"}
             aria-expanded={navigationOpen}
@@ -447,9 +452,7 @@ function Shell({
             <div className="screen-heading">
               <div>
                 <h1>{favorites ? "Favorites" : "Library"}</h1>
-                <p className="screen-description">{favorites ? "The notebooks you want to keep close." : "Your handwriting. A little more possibility."}</p>
               </div>
-              <span className="workspace-label"><BookOpen size={16} /> Personal workspace</span>
             </div>
             <div className="library-controls">
               <label className="search-field">
@@ -492,17 +495,17 @@ function Shell({
                   {query
                     ? "No matching notebooks"
                     : favorites
-                      ? "Keep your favorites close"
+                      ? "No favorites yet"
                       : view === "active"
-                        ? "Your next idea starts here"
-                        : `No notebooks in ${view}`}
+                        ? "No notebooks yet"
+                        : view === "archived" ? "No archived notebooks" : "Trash is empty"}
                 </h2>
                 <p>
                   {query
                     ? "Try a different title."
                     : favorites
                       ? "Use a notebook’s menu to add it to Favorites."
-                      : "Import handwritten pages to keep the original beside text you can correct and export."}
+                      : view === "active" ? "Import a PDF, PNG or JPEG to get started." : "Notebooks you move here will appear in this list."}
                 </p>
                 {view === "active" && !favorites && (
                   !query &&
@@ -511,7 +514,6 @@ function Shell({
                     Import notes
                   </Button>
                 )}
-                {!query && !favorites && view === "active" && <p className="empty-formats">PDF, PNG or JPEG · Originals stay alongside your corrections</p>}
               </div>
             )}
             <ul className="notebook-grid" data-layout={layout} aria-label="Notebooks">
@@ -644,7 +646,6 @@ function Shell({
                 );
               })}
             </ul>
-            {!status && documents.length > 0 && <p className="library-footnote">Open a notebook to compare the original, refine the text, and export.</p>}
             {hasMore && (
               <Button
                 variant="secondary"
@@ -692,7 +693,7 @@ function Shell({
             <LegacyHost node={mounts.editor} />
           </section>
           <section hidden={!settings} className="settings-screen">
-            <div className="screen-heading"><h1>Settings</h1><p className="screen-description">Make room for the way you work.</p></div>
+            <div className="screen-heading"><h1>Settings</h1></div>
             <section className="settings-group">
               <div className="settings-intro">
               <h2>Account</h2>
@@ -712,8 +713,7 @@ function Shell({
               <div className="settings-intro">
               <h2>Appearance</h2>
               <p className="muted">
-                Choose how your workspace looks. Original pages keep their
-                colors.
+                Original pages keep their colors.
               </p>
               </div>
               <div className="settings-panel">

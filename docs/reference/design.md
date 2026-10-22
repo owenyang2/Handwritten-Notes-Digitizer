@@ -1,5 +1,5 @@
 ---
-name: Quiet Notebook — Research Folio
+name: Notebook — Research Folio
 description: The implemented web workspace keeps original handwriting beside corrections.
 colors:
   bg: "#f3f0e9"
@@ -170,7 +170,7 @@ components:
     width: "640px"
 ---
 
-# Design System: Quiet Notebook — Research Folio
+# Design System: Notebook — Research Folio
 
 ## Overview
 
@@ -181,6 +181,11 @@ headings and compact Geist text make the workspace feel personal. Real
 handwriting remains the focus; source, correction and save state stay easy to
 compare. This warmer treatment follows the user’s request for a cozier workspace
 and clearer selections.
+
+The signed-in web name is “[username]’s notebook”; the sign-in screen and
+installed web app use “Notebook”. Keep copy functional: no brand tagline,
+Library subtitle, workspace badge or sidebar slogan. An empty Library says
+“No notebooks yet” and names the accepted import formats beside the action.
 
 This is the current **web** system. Its source of truth is the
 [web stylesheet](../../frontend/src/styles.css),
@@ -349,6 +354,10 @@ tonally filled surface, a visible outline and heavier text; hover alone remains
 subtle. Indicate the current route semantically. Grid/list and phone review
 selection use the filled action color, so the current choice is unmistakable. The collapsible desktop rail
 holds Library, Favorites, recent notebooks, Settings and account controls.
+Hide the recent-notebook heading when its list is empty. Show one collapse
+control in the expanded desktop rail; the toolbar provides the reopen control.
+The account name and Log out action share a left edge beside the avatar, with
+the action below the name. Allow long workspace names to wrap.
 Compact navigation uses a dialog with focus containment and restoration. Keep
 the skip link, keyboard order, Escape behavior and focus restoration intact.
 
@@ -386,6 +395,14 @@ Training is optional per selected crop and separate from saving. Exclusion
 prevents export and training; a successful save resets the training selection.
 Keep capability failures, session recovery and save errors factual and
 actionable. Toasts cannot be the sole location of important errors.
+
+The development preview removes a previous service-worker registration before
+importing application modules, reloading once if an old worker still controls
+that page. This startup recovery prevents cached styles or mixed module versions
+without clearing appearance preferences or account data. Development does not
+register another worker. Production keeps offline shell caching: hashed assets
+are cache-first, mutable assets are network-first, and API/private data is
+excluded. It does not automatically reload an open review to apply an update.
 
 ### Dialogs
 

@@ -31,8 +31,10 @@ Native iPhone/iPad work is outside this web-first change.
 
 ## Brand commitments
 
-Quiet Notebook is the existing workspace name. Product terms are Library,
-Notebook, Page, Convert, Review and Export.
+The web workspace is named “[username]’s notebook” after sign-in and “Notebook”
+before sign-in. Use short, functional labels instead of slogans or decorative
+workspace descriptions. Product terms are Library, Notebook, Page, Convert,
+Review and Export. Native naming remains unchanged.
 
 ## Accessibility and evidence
 

@@ -13,6 +13,11 @@ uses warm charcoal and soft green. The user requested this cozier treatment
 and more obvious selections after seeing the initial cool design. Real handwriting carries the visual
 character; the shell supplies order.
 
+Use “[username]’s notebook” as the signed-in name, with “Notebook” before
+sign-in. Copy explains actions and states; omit slogans and decorative workspace
+labels. Hide empty recent navigation, keep one desktop collapse control, and
+left-align the account name and Log out action beside the avatar.
+
 **STORY:** Locate notebook → compare source/result → correct → explicitly save
 → export. Error recovery and training consent remain deliberate choices.
 

@@ -6,6 +6,7 @@ Use [current status](../STATUS.md) for the maintained acceptance summary.
 
 | Report | Scope |
 | --- | --- |
+| [Preview and UI fixes, October 22](preview-ui-fixes-2026-10-22.md) | Legacy preview cache recovery, personalized naming, shorter copy, account alignment and refreshed synthetic captures |
 | [Web UI fixes, October 20](ui-fixes-2026-10-20.md) | Applied the audit findings; cross-browser control/type checks, expanded/older screen accessibility and updated synthetic media |
 | [Web UI audit, October 20](ui-audit-2026-10-20.md) | Typography, controls, spacing, themes, responsive layouts and older/expanded states at `76a78ea`; verified findings and synthetic browser evidence, with no application changes |
 | [Final verification, October 14](VERIFICATION_AND_PONYTAIL_AUDIT_2026-10-14.md) | Regression/native suites, production stack, storage encryption and remaining limits |
