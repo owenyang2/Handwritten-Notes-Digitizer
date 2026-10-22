@@ -527,7 +527,7 @@ test("returning to Library preserves search and scroll position", async ({
   await expect(
     page.getByRole("heading", { name: "Formula review" }),
   ).toBeVisible();
-  await page.goBack();
+  await page.getByRole("link", { name: "Back to Library", exact: true }).click();
   await expect(search).toHaveValue("notes");
   await expect.poll(() => page.evaluate(() => Math.round(scrollY))).toBe(position);
 });

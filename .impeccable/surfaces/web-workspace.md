@@ -16,6 +16,8 @@ character; the shell supplies order.
 Use “[username]’s notebook” as the signed-in name, with “Notebook” before
 sign-in. Copy explains actions and states; omit slogans and decorative workspace
 labels. Hide empty recent navigation and keep one desktop collapse control.
+Section navigation stays in the sidebar. The toolbar only adds a Library
+breadcrumb inside a notebook, providing a real return action.
 Avatar/name share a row; Log out has a separate icon row, using the navigation
 icon/text columns. Keep the shell and recents stable during collection changes,
 retain warm views, and commit loaded review pages together. Routine navigation

@@ -410,16 +410,16 @@ function Shell({
           >
             <PanelLeftOpen size={18} />
           </Button>
-          <Link to="/library">{settings ? "Settings" : favorites ? "Favorites" : "Library"}</Link>
           {documentId && (
-            <>
-              <ChevronRight size={14} />
-              <span className="breadcrumb-title">
+            <nav className="notebook-breadcrumb" aria-label="Breadcrumb">
+              <Link to="/library" aria-label="Back to Library">Library</Link>
+              <ChevronRight size={14} aria-hidden="true" />
+              <span className="breadcrumb-title" aria-current="page">
                 {current?.document_id === documentId
                   ? current.title
                   : "Opening notebook…"}
               </span>
-            </>
+            </nav>
           )}
           <div className="topbar-actions">
             <label className="appearance-control">

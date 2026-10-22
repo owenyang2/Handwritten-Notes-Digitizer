@@ -356,6 +356,10 @@ selection use the filled action color, so the current choice is unmistakable. Th
 holds Library, Favorites, recent notebooks, Settings and account controls.
 Hide the recent-notebook heading when its list is empty. Show one collapse
 control in the expanded desktop rail; the toolbar provides the reopen control.
+Library, Favorites and Settings use the sidebar and their page heading; the
+toolbar does not repeat those names as links. An open notebook has a breadcrumb
+with a “Back to Library” link and its current title. On phones, retain the back
+link and hide the title/chevron so the toolbar actions stay within the viewport.
 The avatar and account name share a 44px row. The avatar is centered on the
 navigation icon column; the name aligns with navigation labels. Log out is a
 separate full-width navigation row with its own icon, on those same columns.

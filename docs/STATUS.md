@@ -52,6 +52,8 @@ environment, input/model identity, command or journey, outcome and limits.
   researched layout/motion decisions; browser fixtures cover loading and warm
   navigation, select hover, and footer geometry. Physical-device smoothness
   remains unverified.
+  Toolbar section links are removed; notebooks retain an accessible Library
+  return breadcrumb, including on phones.
 - [ ] **Import/review/export fidelity:** multipage PDF and image imports through
   actual clients; mixed pages, split/merge/reorder/exclude/retry, saved reviews
   reopened on another client, and comparison of all export formats.

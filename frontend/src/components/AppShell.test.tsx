@@ -142,6 +142,29 @@ describe("Library", () => {
     await vi.waitFor(() => expect(grid.getAttribute("aria-pressed")).toBe("true"));
     expect(getDocumentsPage).toHaveBeenCalledOnce();
   });
+  it("uses the toolbar for notebook breadcrumbs, with section navigation in the sidebar", async () => {
+    mount();
+    for (const route of ["/library", "/favorites", "/settings"]) {
+      shell!.navigateTo(route);
+      await vi.waitFor(() => expect(root.querySelector('.notebook-sidebar [aria-current="page"]')?.getAttribute("href")).toBe(route));
+      expect(root.querySelector(".notebook-topbar a")).toBeNull();
+      expect(root.querySelector('.notebook-sidebar a[href="/library"]')).not.toBeNull();
+      expect(root.querySelector('.notebook-sidebar a[href="/favorites"]')).not.toBeNull();
+    }
+    shell!.setDocument(notebook);
+    shell!.openDocument(notebook.document_id);
+    const back = await vi.waitFor(() => {
+      const link = root.querySelector<HTMLAnchorElement>('[aria-label="Back to Library"]');
+      expect(link).not.toBeNull();
+      return link!;
+    });
+    expect(root.querySelector('.notebook-breadcrumb [aria-current="page"]')?.textContent).toBe(notebook.title);
+    back.click();
+    await vi.waitFor(() => {
+      expect(window.location.pathname).toBe("/library");
+      expect(root.querySelector(".notebook-breadcrumb")).toBeNull();
+    });
+  });
   it("refreshes retained collections and recent navigation after documents change", async () => {
     let changed = false;
     vi.mocked(getDocumentsPage).mockImplementation(async (options) => {

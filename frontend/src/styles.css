@@ -390,6 +390,8 @@ summary {
   border-radius: 18px 18px 0 0;
   font-size: 0.875rem;
 }
+.notebook-breadcrumb { display: flex; align-items: center; gap: 0.5rem; flex: 1; min-width: 0; }
+.notebook-breadcrumb a { display: inline-flex; align-items: center; min-height: 44px; flex-shrink: 0; }
 .breadcrumb-title {
   overflow: hidden;
   white-space: nowrap;
@@ -1680,7 +1682,8 @@ summary {
     padding-inline: 1rem;
     gap: 0.25rem;
   }
-  .notebook-topbar > a {
+  .notebook-breadcrumb > svg,
+  .notebook-breadcrumb .breadcrumb-title {
     display: none;
   }
   .notebook-content {
