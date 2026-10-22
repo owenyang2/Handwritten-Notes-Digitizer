@@ -368,6 +368,11 @@ test("Settings controls, typography and expanded details stay consistent across 
       await page.getByText("Privacy and optional personalization", { exact: true }).click();
       await page.getByText("Training and model details", { exact: true }).click();
       await expect(page.getByRole("table", { name: "Before and after personalization accuracy metrics" })).toBeVisible();
+      const themeControl = page.getByRole("combobox", { name: "Theme", exact: true });
+      const chevron = await themeControl.evaluate(node => getComputedStyle(node).backgroundImage);
+      expect(chevron).not.toBe("none");
+      await themeControl.hover();
+      expect(await themeControl.evaluate(node => getComputedStyle(node).backgroundImage)).toBe(chevron);
       const geometry = await page.evaluate(() => {
         const visible = (element: Element) => element.checkVisibility({ checkVisibilityCSS: true });
         const select = [...document.querySelectorAll<HTMLSelectElement>("select")].filter(visible).map(element => ({
@@ -525,6 +530,225 @@ test("returning to Library preserves search and scroll position", async ({
   await page.goBack();
   await expect(search).toHaveValue("notes");
   await expect.poll(() => page.evaluate(() => Math.round(scrollY))).toBe(position);
+});
+
+test("keeps the current review visible and restores focus while changing pages", async ({ page }) => {
+  await fixture(page);
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  let requested!: () => void;
+  const started = new Promise<void>(resolve => { requested = resolve; });
+  await page.route("**/pages/page-2/regions", async route => {
+    requested();
+    await pending;
+    await route.fulfill({ contentType: "application/json", body: "[]" });
+  });
+  await page.goto("/notebooks/doc-1/pages/page-1?region=region-1");
+  const correction = page.getByRole("textbox", { name: "Corrected text" });
+  await correction.fill("Retain this unsaved correction.");
+  const layout = page.locator(".math-notes-layout");
+  await layout.evaluate(node => node.setAttribute("data-retained-review", "true"));
+  await page.locator(".page-rail > summary").click();
+  try {
+    await page.getByRole("link", { name: "Page 2", exact: true }).focus();
+    await page.getByRole("link", { name: "Page 2", exact: true }).press("Enter");
+    await started;
+    await expect(layout).toBeVisible();
+    await expect(layout).toHaveAttribute("data-retained-review", "true");
+    await expect(correction).toHaveValue("Retain this unsaved correction.");
+    await expect(page.getByTestId("math-notes-section")).toHaveAttribute("aria-busy", "true");
+    release();
+    await expect(page.locator(".page-rail > summary")).toHaveText("Page 2 of 2");
+    await expect(page.locator(".page-rail > summary")).toBeFocused();
+    await expect(page).toHaveURL(/pages\/page-2$/);
+    await page.locator(".page-rail > summary").click();
+    await page.getByRole("link", { name: "Page 1", exact: true }).click();
+    await page.getByRole("button", { name: /Review text region:/ }).click();
+    await expect(correction).toHaveValue("Retain this unsaved correction.");
+  } finally { release(); }
+});
+
+test("keeps recent notebooks and warm collections stable across navigation", async ({ page }) => {
+  await fixture(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const doc = (id: string, title: string, extra: Record<string, unknown> = {}) => ({
+    ...notebook, document_id: id, title, image_ids: [], pages: [], is_favorite: false, ...extra,
+  });
+  const active = [doc("active-1", "Active notebook one"), doc("active-2", "Active notebook two")];
+  const archived = doc("archived-1", "Archived notebook", { archived_at: "2026-10-20T12:00:00Z" });
+  const trashed = doc("trashed-1", "Trashed notebook", { trashed_at: "2026-10-20T12:00:00Z" });
+  const collectionRequests: string[] = [];
+  let favoriteRequests = 0;
+  let startFavorite!: () => void;
+  let releaseFavorite!: () => void;
+  const favoriteStarted = new Promise<void>((resolve) => (startFavorite = resolve));
+  const favoriteGate = new Promise<void>((resolve) => (releaseFavorite = resolve));
+
+  await page.route("**/api/documents*", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (request.method() !== "GET" || url.pathname !== "/api/documents")
+      return route.fallback();
+
+    const view = url.searchParams.get("view") ?? "active";
+    const query = url.searchParams.get("query") ?? "";
+    collectionRequests.push(`${view}:${query}`);
+    const items = view === "favorites" ? [] : view === "archived" ? [archived]
+      : view === "trash" ? [trashed] : query ? [active[0]] : active;
+    if (view === "favorites" && favoriteRequests++ === 0) {
+      startFavorite();
+      await favoriteGate;
+    }
+
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify(items) });
+  });
+
+  await page.goto("/library");
+  const history = page.getByTestId("document-history");
+  const cards = history.locator(".gallery-document");
+  const recent = page.locator(".notebook-sidebar .recent-notebooks .nav-link");
+  const nav = (name: string) => page.locator(".notebook-sidebar").getByRole("link", { name, exact: true });
+  const expectRecent = () => expect(recent).toHaveText(["Active notebook one", "Active notebook two"]);
+  const emptyFavorites = history.getByRole("heading", { name: "No favorites yet", exact: true });
+  const openLibrary = async () => {
+    await nav("Library").click();
+    await expect(history.locator("h1")).toHaveText("Library");
+    await expect(cards).toHaveCount(2);
+    await expect(history.locator(".collection-count")).toHaveText("2 notebooks");
+    await expectRecent();
+  };
+  const openFavorites = async () => {
+    await nav("Favorites").click();
+    await expect(emptyFavorites).toBeVisible();
+    await expect(history.locator(".collection-count")).toHaveText("0 notebooks");
+    await expectRecent();
+  };
+  await expect(cards).toHaveCount(2);
+  await expectRecent();
+
+  try {
+    await nav("Favorites").click();
+    await favoriteStarted;
+    await expect(history.locator("h1")).toHaveText("Favorites");
+    await expect(cards).toHaveCount(0);
+    await expectRecent();
+    releaseFavorite();
+    await expect(emptyFavorites).toBeVisible();
+    await expect(history.getByText("Use a notebook’s menu to add it to Favorites.", { exact: true })).toBeVisible();
+    await expect(history.locator(".collection-count")).toHaveText("0 notebooks");
+
+    const warmRequests = [...collectionRequests];
+    await page.evaluate(() => {
+      const state = window as Window & { __warmLoading?: boolean };
+      state.__warmLoading = false;
+      new MutationObserver((records) => {
+        const loading = (node: Node) => node.textContent?.includes("Loading notebooks") ?? false;
+        if (records.some(({ target, addedNodes }) => loading(target) || [...addedNodes].some(loading))) state.__warmLoading = true;
+      }).observe(document.body, { subtree: true, childList: true, characterData: true });
+    });
+
+    await openLibrary();
+    await openFavorites();
+    await nav("Settings").click();
+    await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
+    await openFavorites();
+    await openLibrary();
+    expect(collectionRequests).toEqual(warmRequests);
+    expect(await page.evaluate(() => (window as Window & { __warmLoading?: boolean }).__warmLoading)).toBe(false);
+
+    const view = page.getByRole("combobox", { name: "Document view" });
+    for (const [scope, title] of [["archived", "Archived notebook"], ["trash", "Trashed notebook"]]) {
+      await view.selectOption(scope);
+      await expect(cards).toHaveCount(1);
+      await expect(cards).toContainText(title);
+      await expectRecent();
+    }
+    await view.selectOption("active");
+    await expect(cards).toHaveCount(2);
+    expect(collectionRequests.slice(warmRequests.length)).toEqual(["archived:", "trash:"]);
+    const search = page.getByRole("searchbox", { name: "Search notes" });
+    await search.fill("needle");
+    await expect(cards).toHaveCount(1);
+    await expectRecent();
+    await search.fill("");
+    await expect(cards).toHaveCount(2);
+    await expectRecent();
+  } finally {
+    releaseFavorite();
+  }
+});
+
+test("keeps account controls aligned and contained on desktop and mobile", async ({ page }) => {
+  await fixture(page);
+  const username = "averylongworkspaceusername-without-spaces-0123456789-abcdefghijklmnopqrstuvwxyz";
+  await page.route("**/api/auth/me", (route) => route.fulfill({
+    contentType: "application/json", body: JSON.stringify({ user_id: "user-1", username }),
+  }));
+  await page.addInitScript(() => {
+    const theme = new URL(location.href).searchParams.get("test-theme");
+    if (theme) localStorage.setItem("notes-appearance", theme);
+  });
+
+  for (const theme of ["light", "dark"]) {
+    for (const width of [1440, 320]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/library?test-theme=${theme}`);
+      await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+      let sidebar = ".notebook-sidebar";
+      if (width === 320) {
+        await page.getByRole("button", { name: "Open navigation", exact: true }).click();
+        sidebar = ".mobile-navigation";
+        await expect(page.getByRole("dialog", { name: "Your workspace" })).toBeVisible();
+      }
+
+      const account = page.locator(`${sidebar} [data-testid="account-bar"]`);
+      await expect(account.locator(".account-user")).toHaveAttribute("title", username);
+      const geometry = await account.evaluate((bar) => {
+        const rect = (element: Element) => element.getBoundingClientRect();
+        const textX = (element: Element) => {
+          const range = document.createRange();
+          range.selectNode([...element.childNodes].find((node) => node.nodeType === Node.TEXT_NODE && node.textContent?.trim())!);
+          return range.getBoundingClientRect().x;
+        };
+        const sidebar = bar.closest(".notebook-sidebar, .mobile-navigation")!;
+        const row = bar.querySelector(".account-user-row")!;
+        const avatar = bar.querySelector(".account-avatar")!;
+        const user = bar.querySelector<HTMLElement>(".account-user")!;
+        const logout = bar.querySelector<HTMLButtonElement>(".account-logout")!;
+        const library = sidebar.querySelector<HTMLAnchorElement>('a[href="/library"]')!;
+        const settings = sidebar.querySelector<HTMLAnchorElement>('a[href="/settings"]')!;
+        const centerX = (element: Element) => rect(element).x + rect(element).width / 2;
+        const icon = (element: Element) => centerX(element.querySelector("svg")!);
+        const avatarRect = rect(avatar);
+        const userRect = rect(user);
+        const glyph = document.createRange();
+        glyph.selectNodeContents(avatar);
+        const glyphRect = glyph.getBoundingClientRect();
+        return {
+          rowHeight: rect(row).height, logoutHeight: rect(logout).height,
+          avatarCenter: avatarRect.y + avatarRect.height / 2, userCenter: userRect.y + userRect.height / 2,
+          avatarColumn: centerX(avatar),
+          glyphCenterX: glyphRect.x + glyphRect.width / 2,
+          glyphCenterY: glyphRect.y + glyphRect.height / 2,
+          iconColumns: [icon(library), icon(settings), icon(logout)],
+          textColumns: [textX(user), textX(settings), textX(logout)],
+          libraryText: textX(library), clipped: user.scrollWidth > user.clientWidth,
+          contained: userRect.right <= rect(bar).right && rect(sidebar).right <= innerWidth && document.documentElement.scrollWidth <= innerWidth,
+        };
+      });
+
+      expect(geometry.rowHeight).toBeGreaterThanOrEqual(44);
+      expect(geometry.logoutHeight).toBeGreaterThanOrEqual(44);
+      expect(Math.abs(geometry.avatarCenter - geometry.userCenter)).toBeLessThanOrEqual(1);
+      expect(Math.abs(geometry.avatarColumn - geometry.glyphCenterX)).toBeLessThanOrEqual(2);
+      expect(Math.abs(geometry.avatarCenter - geometry.glyphCenterY)).toBeLessThanOrEqual(2);
+      expect(Math.abs(geometry.avatarColumn - geometry.iconColumns[0])).toBeLessThanOrEqual(2);
+      for (const column of geometry.iconColumns) expect(Math.abs(column - geometry.iconColumns[0])).toBeLessThanOrEqual(2);
+      for (const column of geometry.textColumns) expect(Math.abs(column - geometry.libraryText)).toBeLessThanOrEqual(2);
+      expect(geometry.clipped).toBe(true);
+      expect(geometry.contained).toBe(true);
+    }
+  }
 });
 
 test("accessibility scan covers Library, Settings, review and dialogs in both appearances", async ({

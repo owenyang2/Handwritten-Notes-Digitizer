@@ -15,8 +15,11 @@ character; the shell supplies order.
 
 Use “[username]’s notebook” as the signed-in name, with “Notebook” before
 sign-in. Copy explains actions and states; omit slogans and decorative workspace
-labels. Hide empty recent navigation, keep one desktop collapse control, and
-left-align the account name and Log out action beside the avatar.
+labels. Hide empty recent navigation and keep one desktop collapse control.
+Avatar/name share a row; Log out has a separate icon row, using the navigation
+icon/text columns. Keep the shell and recents stable during collection changes,
+retain warm views, and commit loaded review pages together. Routine navigation
+uses brief color feedback without fading the whole page.
 
 **STORY:** Locate notebook → compare source/result → correct → explicitly save
 → export. Error recovery and training consent remain deliberate choices.

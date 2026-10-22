@@ -1,10 +1,10 @@
 {
-  "captured_at": "2026-10-22T06:56:13+00:00",
+  "captured_at": "2026-10-22T07:23:14+00:00",
   "command": "make docs-screenshots",
   "platform": "macOS-15.8-arm64-arm-64bit-Mach-O",
   "scope": "Production web build; Chromium; synthetic notes; mocked API; no recognition quality claim.",
   "sources": {
-    "frontend/e2e/workspace.spec.ts": "2e73fca0b8dd669f32f4b8c6dc1afb48274467d125f511e672fd844c34bf2a03",
+    "frontend/e2e/workspace.spec.ts": "72919e1f4e922a671c7c0ab71db0e58add046cbe553daac7cf24d948218b546c",
     "frontend/index.html": "5200e9393f404804d80ac13fda701c42efe74edd933e891de2399ed5a1e8fb67",
     "frontend/package-lock.json": "74bc2ef2f249211fabd2181eb3ea4d2d27d68882ace8c1b9980c2a5a0170af79",
     "frontend/package.json": "bb6ba09d05d892edcedd7888eda930c6b315596b1f9584d977fa686a288ecf35",
@@ -19,7 +19,7 @@
     "frontend/src/api/client.ts": "364e6eb2fe26c84d23d4067e5f1a77caee161eb7f8eb37df173f710f81b3c971",
     "frontend/src/api/types.ts": "ca81d505e1a0e0cd46c078110e1980adfe217cd5e6bf512fa056ca2248454acd",
     "frontend/src/appearance.ts": "67e8f187ee05a8ebcd0e4069977ef3a7eb7e8e33f3f8efcf30b17902c2915ad9",
-    "frontend/src/components/AppShell.tsx": "d91e885a15dd1217fbf8658d77e109a110db961f386d0092e5305840fdb22071",
+    "frontend/src/components/AppShell.tsx": "f6da42a297f235040d98d7a9915957415a6850f3b0f42e02ec05c1aeda36d92c",
     "frontend/src/components/ui/primitives.tsx": "635b5b160c87bde0b6781fe846c04d411cc0809a60d4c59771d8e63fc1a71a93",
     "frontend/src/entry.ts": "f16a5dabc3984070ea9ef68fd35dd1a02bf42c4532d02db6f45009f5e4d6e68c",
     "frontend/src/main.ts": "34b5bd635f44f8fdfe3e9b7197c6a7564cc24f60e0494f6f51cedf9d36079daa",
@@ -30,7 +30,7 @@
     "frontend/src/modules/consentUI.ts": "e988dd9dd112181f31045440c9eb4d4ebd9f980b84d477c9cbc7aaf75e4a7316",
     "frontend/src/modules/editor.ts": "580b77c064192b70296f216d66a901434e9fce8488ad5d5fe6b8965c3c0ba666",
     "frontend/src/modules/mathEditor.ts": "7293fb73ad8bf960b81843b03b3808793d2a2a71e45f85e3dbb9f0619cd24c6b",
-    "frontend/src/modules/mathNotes.ts": "51ffc65c04217c77d17500a739f94b1581bde0c6c1b615e6c2e09381cb493e69",
+    "frontend/src/modules/mathNotes.ts": "59d751b60e83dcf72eb737f5282a774960ce94d3ca5643928d9ad2241d6e027a",
     "frontend/src/modules/pageViewer.ts": "e422624c69427ff680cfc7745326f422957e2727b42716e02c82ca988fe137c5",
     "frontend/src/modules/reviewQueue.ts": "a885fcc1a8dd3c4f1bba12988be18f319deddca0a137a2a8f0652a33eb1ad603",
     "frontend/src/modules/syncOrchestrator.ts": "e5a560e1df4b9dcef7f773911026ab6ce0eaf5480de8368172ffce9f10d64c1f",
@@ -39,18 +39,18 @@
     "frontend/src/modules/uploadUI.ts": "2e5f7feed6fa1c710fa642b78cdd099cf6e46ec777312fd35f41a6d6d433e082",
     "frontend/src/preview.ts": "c602aaf054d7294d748230b7a3b865322b3c5455ef56f4f4a7e1c93d92ce6c6d",
     "frontend/src/serviceWorker.ts": "13b067f319932c401ae1c396a2b25079e6b7ba7d4c55c3723d55d3a3d1d21f8d",
-    "frontend/src/styles.css": "82bcb3d73394831f257180ee1127a88f7bf020089d9a0794bfb62470cdf1cdd8",
+    "frontend/src/styles.css": "6a284d99d12283fe63761e98a9ccf85042dba4a6eb305af0ad74e06b56b2eab5",
     "frontend/src/types.ts": "40966d40e6f8cc61216f16517399fab208440f236e19fa69f8c07d8d8a67f61f",
     "frontend/vite.config.ts": "b5ca564000ec139ad8eb07ca3f760c813b21161e82bafb303124e19d080959a5"
   },
   "images": {
     "library-light-320.png": "e7232a01bfc0eb523455e31be894a88161618f718a9fa2ecade7bc2c9073ddc6",
-    "library-light-1440.png": "33774a65543a1ef090c950feb9a174748c958e9c99a9497c37be84af3dc2ab54",
-    "library-dark-320.png": "3bff59a0f7a4d97debe3d91884056254948c15167039cdb9e4b70882add03778",
-    "library-dark-1440.png": "2ba3a025db86b6a40c09b431eac1921b91f0930a02b4cb5b1af94249846fe809",
+    "library-light-1440.png": "da4fea33b8bde6ec70b1144b9bda797dd97ae0e5f5b75275c5f1ce965e112a6a",
+    "library-dark-320.png": "3667bd038c41a4a45036115440fbdea7254b77903583f18f5fac30067a399d46",
+    "library-dark-1440.png": "ab26af06c7f530c4e7d858aee3026716f3bc281297b2ce7bcc9732beb219b28c",
     "review-light-320.png": "1926648c60c5e49f453f59c05731ca08a28671d012f085c8f7623684f4a2e0ab",
-    "review-light-1440.png": "647a1615c58fa976be92dc3df6c13e03188e0a15460b6174080ed631da43f8ba",
+    "review-light-1440.png": "62a7bdd0e5f0d40356d9f4c314b90c11486c8419020dc65443370f28e2067d70",
     "review-dark-320.png": "0b092f2b045418dffa321ceb3574f39ba42a4e648f81d0fafccca0d238725e57",
-    "review-dark-1440.png": "67ef6a763e62b895b313b3dee0073b3cfa50021b2189b482f46f6b0d6d8f141e"
+    "review-dark-1440.png": "cd049ca158c4b3e7a8545ae9153e53542a2467a5d55a380e1b208db6a1a3181e"
   }
 }

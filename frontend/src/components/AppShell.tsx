@@ -23,6 +23,7 @@ import {
   Grid2X2,
   Library,
   List,
+  LogOut,
   MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
@@ -39,6 +40,7 @@ import {
   restoreDocument,
   trashDocument,
   updateDocument,
+  type DocumentListPage,
   type DocumentResponse,
 } from "../api/client.js";
 import { AuthGate } from "../modules/authGate.js";
@@ -79,6 +81,12 @@ interface ShellProps {
   onReauthenticated(): Promise<void>;
   onCloseImport(): void;
   connect(handle: Omit<ShellHandle, "dispose">): void;
+}
+type CollectionView = "active" | "archived" | "trash" | "favorites";
+interface CollectionState {
+  query: string;
+  version: number;
+  page: DocumentListPage;
 }
 
 // React owns the host; the existing editor exclusively owns its children.
@@ -145,14 +153,20 @@ function Shell({
     window.addEventListener("scroll", remember, { passive: true });
     return () => window.removeEventListener("scroll", remember);
   }, [libraryVisible]);
-  const [documents, setDocuments] = useState<DocumentResponse[]>([]);
+  const [collections, setCollections] = useState<Partial<Record<CollectionView, CollectionState>>>({});
+  const [recentDocuments, setRecentDocuments] = useState<DocumentResponse[]>([]);
   const [current, setCurrent] = useState<DocumentResponse | null>(null);
   const [version, setVersion] = useState(0);
   const [query, setQuery] = useState("");
   const [layout, setLayout] = useState<"grid" | "list">("grid");
   const [view, setView] = useState<"active" | "archived" | "trash">("active");
-  const [status, setStatus] = useState("Loading notebooks…");
   const [error, setError] = useState("");
+  const collectionView = favorites ? "favorites" : view;
+  const collection = collections[collectionView];
+  const documents = collection?.page.items ?? [];
+  const hasMore = collection?.page.hasMore ?? false;
+  const refreshing = !!collection && !error && (collection.query !== query || collection.version !== version);
+  const status = collection || error ? "" : "Loading notebooks…";
   const importTrigger = useRef<HTMLElement | null>(null);
   const [importing, setImporting] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
@@ -177,7 +191,6 @@ function Shell({
     setAppearance(value);
   };
   const libraryGeneration = useRef(0);
-  const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const openRef = useRef(onOpen);
   openRef.current = onOpen;
@@ -202,18 +215,20 @@ function Shell({
   useEffect(() => {
     let active = true;
     ++libraryGeneration.current;
-    setStatus("Loading notebooks…");
     setError("");
-    void getDocumentsPage({ view: favorites ? "favorites" : view, query })
+    if (collection?.query === query && collection.version === version) return;
+    void getDocumentsPage({ view: collectionView, query })
       .then((result) => {
         if (!active) return;
-        setDocuments(result.items);
-        setHasMore(result.hasMore);
-        setStatus("");
+        setCollections((current) => ({
+          ...current,
+          [collectionView]: { query, version, page: result },
+        }));
+        if (collectionView === "active" && !query.trim())
+          setRecentDocuments(result.items.slice(0, 7));
       })
       .catch((err: unknown) => {
         if (!active) return;
-        setStatus("");
         setError(
           err instanceof Error ? err.message : "Could not load notebooks.",
         );
@@ -221,9 +236,24 @@ function Shell({
     return () => {
       active = false;
     };
-  }, [view, version, query, favorites]);
+  }, [collectionView, version, query]);
 
   useEffect(() => {
+    // A filtered initial route or mutation still needs unfiltered navigation.
+    if (collectionView === "active" && !query.trim()) return;
+    let active = true;
+    void getDocumentsPage({ view: "active" }).then((result) => {
+      if (!active) return;
+      setRecentDocuments(result.items.slice(0, 7));
+      setCollections((current) => current.active?.query ? current : ({
+        ...current,
+        active: { query: "", version, page: result },
+      }));
+    }).catch(() => { /* Navigation retains its last known notebooks. */ });
+    return () => { active = false; };
+  }, [version]);
+
+  useLayoutEffect(() => {
     if (!documentId) return;
     setError("");
     void openRef.current(documentId, pageId, regionId).catch((err: unknown) => {
@@ -256,7 +286,6 @@ function Shell({
     if (window.innerWidth < 1024) setNavigationOpen(false);
   };
   const workspaceName = username ? `${username}’s notebook` : "Notebook";
-  const recentDocuments = documents.filter((doc) => !doc.trashed_at && !doc.archived_at).slice(0, 7);
 
   useEffect(() => { document.title = workspaceName; }, [workspaceName]);
 
@@ -325,17 +354,19 @@ function Shell({
           Settings
         </Link>
         <div className="account-bar" data-testid="account-bar">
-          <span className="account-avatar" aria-hidden="true">{(username || "N").slice(0, 1).toUpperCase()}</span>
-          <div className="account-controls">
-          <span className="account-user" title={username}>{username || "Account"}</span>
+          <div className="account-user-row">
+            <span className="account-avatar" aria-hidden="true">{(username || "N").slice(0, 1).toUpperCase()}</span>
+            <span className="account-user" title={username}>{username || "Account"}</span>
+          </div>
           <Button
             variant="ghost"
+            className="nav-link account-logout"
             data-testid="account-logout"
             onClick={onLogout}
           >
+            <LogOut size={18} />
             Log out
           </Button>
-          </div>
         </div>
       </div>
     </>
@@ -484,7 +515,7 @@ function Shell({
             <div className="collection-heading">
               <h2>{query ? "Search results" : favorites ? "Saved favorites" : view === "archived" ? "Archived notebooks" : view === "trash" ? "Trash" : "Your notebooks"}</h2>
               <p role="status" className="collection-count">
-              {status || (error ? "" : `${documents.length}${hasMore ? "+" : ""} ${documents.length === 1 && !hasMore ? "notebook" : "notebooks"}`)}
+              {status || (error ? "" : refreshing ? "Updating notebooks…" : `${documents.length}${hasMore ? "+" : ""} ${documents.length === 1 && !hasMore ? "notebook" : "notebooks"}`)}
               </p>
             </div>
             {status && !documents.length && <div className="library-skeleton" aria-hidden="true"><span /><span /><span /></div>}
@@ -516,7 +547,7 @@ function Shell({
                 )}
               </div>
             )}
-            <ul className="notebook-grid" data-layout={layout} aria-label="Notebooks">
+            <ul className="notebook-grid" data-layout={layout} aria-label="Notebooks" aria-busy={!!status || refreshing}>
               {documents.map((doc) => {
                 const firstPage = doc.pages?.[0];
                 const image = firstPage
@@ -649,19 +680,25 @@ function Shell({
             {hasMore && (
               <Button
                 variant="secondary"
-                disabled={loadingMore}
+                disabled={loadingMore || refreshing || !!error}
                 onClick={async () => {
                   const generation = libraryGeneration.current;
                   setLoadingMore(true);
                   try {
                     const result = await getDocumentsPage({
-                      view: favorites ? "favorites" : view,
+                      view: collectionView,
                       query,
                       offset: documents.length,
                     });
                     if (generation !== libraryGeneration.current) return;
-                    setDocuments((current) => [...current, ...result.items]);
-                    setHasMore(result.hasMore);
+                    setCollections((current) => ({
+                      ...current,
+                      [collectionView]: {
+                        query,
+                        version,
+                        page: { ...result, items: [...documents, ...result.items] },
+                      },
+                    }));
                   } catch (err) {
                     setError(
                       err instanceof Error
@@ -689,8 +726,10 @@ function Shell({
                 : "Opening notebook…"}
             </h1>
             </div>
-            <LegacyHost node={mounts.math} />
-            <LegacyHost node={mounts.editor} />
+            <div hidden={current?.document_id !== documentId}>
+              <LegacyHost node={mounts.math} />
+              <LegacyHost node={mounts.editor} />
+            </div>
           </section>
           <section hidden={!settings} className="settings-screen">
             <div className="screen-heading"><h1>Settings</h1></div>

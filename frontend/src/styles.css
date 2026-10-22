@@ -76,6 +76,7 @@
 [hidden] {
   display: none !important;
 }
+html { scrollbar-gutter: stable; }
 html,
 body,
 #app {
@@ -176,7 +177,7 @@ button {
 button:active:not(:disabled) { transform: translateY(1px); }
 button:hover:not(:disabled),
 select:hover {
-  background: var(--panel-soft);
+  background-color: var(--panel-soft);
 }
 button:disabled {
   opacity: 0.5;
@@ -306,6 +307,7 @@ summary {
   color: var(--muted);
   font-size: 0.875rem;
   border: 1px solid transparent;
+  transition: background-color 140ms, border-color 140ms, color 140ms;
 }
 .nav-link span {
   overflow: hidden;
@@ -339,16 +341,20 @@ summary {
   padding-top: 1rem;
 }
 .account-bar {
-  display: flex;
-  justify-content: flex-start;
-  align-items: center;
-  gap: 0.5rem;
   border-top: 1px solid var(--line);
   padding-top: 0.75rem;
   margin-top: 0.5rem;
-  font-size: 0.75rem;
 }
-.account-avatar { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--line); font-size: 0.75rem; flex-shrink: 0; }
+.account-user-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 0.65rem;
+  min-height: 44px;
+  padding-inline: 0.75rem;
+  border: 1px solid transparent;
+}
+.account-avatar { display: grid; place-self: center; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--line); font-size: 0.75rem; }
 .account-user {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -358,13 +364,8 @@ summary {
   font-size: 0.875rem;
   text-align: left;
 }
-.account-controls { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
-.account-bar button {
-  font-size: 0.75rem;
-  white-space: nowrap;
-  flex-shrink: 0;
-  padding-inline: 0;
-  min-width: 44px;
+.account-bar .account-logout {
+  width: 100%;
   justify-content: flex-start;
 }
 .notebook-main {

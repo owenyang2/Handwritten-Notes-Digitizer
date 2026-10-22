@@ -1,7 +1,24 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+vi.mock("../api/client.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/client.js")>()),
+  listPageRegions: vi.fn(),
+}));
 import { MathEditor } from "./mathEditor.js";
+import { MathNotesWorkspace } from "./mathNotes.js";
 import { PageViewer } from "./pageViewer.js";
 import { ReviewQueue } from "./reviewQueue.js";
+import * as apiClient from "../api/client.js";
+import type { DocumentPageSummary, PageRegionDetail } from "../api/client.js";
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
 
 describe("MathEditor", () => {
   it("keeps prose, currency and markup literal in the review preview", () => {
@@ -73,5 +90,102 @@ describe("ReviewQueue", () => {
       [{ id: "r1", kind: "math", preview: "x^2", unresolved: true }],
     );
     expect(mount.querySelector("[data-unresolved='true']")?.textContent).toBe("x^2");
+  });
+});
+
+describe("MathNotesWorkspace page loading", () => {
+  it("keeps the current review in place while loading, blocks stale edits, and retries without losing drafts", async () => {
+    const page = (page_id: string, page_index: number): DocumentPageSummary => ({
+      page_id,
+      page_index,
+      image_id: null,
+      width: 400,
+      height: 200,
+      dpi: 200,
+      coordinate_space: "page_pixels",
+    });
+    const region = (region_id: string, page_id: string, prediction_text: string): PageRegionDetail => ({
+      region_id,
+      page_id,
+      content_type: "text",
+      bbox: [0, 0, 120, 40],
+      order_index: 0,
+      prediction_text,
+      reviewed_text: null,
+      excluded: false,
+      unresolved: true,
+    });
+    const firstPageRegions = [
+      region("region-1", "page-1", "Original note"),
+      region("region-2", "page-1", "Another note"),
+    ];
+    const secondPageRegions = [region("region-3", "page-2", "Second page note")];
+    const loading = deferred<PageRegionDetail[]>();
+    vi.mocked(apiClient.listPageRegions).mockReset();
+    vi.mocked(apiClient.listPageRegions)
+      .mockResolvedValueOnce(firstPageRegions)
+      .mockReturnValueOnce(loading.promise)
+      .mockResolvedValueOnce(secondPageRegions)
+      .mockResolvedValueOnce(firstPageRegions);
+
+    const mount = document.createElement("div");
+    document.body.append(mount);
+    const onNavigate = vi.fn();
+    const workspace = new MathNotesWorkspace({
+      mount,
+      documentId: "notebook-1",
+      pages: [page("page-1", 0), page("page-2", 1)],
+      onNavigate,
+    });
+    try {
+      await workspace.selectPage("page-1");
+      mount.querySelector<HTMLButtonElement>('[data-region-id="region-1"]')!.click();
+      const editor = mount.querySelector<HTMLTextAreaElement>("[data-testid='math-editor-source']")!;
+      editor.value = "Unsaved correction";
+      editor.dispatchEvent(new Event("input", { bubbles: true }));
+      expect(workspace.hasUnsavedChanges()).toBe(true);
+
+      const layout = mount.querySelector(".math-notes-layout");
+      const viewer = mount.querySelector("[data-testid='page-viewer']");
+      const pageSummary = mount.querySelector(".page-rail > summary");
+      const switching = workspace.selectPage("page-2");
+      await Promise.resolve();
+
+      expect(apiClient.listPageRegions).toHaveBeenCalledTimes(2);
+      expect(mount.querySelector(".math-notes-layout")).toBe(layout);
+      expect(mount.querySelector("[data-testid='page-viewer']")).toBe(viewer);
+      expect(mount.querySelector(".page-rail > summary")).toBe(pageSummary);
+      expect(pageSummary?.textContent).toBe("Page 1 of 2");
+      expect(mount.getAttribute("aria-busy")).toBe("true");
+      expect(mount.inert).toBe(true);
+      expect(mount.querySelector("[data-testid='math-notes-status']")?.textContent).toBe("Loading page 2…");
+
+      mount.querySelector<HTMLButtonElement>('[data-region-id="region-2"]')!.click();
+      expect(mount.querySelector("[data-testid='math-editor-source']")).toBe(editor);
+      expect(editor.value).toBe("Unsaved correction");
+
+      loading.reject(new Error("Network offline"));
+      await switching;
+      expect(mount.querySelector(".page-rail > summary")?.textContent).toBe("Page 1 of 2");
+      expect(mount.getAttribute("aria-busy")).toBeNull();
+      expect(mount.inert).toBe(false);
+      expect(mount.querySelector("[data-testid='math-notes-status']")?.textContent).toContain("Select the page to retry.");
+      expect(mount.querySelector("[data-testid='math-editor-source']")).toBe(editor);
+
+      const retryLink = mount.querySelector<HTMLAnchorElement>('.page-rail a[href*="page-2"]')!;
+      retryLink.focus();
+      retryLink.click();
+      await vi.waitFor(() => expect(mount.querySelector(".page-rail > summary")?.textContent).toBe("Page 2 of 2"));
+      await vi.waitFor(() => expect(onNavigate).toHaveBeenCalledWith("page-2"));
+      expect(document.activeElement).toBe(mount.querySelector(".page-rail > summary"));
+
+      await workspace.selectPage("page-1");
+      mount.querySelector<HTMLButtonElement>('[data-region-id="region-1"]')!.click();
+      expect(mount.querySelector<HTMLTextAreaElement>("[data-testid='math-editor-source']")?.value).toBe("Unsaved correction");
+      expect(workspace.hasUnsavedChanges()).toBe(true);
+    } finally {
+      workspace.dispose();
+      mount.remove();
+    }
   });
 });

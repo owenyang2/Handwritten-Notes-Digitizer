@@ -45,6 +45,13 @@ environment, input/model identity, command or journey, outcome and limits.
   application code and fetch mutable production assets from the network first.
   The [October 22 checks](release-evidence/preview-ui-fixes-2026-10-22.md) cover
   stale module recovery, retained appearance preferences and the revised shell.
+- [x] **Navigation continuity:** retain loaded collections, keep unfiltered recent
+  navigation stable, preserve review layout while a page loads, and align the
+  avatar/name and logout rows to the navigation columns. The
+  [design reference](reference/design.md#navigation-continuity) records the
+  researched layout/motion decisions; browser fixtures cover loading and warm
+  navigation, select hover, and footer geometry. Physical-device smoothness
+  remains unverified.
 - [ ] **Import/review/export fidelity:** multipage PDF and image imports through
   actual clients; mixed pages, split/merge/reorder/exclude/retry, saved reviews
   reopened on another client, and comparison of all export formats.

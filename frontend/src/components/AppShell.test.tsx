@@ -142,6 +142,35 @@ describe("Library", () => {
     await vi.waitFor(() => expect(grid.getAttribute("aria-pressed")).toBe("true"));
     expect(getDocumentsPage).toHaveBeenCalledOnce();
   });
+  it("refreshes retained collections and recent navigation after documents change", async () => {
+    let changed = false;
+    vi.mocked(getDocumentsPage).mockImplementation(async (options) => {
+      const items = options?.view === "favorites" && !changed ? [] : [
+        { ...notebook, title: changed ? "Updated notes" : notebook.title },
+      ];
+      return { items, offset: 0, limit: 50, total: items.length, hasMore: false };
+    });
+    mount();
+    await vi.waitFor(() => expect(root.querySelector(".gallery-document")).not.toBeNull());
+    shell!.navigateTo("/favorites");
+    await vi.waitFor(() => expect(root.querySelector(".library-empty h2")?.textContent).toBe("No favorites yet"));
+    changed = true;
+    shell!.refreshLibrary();
+    await vi.waitFor(() => {
+      expect(root.querySelector(".gallery-document h2")?.textContent).toBe("Updated notes");
+      expect(root.querySelector(".recent-notebooks")?.textContent).toBe("Updated notes");
+    });
+    const calls = vi.mocked(getDocumentsPage).mock.calls.length;
+    shell!.navigateTo("/library");
+    await vi.waitFor(() => expect(root.querySelector(".library-screen h1")?.textContent).toBe("Library"));
+    expect(root.querySelector(".gallery-document h2")?.textContent).toBe("Updated notes");
+    expect(vi.mocked(getDocumentsPage).mock.calls).toHaveLength(calls);
+    vi.mocked(getDocumentsPage).mockRejectedValueOnce(new Error("Connection interrupted"));
+    shell!.refreshLibrary();
+    await vi.waitFor(() => expect(root.querySelector("[role=alert]")?.textContent).toContain("Connection interrupted"));
+    expect(root.querySelector(".gallery-document h2")?.textContent).toBe("Updated notes");
+    expect(root.querySelector(".notebook-grid")?.getAttribute("aria-busy")).toBe("false");
+  });
   it("keeps a readable failure and retry action without injecting error markup", async () => {
     vi.mocked(getDocumentsPage).mockRejectedValue(
       new Error("<strong>Request failed</strong>"),

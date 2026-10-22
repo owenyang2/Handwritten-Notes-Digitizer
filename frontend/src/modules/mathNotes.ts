@@ -94,11 +94,42 @@ export class MathNotesWorkspace {
     const next = this.options.pages.find((page) => page.page_id === pageId);
     if (!next || this.disposed || this.busy) return;
     if (next.page_id !== this.page.page_id) {
-      this.page = next;
-      this.activeRegionId = null;
-      this.regions = [];
-      this.ready = this.render();
-      await this.ready;
+      const generation = ++this.generation;
+      const focusTarget = this.mount.contains(document.activeElement)
+        ? (document.activeElement as HTMLElement)
+        : null;
+      const focusPageRail = Boolean(focusTarget?.closest(".page-rail a"));
+      this.busy = true;
+      this.mount.inert = true;
+      this.mount.setAttribute("aria-busy", "true");
+      this.status.textContent = `Loading page ${next.page_index + 1}…`;
+      try {
+        const regions = await listPageRegions(next.page_id);
+        if (this.disposed || generation !== this.generation) return;
+        this.page = next;
+        this.activeRegionId = null;
+        this.regions = regions ?? [];
+        this.ready = this.render(this.regions);
+        await this.ready;
+        if (focusPageRail)
+          this.mount
+            .querySelector<HTMLElement>(".page-rail > summary")
+            ?.focus();
+      } catch (error) {
+        if (!this.disposed) {
+          const message = error instanceof Error ? error.message : "Try again.";
+          this.status.textContent = `Could not load page regions. ${message} Select the page to retry.${this.hasUnsavedChanges() ? " Your unsaved corrections are preserved." : ""}`;
+        }
+        return;
+      } finally {
+        this.busy = false;
+        if (!this.disposed) {
+          this.mount.inert = false;
+          this.mount.removeAttribute("aria-busy");
+          if (generation === this.generation && focusTarget?.isConnected)
+            focusTarget.focus();
+        }
+      }
     }
     if (regionId && regionId !== this.activeRegionId)
       this.selectRegion(regionId);
@@ -116,13 +147,16 @@ export class MathNotesWorkspace {
       "Changes not saved. Save review to keep this correction.";
     this.refreshQueue();
   }
-  private async render(): Promise<void> {
+  private async render(prefetchedRegions?: PageRegionDetail[]): Promise<void> {
     const generation = ++this.generation;
     this.viewer?.dispose();
-    const loading = document.createElement("p");
-    loading.setAttribute("role", "status");
-    loading.textContent = "Loading original and saved regions…";
-    this.mount.replaceChildren(loading);
+    if (!this.status) {
+      const loading = document.createElement("p");
+      loading.setAttribute("role", "status");
+      loading.textContent = "Loading original and saved regions…";
+      this.mount.replaceChildren(loading);
+    }
+    this.mount.setAttribute("aria-busy", "true");
     this.mount.style.display = "";
     const content = document.createDocumentFragment();
     const header = document.createElement("div");
@@ -188,9 +222,10 @@ export class MathNotesWorkspace {
       link.onclick = (event) => {
         event.preventDefault();
         if (!this.busy)
-          void this.selectPage(page.page_id).then(() =>
-            this.options.onNavigate?.(page.page_id),
-          );
+          void this.selectPage(page.page_id).then(() => {
+            if (this.page.page_id === page.page_id)
+              this.options.onNavigate?.(page.page_id);
+          });
       };
       pages.append(link);
     }
@@ -438,7 +473,7 @@ export class MathNotesWorkspace {
     layout.append(original, side);
     this.status.textContent = "Loading saved regions…";
     try {
-      const regions = await listPageRegions(this.page.page_id);
+      const regions = prefetchedRegions ?? (await listPageRegions(this.page.page_id));
       if (this.disposed || generation !== this.generation) return;
       this.regions = regions ?? [];
       this.refreshQueue();
@@ -450,8 +485,11 @@ export class MathNotesWorkspace {
         this.status.textContent = `Could not load regions. ${error instanceof Error ? error.message : "Try reopening this page."}`;
     }
     // Commit the complete review together instead of shifting visible controls as regions arrive.
-    if (!this.disposed && generation === this.generation)
+    if (!this.disposed && generation === this.generation) {
       this.mount.replaceChildren(content);
+      this.mount.inert = false;
+      this.mount.removeAttribute("aria-busy");
+    }
   }
   private refreshQueue(): void {
     new ReviewQueue(this.queueMount).render(

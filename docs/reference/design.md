@@ -356,10 +356,44 @@ selection use the filled action color, so the current choice is unmistakable. Th
 holds Library, Favorites, recent notebooks, Settings and account controls.
 Hide the recent-notebook heading when its list is empty. Show one collapse
 control in the expanded desktop rail; the toolbar provides the reopen control.
-The account name and Log out action share a left edge beside the avatar, with
-the action below the name. Allow long workspace names to wrap.
+The avatar and account name share a 44px row. The avatar is centered on the
+navigation icon column; the name aligns with navigation labels. Log out is a
+separate full-width navigation row with its own icon, on those same columns.
+Long account names truncate with the full value available in the title; long
+workspace names wrap.
 Compact navigation uses a dialog with focus containment and restoration. Keep
 the skip link, keyboard order, Escape behavior and focus restoration intact.
+
+#### Navigation continuity
+
+Keep the shell, recent notebooks and account footer stable while changing
+sections. Recent navigation comes from the unfiltered active notebook list,
+not the current search, Favorites, Archive or Trash results. Each collection
+retains its last loaded query/page in memory; returning to it reuses that data
+without a loading flash. Imports, edits and sync invalidate the retained data.
+Search and refresh keep the scope's previous results visible with an updating
+status and busy semantics until the new response arrives.
+Pagination and request-generation guards still apply. Another collection's
+cards never appear under the new heading while its first request is pending.
+
+Reserve the scrollbar gutter so routes of different lengths do not move the
+shell sideways. Navigation colors respond in 140ms; content changes directly,
+without whole-page fades or staggered entrances. Reduced motion removes those
+transitions. Select hover changes only background color so its chevron persists.
+Notebook changes hide a previous notebook's review before paint. Review page
+changes keep the previous controls in place while loading, block interaction
+with that page, and commit the new page together; failures preserve the old
+page and drafts for retry.
+
+These choices apply the persistent shell in
+[Carbon's navigation guidance](https://www.carbondesignsystem.com/building-blocks/core/components/ui-shell-header/guidelines),
+the dedicated user/action footer in
+[shadcn's sidebar anatomy](https://ui.shadcn.com/docs/components/base/sidebar#sidebarfooter),
+and brief, restrained feedback from
+[NN/g's motion guidance](https://www.nngroup.com/articles/animation-purpose-ux/).
+Google's [layout-stability guidance](https://web.dev/articles/cls) explains why
+delayed content and changing geometry need explicit checks. These are layout
+and motion principles, not a replacement for this project's visual system.
 
 ### Chips / Region Queue
 

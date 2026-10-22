@@ -56,6 +56,12 @@ toolbar, and an inset source/result review desk. Geist is bundled locally with
 its open font license. [Design tokens and responsive behavior](../docs/reference/design.md)
 are maintained separately from the native app's existing appearance.
 
+The shell retains one loaded result per collection scope in memory and keeps
+recent navigation separate from filtered results. Import, edit and sync callbacks
+refresh those results. Returning to a loaded scope avoids a new loading state;
+this does not add durable offline notebook storage. Review page changes retain
+their layout while fetching, block stale-page interaction and commit together.
+
 ## Checks
 
 | Command | Coverage |
