@@ -17,9 +17,13 @@ import {
 import * as Menu from "@radix-ui/react-dropdown-menu";
 import {
   BookOpen,
+  ArrowUpRight,
   ChevronRight,
   FileText,
+  Grid2X2,
   Library,
+  List,
+  LogOut,
   MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
@@ -36,11 +40,13 @@ import {
   restoreDocument,
   trashDocument,
   updateDocument,
+  type DocumentListPage,
   type DocumentResponse,
 } from "../api/client.js";
 import { AuthGate } from "../modules/authGate.js";
 import {
   applyAppearance,
+  listenToSystemAppearance,
   readAppearance,
   saveAppearance,
   type Appearance,
@@ -75,6 +81,12 @@ interface ShellProps {
   onReauthenticated(): Promise<void>;
   onCloseImport(): void;
   connect(handle: Omit<ShellHandle, "dispose">): void;
+}
+type CollectionView = "active" | "archived" | "trash" | "favorites";
+interface CollectionState {
+  query: string;
+  version: number;
+  page: DocumentListPage;
 }
 
 // React owns the host; the existing editor exclusively owns its children.
@@ -125,20 +137,36 @@ function Shell({
   const libraryScroll = useRef(0);
   const libraryVisible = !documentId && !settings && !preview;
   useLayoutEffect(() => {
-    if (!libraryVisible) return;
+    // The Library restores its own position; native history restoration races it.
+    const previous = window.history.scrollRestoration;
+    window.history.scrollRestoration = "manual";
+    return () => { window.history.scrollRestoration = previous; };
+  }, []);
+  useLayoutEffect(() => {
     const scrolling = document.scrollingElement ?? document.documentElement;
+    if (!libraryVisible) {
+      scrolling.scrollTop = 0;
+      return;
+    }
     scrolling.scrollTop = libraryScroll.current;
     const remember = () => { libraryScroll.current = scrolling.scrollTop; };
     window.addEventListener("scroll", remember, { passive: true });
     return () => window.removeEventListener("scroll", remember);
   }, [libraryVisible]);
-  const [documents, setDocuments] = useState<DocumentResponse[]>([]);
+  const [collections, setCollections] = useState<Partial<Record<CollectionView, CollectionState>>>({});
+  const [recentDocuments, setRecentDocuments] = useState<DocumentResponse[]>([]);
   const [current, setCurrent] = useState<DocumentResponse | null>(null);
   const [version, setVersion] = useState(0);
   const [query, setQuery] = useState("");
+  const [layout, setLayout] = useState<"grid" | "list">("grid");
   const [view, setView] = useState<"active" | "archived" | "trash">("active");
-  const [status, setStatus] = useState("Loading notebooks…");
   const [error, setError] = useState("");
+  const collectionView = favorites ? "favorites" : view;
+  const collection = collections[collectionView];
+  const documents = collection?.page.items ?? [];
+  const hasMore = collection?.page.hasMore ?? false;
+  const refreshing = !!collection && !error && (collection.query !== query || collection.version !== version);
+  const status = collection || error ? "" : "Loading notebooks…";
   const importTrigger = useRef<HTMLElement | null>(null);
   const [importing, setImporting] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
@@ -152,14 +180,17 @@ function Shell({
     const media = window.matchMedia?.("(max-width: 1023px)");
     const update = () => {
       setCompact(media?.matches ?? false);
-      if (media?.matches) setNavigationOpen(false);
+      setNavigationOpen(!media?.matches);
     };
     media?.addEventListener("change", update);
     return () => media?.removeEventListener("change", update);
   }, []);
   const [appearance, setAppearance] = useState<Appearance>(readAppearance);
+  const changeAppearance = (value: Appearance) => {
+    saveAppearance(value);
+    setAppearance(value);
+  };
   const libraryGeneration = useRef(0);
-  const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const openRef = useRef(onOpen);
   openRef.current = onOpen;
@@ -178,29 +209,26 @@ function Shell({
 
   useEffect(() => {
     applyAppearance(appearance);
-    const media = window.matchMedia?.("(prefers-color-scheme: dark)");
-    const update = () => {
-      if (appearance === "system") applyAppearance("system");
-    };
-    media?.addEventListener("change", update);
-    return () => media?.removeEventListener("change", update);
+    return listenToSystemAppearance(() => appearance);
   }, [appearance]);
 
   useEffect(() => {
     let active = true;
     ++libraryGeneration.current;
-    setStatus("Loading notebooks…");
     setError("");
-    void getDocumentsPage({ view: favorites ? "favorites" : view, query })
+    if (collection?.query === query && collection.version === version) return;
+    void getDocumentsPage({ view: collectionView, query })
       .then((result) => {
         if (!active) return;
-        setDocuments(result.items);
-        setHasMore(result.hasMore);
-        setStatus("");
+        setCollections((current) => ({
+          ...current,
+          [collectionView]: { query, version, page: result },
+        }));
+        if (collectionView === "active" && !query.trim())
+          setRecentDocuments(result.items.slice(0, 7));
       })
       .catch((err: unknown) => {
         if (!active) return;
-        setStatus("");
         setError(
           err instanceof Error ? err.message : "Could not load notebooks.",
         );
@@ -208,9 +236,24 @@ function Shell({
     return () => {
       active = false;
     };
-  }, [view, version, query, favorites]);
+  }, [collectionView, version, query]);
 
   useEffect(() => {
+    // A filtered initial route or mutation still needs unfiltered navigation.
+    if (collectionView === "active" && !query.trim()) return;
+    let active = true;
+    void getDocumentsPage({ view: "active" }).then((result) => {
+      if (!active) return;
+      setRecentDocuments(result.items.slice(0, 7));
+      setCollections((current) => current.active?.query ? current : ({
+        ...current,
+        active: { query: "", version, page: result },
+      }));
+    }).catch(() => { /* Navigation retains its last known notebooks. */ });
+    return () => { active = false; };
+  }, [version]);
+
+  useLayoutEffect(() => {
     if (!documentId) return;
     setError("");
     void openRef.current(documentId, pageId, regionId).catch((err: unknown) => {
@@ -231,7 +274,10 @@ function Shell({
     }
   };
   const openImport = (event: MouseEvent<HTMLButtonElement>) => {
-    importTrigger.current = event.currentTarget;
+    importTrigger.current = compact && navigationOpen
+      ? navigationTrigger.current
+      : event.currentTarget;
+    if (compact) setNavigationOpen(false);
     setImporting(true);
   };
   const notebookLink = (doc: DocumentResponse) =>
@@ -239,20 +285,26 @@ function Shell({
   const navigateCompact = () => {
     if (window.innerWidth < 1024) setNavigationOpen(false);
   };
+  const workspaceName = username ? `${username}’s notebook` : "Notebook";
+
+  useEffect(() => { document.title = workspaceName; }, [workspaceName]);
 
   const sidebarContents = (
     <>
       <div className="sidebar-brand">
-        <BookOpen size={23} />
-        <strong>Quiet Notebook</strong>
-        <Button
+        <BookOpen size={24} strokeWidth={1.6} />
+        <div className="brand-copy"><strong title={workspaceName}>{workspaceName}</strong></div>
+        {!compact && <Button
           variant="ghost"
           aria-label="Collapse navigation"
           onClick={() => setNavigationOpen(false)}
         >
           <PanelLeftClose size={18} />
-        </Button>
+        </Button>}
       </div>
+      <Button variant="secondary" className="sidebar-import" onClick={openImport}>
+        <Plus size={17} /> New import
+      </Button>
       <nav onClick={navigateCompact}>
         <Link
           className={
@@ -261,6 +313,7 @@ function Shell({
               : "nav-link"
           }
           to="/library"
+          aria-current={libraryVisible && !favorites ? "page" : undefined}
         >
           <Library size={18} />
           Library
@@ -268,43 +321,50 @@ function Shell({
         <Link
           className={favorites ? "nav-link active" : "nav-link"}
           to="/favorites"
+          aria-current={favorites ? "page" : undefined}
         >
           <Star size={18} />
           Favorites
         </Link>
       </nav>
+      {recentDocuments.length > 0 && <>
       <p className="nav-caption">Recent notebooks</p>
       <nav className="recent-notebooks" onClick={navigateCompact}>
-        {documents
-          .filter((doc) => !doc.trashed_at && !doc.archived_at)
-          .slice(0, 7)
-          .map((doc) => (
+        {recentDocuments.map((doc) => (
             <Link
               key={doc.document_id}
               to={notebookLink(doc)}
               className={`nav-link ${documentId === doc.document_id ? "active" : ""}`}
+              aria-current={documentId === doc.document_id ? "page" : undefined}
             >
               <FileText size={16} />
               <span>{doc.title}</span>
             </Link>
           ))}
       </nav>
+      </>}
       <div className="sidebar-bottom">
         <Link
           to="/settings"
           className={`nav-link ${settings ? "active" : ""}`}
           onClick={navigateCompact}
+          aria-current={settings ? "page" : undefined}
         >
           <Settings size={18} />
           Settings
         </Link>
         <div className="account-bar" data-testid="account-bar">
-          <span className="account-user">{username || "Your workspace"}</span>
+          <div className="account-user-row">
+            <span className="account-avatar" aria-hidden="true">{(username || "N").slice(0, 1).toUpperCase()}</span>
+            <span className="account-user" title={username}>{username || "Account"}</span>
+          </div>
           <Button
             variant="ghost"
+            className="nav-link account-logout"
             data-testid="account-logout"
             onClick={onLogout}
           >
+            <LogOut size={18} />
             Log out
           </Button>
         </div>
@@ -342,6 +402,7 @@ function Shell({
         <header className="notebook-topbar">
           <Button
             ref={navigationTrigger}
+            hidden={navigationOpen && !compact}
             variant="ghost"
             aria-label={navigationOpen ? "Close navigation" : "Open navigation"}
             aria-expanded={navigationOpen}
@@ -349,18 +410,30 @@ function Shell({
           >
             <PanelLeftOpen size={18} />
           </Button>
-          <Link to="/library">Library</Link>
           {documentId && (
-            <>
-              <ChevronRight size={14} />
-              <span className="breadcrumb-title">
+            <nav className="notebook-breadcrumb" aria-label="Breadcrumb">
+              <Link to="/library" aria-label="Back to Library">Library</Link>
+              <ChevronRight size={14} aria-hidden="true" />
+              <span className="breadcrumb-title" aria-current="page">
                 {current?.document_id === documentId
                   ? current.title
                   : "Opening notebook…"}
               </span>
-            </>
+            </nav>
           )}
           <div className="topbar-actions">
+            <label className="appearance-control">
+              <span>Theme</span>
+              <select
+                aria-label="Theme"
+                value={appearance}
+                onChange={(event) => changeAppearance(event.target.value as Appearance)}
+              >
+                <option value="system">System</option>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+              </select>
+            </label>
             {documentId ? (
               <Button
                 variant="secondary"
@@ -409,7 +482,6 @@ function Shell({
           >
             <div className="screen-heading">
               <div>
-                <p className="eyebrow">Your workspace</p>
                 <h1>{favorites ? "Favorites" : "Library"}</h1>
               </div>
             </div>
@@ -424,6 +496,7 @@ function Shell({
                   onChange={(event) => setQuery(event.target.value)}
                 />
               </label>
+              <div className="library-view-controls">
               <select
                 aria-label="Document view"
                 value={view}
@@ -433,30 +506,40 @@ function Shell({
                 <option value="archived">Archived</option>
                 <option value="trash">Trash</option>
               </select>
+              <div className="view-switch" role="group" aria-label="Library layout">
+                <Button variant="ghost" aria-label="Grid view" aria-pressed={layout === "grid"} onClick={() => setLayout("grid")}><Grid2X2 size={17} /></Button>
+                <Button variant="ghost" aria-label="List view" aria-pressed={layout === "list"} onClick={() => setLayout("list")}><List size={18} /></Button>
+              </div>
+              </div>
             </div>
-            <p role="status" className="muted">
-              {status}
-            </p>
+            <div className="collection-heading">
+              <h2>{query ? "Search results" : favorites ? "Saved favorites" : view === "archived" ? "Archived notebooks" : view === "trash" ? "Trash" : "Your notebooks"}</h2>
+              <p role="status" className="collection-count">
+              {status || (error ? "" : refreshing ? "Updating notebooks…" : `${documents.length}${hasMore ? "+" : ""} ${documents.length === 1 && !hasMore ? "notebook" : "notebooks"}`)}
+              </p>
+            </div>
+            {status && !documents.length && <div className="library-skeleton" aria-hidden="true"><span /><span /><span /></div>}
             {!status && !error && !documents.length && (
               <div className="library-empty">
-                <BookOpen size={38} strokeWidth={1.2} />
+                <div className="empty-mark" aria-hidden="true"><BookOpen size={40} strokeWidth={1.2} /></div>
                 <h2>
                   {query
                     ? "No matching notebooks"
                     : favorites
-                      ? "Keep your favorites close"
+                      ? "No favorites yet"
                       : view === "active"
-                        ? "Your next idea starts here"
-                        : `No notebooks in ${view}`}
+                        ? "No notebooks yet"
+                        : view === "archived" ? "No archived notebooks" : "Trash is empty"}
                 </h2>
                 <p>
                   {query
                     ? "Try a different title."
                     : favorites
                       ? "Use a notebook’s menu to add it to Favorites."
-                      : "Import handwritten pages to keep the original beside text you can correct and export."}
+                      : view === "active" ? "Import a PDF, PNG or JPEG to get started." : "Notebooks you move here will appear in this list."}
                 </p>
                 {view === "active" && !favorites && (
+                  !query &&
                   <Button onClick={openImport}>
                     <Upload size={16} />
                     Import notes
@@ -464,7 +547,7 @@ function Shell({
                 )}
               </div>
             )}
-            <ul className="notebook-grid">
+            <ul className="notebook-grid" data-layout={layout} aria-label="Notebooks" aria-busy={!!status || refreshing}>
               {documents.map((doc) => {
                 const firstPage = doc.pages?.[0];
                 const image = firstPage
@@ -496,6 +579,7 @@ function Shell({
                               })}
                         </p>
                       </div>
+                      <ArrowUpRight className="notebook-open" size={18} aria-hidden="true" />
                     </Link>
                     <Menu.Root modal={false}>
                       <Menu.Trigger asChild>
@@ -596,19 +680,25 @@ function Shell({
             {hasMore && (
               <Button
                 variant="secondary"
-                disabled={loadingMore}
+                disabled={loadingMore || refreshing || !!error}
                 onClick={async () => {
                   const generation = libraryGeneration.current;
                   setLoadingMore(true);
                   try {
                     const result = await getDocumentsPage({
-                      view: favorites ? "favorites" : view,
+                      view: collectionView,
                       query,
                       offset: documents.length,
                     });
                     if (generation !== libraryGeneration.current) return;
-                    setDocuments((current) => [...current, ...result.items]);
-                    setHasMore(result.hasMore);
+                    setCollections((current) => ({
+                      ...current,
+                      [collectionView]: {
+                        query,
+                        version,
+                        page: { ...result, items: [...documents, ...result.items] },
+                      },
+                    }));
                   } catch (err) {
                     setError(
                       err instanceof Error
@@ -629,42 +719,50 @@ function Shell({
             className="document-screen"
             aria-label="Notebook workspace"
           >
+            <div className="document-heading">
             <h1>
               {current?.document_id === documentId
                 ? current.title
                 : "Opening notebook…"}
             </h1>
-            <LegacyHost node={mounts.math} />
-            <LegacyHost node={mounts.editor} />
+            </div>
+            <div hidden={current?.document_id !== documentId}>
+              <LegacyHost node={mounts.math} />
+              <LegacyHost node={mounts.editor} />
+            </div>
           </section>
           <section hidden={!settings} className="settings-screen">
-            <h1>Settings</h1>
+            <div className="screen-heading"><h1>Settings</h1></div>
             <section className="settings-group">
+              <div className="settings-intro">
               <h2>Account</h2>
-              <p>{username}</p>
               <p className="muted">
                 If your session expires, sign in again here to keep your current
                 review open.
               </p>
+              </div>
+              <div className="settings-panel">
+              <p className="settings-username">{username}</p>
               <Button variant="secondary" onClick={() => setSigningIn(true)}>
                 Sign in again
               </Button>
+              </div>
             </section>
             <section className="settings-group">
+              <div className="settings-intro">
               <h2>Appearance</h2>
               <p className="muted">
-                Choose how your workspace looks. Original pages keep their
-                colors.
+                Original pages keep their colors.
               </p>
+              </div>
+              <div className="settings-panel">
               <label>
                 Appearance{" "}
                 <select
                   aria-label="Appearance"
                   value={appearance}
                   onChange={(event) => {
-                    const value = event.target.value as Appearance;
-                    saveAppearance(value);
-                    setAppearance(value);
+                    changeAppearance(event.target.value as Appearance);
                   }}
                 >
                   <option value="system">System</option>
@@ -672,15 +770,20 @@ function Shell({
                   <option value="dark">Dark</option>
                 </select>
               </label>
+              <div className="appearance-preview" aria-hidden="true"><span /><div><span /><span /><span /></div></div>
+              </div>
             </section>
-            <section className="settings-group">
+            <section className="settings-group settings-sync">
               <LegacyHost node={mounts.sync} />
             </section>
             <details className="settings-group">
               <summary>Privacy and optional personalization</summary>
               <LegacyHost node={mounts.privacy} />
-              <LegacyHost node={mounts.training} />
               <LegacyHost node={mounts.calibration} />
+              <details className="settings-details">
+                <summary>Training and model details</summary>
+                <LegacyHost node={mounts.training} />
+              </details>
             </details>
             <details className="settings-group">
               <summary>Advanced</summary>

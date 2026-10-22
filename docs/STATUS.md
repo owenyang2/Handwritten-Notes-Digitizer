@@ -1,6 +1,6 @@
 # Status and roadmap
 
-Reviewed October 15, 2026 against source and the recorded reports below.
+Reviewed October 22, 2026 against source and the recorded reports below.
 **Local alpha:** implemented behavior, automated tests, simulator journeys,
 physical hardware and deployment acceptance are separate evidence levels.
 Installed models and services on a test machine are not included in a clone.
@@ -9,7 +9,7 @@ Installed models and services on a test machine are not included in a clone.
 
 | Area | Available behavior / evidence | Remaining acceptance |
 | --- | --- | --- |
-| Web workspace | Library, source-linked prose/formula review, System/Light/Dark, explicit save/export; browser workflow, accessibility, keyboard and recovery checks recorded | Assistive technology, physical devices, representative performance and usability |
+| Web workspace | Warm paper/charcoal folio, personalized notebook name, concise copy, left-aligned account actions, source-preview shelf/list, search, compact conversion controls, source-linked review, visible System/Light/Dark control and explicit save/export; [UI consistency fixes](release-evidence/ui-fixes-2026-10-20.md) cover shared controls and Settings; [preview recovery](release-evidence/preview-ui-fixes-2026-10-22.md) addresses stale cached styling/modules | Assistive technology, physical devices, representative performance/usability and non-Mac font rendering; overhaul is web-only |
 | Native notebooks | Universal iPhone/iPad target, PencilKit, local SQLite/ink, import, page edits and appearance; app/UI simulator suites recorded green | Physical Pencil/palm rejection, signing/App Groups, share import, accessibility, battery and thermals |
 | Sync and recovery | Pending operations, conflicts, tombstones, exact ink restore, revision checks; automated races/recovery and partial live journeys | Complete live two-client offline/interruption/concurrent-edit journey |
 | Recognition | UniMERNet-small formulas and TrOCR prose; real-model local web/simulator review → save → reopen → Markdown demonstrated | Representative handwritten prose/formula evaluation; Linux inference runtime |
@@ -36,6 +36,24 @@ environment, input/model identity, command or journey, outcome and limits.
 - [ ] **Client recovery and isolation:** live registration/session expiry,
   cross-account denial, account export/deletion, missing models, malformed files,
   timeouts and rate limits with disposable accounts.
+- [x] **Web UI consistency:** applied the [October 20 fixes](release-evidence/ui-fixes-2026-10-20.md)
+  for all nine audit findings. Synthetic browser checks now include expanded
+  Settings, the older image-review warning and live System appearance before
+  sign-in. Physical-device, screen-reader and broader real-content acceptance
+  remain separate.
+- [x] **Preview freshness:** remove legacy development workers before importing
+  application code and fetch mutable production assets from the network first.
+  The [October 22 checks](release-evidence/preview-ui-fixes-2026-10-22.md) cover
+  stale module recovery, retained appearance preferences and the revised shell.
+- [x] **Navigation continuity:** retain loaded collections, keep unfiltered recent
+  navigation stable, preserve review layout while a page loads, and align the
+  avatar/name and logout rows to the navigation columns. The
+  [design reference](reference/design.md#navigation-continuity) records the
+  researched layout/motion decisions; browser fixtures cover loading and warm
+  navigation, select hover, and footer geometry. Physical-device smoothness
+  remains unverified.
+  Toolbar section links are removed; notebooks retain an accessible Library
+  return breadcrumb, including on phones.
 - [ ] **Import/review/export fidelity:** multipage PDF and image imports through
   actual clients; mixed pages, split/merge/reorder/exclude/retry, saved reviews
   reopened on another client, and comparison of all export formats.
@@ -60,6 +78,9 @@ still do not establish physical-device readiness.
 
 | Report | Scope |
 | --- | --- |
+| [October 22 preview and UI fixes](release-evidence/preview-ui-fixes-2026-10-22.md) | Personalized name, concise copy, account alignment and cache recovery; current web media refreshed with synthetic inputs |
+| [October 20 UI fixes](release-evidence/ui-fixes-2026-10-20.md) | Implemented audit corrections, browser checks, Settings screenshots and refreshed current web media; synthetic inputs |
+| [October 20 web UI audit](release-evidence/ui-audit-2026-10-20.md) | Source `76a78ea`; cross-browser typography/control geometry, synthetic screenshots, expanded/older screen accessibility findings and local lab performance; audit only, fixes outstanding |
 | [Final October 14 verification](release-evidence/VERIFICATION_AND_PONYTAIL_AUDIT_2026-10-14.md) | Latest recorded regression/native suites and local production/storage checks |
 | [October 14 UI report](release-evidence/UI_REVAMP_2026-10-14.md) | Redesign, browser accessibility/recovery, lab measurements and native limits; read alongside final fixes above |
 | [October 11 real-model conversion](release-evidence/END_TO_END_LOCAL_2026-10-11.md) and [provenance](release-evidence/END_TO_END_LOCAL_2026-10-11.json) | Website/simulator conversion, saved review/reopen/export and historical recording |

@@ -5,6 +5,7 @@ import { Editor } from "./modules/editor.js";
 import { CalibrationUI } from "./modules/calibrationUI.js";
 import { BeforeAfterView } from "./modules/beforeAfterView.js";
 import { AuthGate } from "./modules/authGate.js";
+import { listenToSystemAppearance, readAppearance, saveAppearance, type Appearance } from "./appearance.js";
 import { mountShell, type ShellHandle } from "./components/AppShell.js";
 import type { MathNotesWorkspace } from "./modules/mathNotes.js";
 import { BatchImportUI } from "./modules/batchImportUI.js";
@@ -1024,10 +1025,37 @@ export async function start(root: HTMLElement): Promise<void> {
   }
 
   if (!user) {
+    cleanups.get(root)?.();
     root.replaceChildren();
+    document.title = "Notebook";
+    const header = document.createElement("header");
+    header.className = "welcome-header";
+    const brand = document.createElement("a");
+    brand.href = "/";
+    brand.className = "welcome-brand";
+    const mark = document.createElement("img");
+    mark.src = "/icon.svg";
+    mark.alt = "";
+    mark.width = 36;
+    mark.height = 36;
+    brand.append(mark, "Notebook");
+    const theme = document.createElement("label");
+    theme.className = "appearance-control";
+    const themeLabel = document.createElement("span");
+    themeLabel.textContent = "Theme";
+    const themeSelect = document.createElement("select");
+    themeSelect.setAttribute("aria-label", "Theme");
+    for (const [value, label] of [["system", "System"], ["light", "Light"], ["dark", "Dark"]])
+      themeSelect.add(new Option(label, value));
+    themeSelect.value = readAppearance();
+    themeSelect.onchange = () => saveAppearance(themeSelect.value as Appearance);
+    cleanups.set(root, listenToSystemAppearance(() => themeSelect.value as Appearance));
+    theme.append(themeLabel, themeSelect);
+    header.append(brand, theme);
+    root.append(header);
     const title = document.createElement("h1");
     title.className = "app-title";
-    title.textContent = "Handwriting Notes Digitizer";
+    title.textContent = "Handwritten notes";
     root.appendChild(title);
 
     if (connectionFailed) {

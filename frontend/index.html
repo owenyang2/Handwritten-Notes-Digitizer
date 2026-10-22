@@ -3,14 +3,16 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Keep your handwritten notes close. Import, review, correct, and export your notebooks." />
-    <title>Handwriting Notes Digitizer</title>
+    <meta name="description" content="Import, review and export handwritten notes." />
+    <title>Notebook</title>
     <link rel="manifest" href="/manifest.json" />
-    <meta name="theme-color" content="#F7F7F5" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="preload" href="/fonts/Geist.ttf" as="font" type="font/ttf" crossorigin />
+    <meta name="theme-color" content="#f3f0e9" />
     <script src="/appearance.js"></script>
   </head>
   <body>
     <div id="app"></div>
-    <script type="module" src="/src/entry.ts"></script>
+    <script type="module" src="/src/preview.ts"></script>
   </body>
 </html>

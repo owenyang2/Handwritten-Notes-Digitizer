@@ -56,3 +56,9 @@ Thumbs.db
 # Browser test output (dated release evidence is kept separately)
 frontend/test-results/
 frontend/playwright-report/
+
+# Local design inspection output (the reusable design records stay tracked)
+.impeccable/review/
+.taste-skill/before/
+.taste-skill/after/
+.taste-skill/inspect/

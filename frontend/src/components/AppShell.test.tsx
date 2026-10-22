@@ -129,6 +129,71 @@ describe("Library", () => {
       "/notebooks/doc-1",
     );
   });
+  it("switches shelf layouts without reloading notebooks or changing their links", async () => {
+    mount();
+    await vi.waitFor(() => expect(root.querySelector(".gallery-document")).not.toBeNull());
+    const list = root.querySelector<HTMLButtonElement>('[aria-label="List view"]')!;
+    const grid = root.querySelector<HTMLButtonElement>('[aria-label="Grid view"]')!;
+    list.click();
+    await vi.waitFor(() => expect(root.querySelector(".notebook-grid")?.getAttribute("data-layout")).toBe("list"));
+    expect(list.getAttribute("aria-pressed")).toBe("true");
+    expect(root.querySelector(".gallery-document")?.getAttribute("href")).toBe("/notebooks/doc-1");
+    grid.click();
+    await vi.waitFor(() => expect(grid.getAttribute("aria-pressed")).toBe("true"));
+    expect(getDocumentsPage).toHaveBeenCalledOnce();
+  });
+  it("uses the toolbar for notebook breadcrumbs, with section navigation in the sidebar", async () => {
+    mount();
+    for (const route of ["/library", "/favorites", "/settings"]) {
+      shell!.navigateTo(route);
+      await vi.waitFor(() => expect(root.querySelector('.notebook-sidebar [aria-current="page"]')?.getAttribute("href")).toBe(route));
+      expect(root.querySelector(".notebook-topbar a")).toBeNull();
+      expect(root.querySelector('.notebook-sidebar a[href="/library"]')).not.toBeNull();
+      expect(root.querySelector('.notebook-sidebar a[href="/favorites"]')).not.toBeNull();
+    }
+    shell!.setDocument(notebook);
+    shell!.openDocument(notebook.document_id);
+    const back = await vi.waitFor(() => {
+      const link = root.querySelector<HTMLAnchorElement>('[aria-label="Back to Library"]');
+      expect(link).not.toBeNull();
+      return link!;
+    });
+    expect(root.querySelector('.notebook-breadcrumb [aria-current="page"]')?.textContent).toBe(notebook.title);
+    back.click();
+    await vi.waitFor(() => {
+      expect(window.location.pathname).toBe("/library");
+      expect(root.querySelector(".notebook-breadcrumb")).toBeNull();
+    });
+  });
+  it("refreshes retained collections and recent navigation after documents change", async () => {
+    let changed = false;
+    vi.mocked(getDocumentsPage).mockImplementation(async (options) => {
+      const items = options?.view === "favorites" && !changed ? [] : [
+        { ...notebook, title: changed ? "Updated notes" : notebook.title },
+      ];
+      return { items, offset: 0, limit: 50, total: items.length, hasMore: false };
+    });
+    mount();
+    await vi.waitFor(() => expect(root.querySelector(".gallery-document")).not.toBeNull());
+    shell!.navigateTo("/favorites");
+    await vi.waitFor(() => expect(root.querySelector(".library-empty h2")?.textContent).toBe("No favorites yet"));
+    changed = true;
+    shell!.refreshLibrary();
+    await vi.waitFor(() => {
+      expect(root.querySelector(".gallery-document h2")?.textContent).toBe("Updated notes");
+      expect(root.querySelector(".recent-notebooks")?.textContent).toBe("Updated notes");
+    });
+    const calls = vi.mocked(getDocumentsPage).mock.calls.length;
+    shell!.navigateTo("/library");
+    await vi.waitFor(() => expect(root.querySelector(".library-screen h1")?.textContent).toBe("Library"));
+    expect(root.querySelector(".gallery-document h2")?.textContent).toBe("Updated notes");
+    expect(vi.mocked(getDocumentsPage).mock.calls).toHaveLength(calls);
+    vi.mocked(getDocumentsPage).mockRejectedValueOnce(new Error("Connection interrupted"));
+    shell!.refreshLibrary();
+    await vi.waitFor(() => expect(root.querySelector("[role=alert]")?.textContent).toContain("Connection interrupted"));
+    expect(root.querySelector(".gallery-document h2")?.textContent).toBe("Updated notes");
+    expect(root.querySelector(".notebook-grid")?.getAttribute("aria-busy")).toBe("false");
+  });
   it("keeps a readable failure and retry action without injecting error markup", async () => {
     vi.mocked(getDocumentsPage).mockRejectedValue(
       new Error("<strong>Request failed</strong>"),

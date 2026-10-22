@@ -47,22 +47,28 @@ export class SyncUI {
   render(): void {
     this.unsubscribe?.();
     this.mount.replaceChildren();
+    this.mount.classList.add("sync-layout");
+    const intro = document.createElement("div");
+    intro.className = "settings-intro";
+    const panel = document.createElement("div");
+    panel.className = "settings-panel";
+    this.mount.append(intro, panel);
 
     const heading = document.createElement("h2");
     heading.className = "sync-heading";
     heading.textContent = "Cross-device sync";
-    this.mount.appendChild(heading);
+    intro.appendChild(heading);
 
     const description = document.createElement("p");
     description.className = "sync-description";
     description.textContent =
-      "Library changes are queued locally first, then applied through the shared server operation log. Conflicts keep both versions until you choose what to do.";
-    this.mount.appendChild(description);
+      "Keep your library up to date across devices. If changes conflict, both versions stay available until you choose what to keep.";
+    intro.appendChild(description);
 
     this.summary = document.createElement("div");
     this.summary.className = "sync-summary";
     this.summary.setAttribute("data-testid", "sync-summary");
-    this.mount.appendChild(this.summary);
+    panel.appendChild(this.summary);
 
     const actions = document.createElement("div");
     actions.className = "sync-actions";
@@ -79,18 +85,18 @@ export class SyncUI {
     this.conflictRefreshButton.textContent = "Refresh conflicts";
     this.conflictRefreshButton.addEventListener("click", () => void this.refreshConflicts());
     actions.appendChild(this.conflictRefreshButton);
-    this.mount.appendChild(actions);
+    panel.appendChild(actions);
 
     this.status = document.createElement("p");
     this.status.className = "sync-status";
     this.status.setAttribute("data-testid", "sync-status");
     this.status.setAttribute("aria-live", "polite");
-    this.mount.appendChild(this.status);
+    panel.appendChild(this.status);
 
     this.conflictsMount = document.createElement("div");
     this.conflictsMount.className = "sync-conflicts";
     this.conflictsMount.setAttribute("data-testid", "sync-conflicts");
-    this.mount.appendChild(this.conflictsMount);
+    panel.appendChild(this.conflictsMount);
 
     this.unsubscribe = this.coordinator.subscribe((snapshot) => this.renderState(snapshot));
   }
@@ -143,7 +149,7 @@ export class SyncUI {
     const conflictCount = snapshot.conflicts.length;
     this.summary.replaceChildren();
     const pendingLine = document.createElement("p");
-    pendingLine.textContent = `${pending} pending change${pending === 1 ? "" : "s"} · server cursor ${snapshot.cursor}`;
+    pendingLine.textContent = `${pending} change${pending === 1 ? "" : "s"} waiting to sync`;
     this.summary.appendChild(pendingLine);
     const timeLine = document.createElement("p");
     timeLine.textContent = formatSyncTime(snapshot.lastSyncAt);
@@ -153,7 +159,13 @@ export class SyncUI {
       ? "Pending operation metadata is saved in this browser."
       : "Sync metadata is session-only in this browser.";
     storageLine.className = snapshot.durable ? "sync-storage" : "sync-storage sync-storage--warning";
-    this.summary.appendChild(storageLine);
+    const details = document.createElement("details");
+    const detailsLabel = document.createElement("summary");
+    detailsLabel.textContent = "Sync details";
+    const cursor = document.createElement("p");
+    cursor.textContent = `Server cursor ${snapshot.cursor}`;
+    details.append(detailsLabel, storageLine, cursor);
+    this.summary.appendChild(details);
 
     this.syncButton.disabled = pending === 0 && conflictCount === 0;
     this.renderConflicts(snapshot.conflicts);

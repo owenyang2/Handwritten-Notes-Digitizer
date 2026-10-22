@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title">
   <title id="title">Handwriting Notes Digitizer</title>
-  <rect width="128" height="128" fill="#176b87"/>
-  <path d="M30 24h52l16 16v64H30z" fill="#f7fafc"/>
-  <path d="M82 24v18h16" fill="#b6e2ed"/>
-  <path d="M43 57h42M43 72h28M43 87h35" stroke="#176b87" stroke-linecap="round" stroke-width="7"/>
-  <path d="m76 92 13-13 9 9-13 13-12 3z" fill="#f2b134"/>
+  <rect width="128" height="128" fill="#f3f0e9"/>
+  <g fill="none" stroke="#365b45" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M64 41c-9-8-21-10-34-6v56c13-4 25-2 34 6 9-8 21-10 34-6V35c-13-4-25-2-34 6z"/>
+    <path d="M64 41v56"/>
+  </g>
 </svg>

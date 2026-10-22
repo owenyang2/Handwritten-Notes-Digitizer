@@ -94,11 +94,42 @@ export class MathNotesWorkspace {
     const next = this.options.pages.find((page) => page.page_id === pageId);
     if (!next || this.disposed || this.busy) return;
     if (next.page_id !== this.page.page_id) {
-      this.page = next;
-      this.activeRegionId = null;
-      this.regions = [];
-      this.ready = this.render();
-      await this.ready;
+      const generation = ++this.generation;
+      const focusTarget = this.mount.contains(document.activeElement)
+        ? (document.activeElement as HTMLElement)
+        : null;
+      const focusPageRail = Boolean(focusTarget?.closest(".page-rail a"));
+      this.busy = true;
+      this.mount.inert = true;
+      this.mount.setAttribute("aria-busy", "true");
+      this.status.textContent = `Loading page ${next.page_index + 1}…`;
+      try {
+        const regions = await listPageRegions(next.page_id);
+        if (this.disposed || generation !== this.generation) return;
+        this.page = next;
+        this.activeRegionId = null;
+        this.regions = regions ?? [];
+        this.ready = this.render(this.regions);
+        await this.ready;
+        if (focusPageRail)
+          this.mount
+            .querySelector<HTMLElement>(".page-rail > summary")
+            ?.focus();
+      } catch (error) {
+        if (!this.disposed) {
+          const message = error instanceof Error ? error.message : "Try again.";
+          this.status.textContent = `Could not load page regions. ${message} Select the page to retry.${this.hasUnsavedChanges() ? " Your unsaved corrections are preserved." : ""}`;
+        }
+        return;
+      } finally {
+        this.busy = false;
+        if (!this.disposed) {
+          this.mount.inert = false;
+          this.mount.removeAttribute("aria-busy");
+          if (generation === this.generation && focusTarget?.isConnected)
+            focusTarget.focus();
+        }
+      }
     }
     if (regionId && regionId !== this.activeRegionId)
       this.selectRegion(regionId);
@@ -116,22 +147,28 @@ export class MathNotesWorkspace {
       "Changes not saved. Save review to keep this correction.";
     this.refreshQueue();
   }
-  private async render(): Promise<void> {
+  private async render(prefetchedRegions?: PageRegionDetail[]): Promise<void> {
     const generation = ++this.generation;
     this.viewer?.dispose();
-    const loading = document.createElement("p");
-    loading.setAttribute("role", "status");
-    loading.textContent = "Loading original and saved regions…";
-    this.mount.replaceChildren(loading);
+    if (!this.status) {
+      const loading = document.createElement("p");
+      loading.setAttribute("role", "status");
+      loading.textContent = "Loading original and saved regions…";
+      this.mount.replaceChildren(loading);
+    }
+    this.mount.setAttribute("aria-busy", "true");
     this.mount.style.display = "";
     const content = document.createDocumentFragment();
+    const header = document.createElement("div");
+    header.className = "review-header";
     const heading = document.createElement("h2");
     heading.textContent = "Formula review";
     const help = document.createElement("p");
     help.className = "math-notes-help";
     help.textContent =
-      "Select a region in the original or result. Review your correction, then save. Training is always optional.";
-    content.append(heading, help);
+      "Select a region, compare it with the original, and save your correction.";
+    header.append(heading, help);
+    content.append(header);
     const toolbar = document.createElement("div");
     toolbar.className = "math-notes-layout-actions";
     const mode = document.createElement("select");
@@ -185,14 +222,15 @@ export class MathNotesWorkspace {
       link.onclick = (event) => {
         event.preventDefault();
         if (!this.busy)
-          void this.selectPage(page.page_id).then(() =>
-            this.options.onNavigate?.(page.page_id),
-          );
+          void this.selectPage(page.page_id).then(() => {
+            if (this.page.page_id === page.page_id)
+              this.options.onNavigate?.(page.page_id);
+          });
       };
       pages.append(link);
     }
     pageRail.append(pages);
-    content.append(pageRail);
+    toolbar.prepend(pageRail);
     const paneSwitch = document.createElement("div");
     paneSwitch.className = "review-pane-switch";
     paneSwitch.setAttribute("aria-label", "Review pane");
@@ -225,7 +263,12 @@ export class MathNotesWorkspace {
         `${Number(slider.value) / 100}fr`,
       );
     balance.append(slider);
-    content.append(balance);
+    const viewOptions = document.createElement("details");
+    viewOptions.className = "review-view-options";
+    const viewSummary = document.createElement("summary");
+    viewSummary.textContent = "View options";
+    viewOptions.append(viewSummary, balance);
+    toolbar.append(viewOptions);
     const layout = document.createElement("div");
     layout.className = "math-notes-layout";
     content.append(layout);
@@ -234,6 +277,9 @@ export class MathNotesWorkspace {
     original.setAttribute("aria-label", "Original");
     const originalHeading = document.createElement("h3");
     originalHeading.textContent = "Original";
+    const originalHint = document.createElement("span");
+    originalHint.textContent = "Select a region to compare";
+    originalHeading.append(originalHint);
     original.append(originalHeading);
     const viewerMount = document.createElement("div");
     viewerMount.className = "math-notes-viewer";
@@ -303,6 +349,9 @@ export class MathNotesWorkspace {
     side.setAttribute("aria-label", "Result");
     const title = document.createElement("h3");
     title.textContent = "Result";
+    const resultHint = document.createElement("span");
+    resultHint.textContent = "Your editable notes";
+    title.append(resultHint);
     this.queueMount = document.createElement("div");
     this.editorMount = document.createElement("div");
     this.editorMount.textContent =
@@ -424,7 +473,7 @@ export class MathNotesWorkspace {
     layout.append(original, side);
     this.status.textContent = "Loading saved regions…";
     try {
-      const regions = await listPageRegions(this.page.page_id);
+      const regions = prefetchedRegions ?? (await listPageRegions(this.page.page_id));
       if (this.disposed || generation !== this.generation) return;
       this.regions = regions ?? [];
       this.refreshQueue();
@@ -436,8 +485,11 @@ export class MathNotesWorkspace {
         this.status.textContent = `Could not load regions. ${error instanceof Error ? error.message : "Try reopening this page."}`;
     }
     // Commit the complete review together instead of shifting visible controls as regions arrive.
-    if (!this.disposed && generation === this.generation)
+    if (!this.disposed && generation === this.generation) {
       this.mount.replaceChildren(content);
+      this.mount.inert = false;
+      this.mount.removeAttribute("aria-busy");
+    }
   }
   private refreshQueue(): void {
     new ReviewQueue(this.queueMount).render(
@@ -711,6 +763,10 @@ export class MathNotesWorkspace {
     note.textContent = this.hasUnsavedChanges()
       ? "You have unsaved corrections. Save them with your export, or export the last saved version."
       : "Exports use the saved document revision. Excluded regions are omitted.";
+    const close = button("", () => dialog.close());
+    close.className = "dialog-close ui-button-ghost";
+    close.setAttribute("aria-label", "Close");
+    close.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
     const context = document.createElement("p");
     context.className = "muted";
     context.textContent = `Scope: entire notebook · ${this.activeDocumentRevisionId ? `Saved revision ${this.activeDocumentRevisionId}` : "Latest saved revision"}`;
@@ -792,7 +848,7 @@ export class MathNotesWorkspace {
         () => void run(false),
         "math-notes-export-saved",
       ),
-      button("Close", () => dialog.close()),
+      close,
     );
     this.mount.append(dialog);
     dialog.showModal();

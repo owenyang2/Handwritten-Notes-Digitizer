@@ -4,11 +4,13 @@ import { registerServiceWorker } from "./serviceWorker.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   Reflect.deleteProperty(navigator, "serviceWorker");
 });
 
 describe("registerServiceWorker", () => {
   it("registers the worker after the window load event", async () => {
+    vi.stubEnv("DEV", false);
     const register = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "serviceWorker", {
       configurable: true,
@@ -39,5 +41,18 @@ describe("registerServiceWorker", () => {
     registerServiceWorker();
 
     expect(addEventListener).not.toHaveBeenCalled();
+  });
+
+  it("does not register an offline worker during development", () => {
+    vi.stubEnv("DEV", true);
+    const register = vi.fn();
+    Object.defineProperty(navigator, "serviceWorker", {
+      configurable: true,
+      value: { register },
+    });
+
+    registerServiceWorker();
+
+    expect(register).not.toHaveBeenCalled();
   });
 });

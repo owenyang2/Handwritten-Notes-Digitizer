@@ -1,11 +1,11 @@
 {
-  "name": "Handwriting Notes Digitizer",
-  "short_name": "NotesDigitizer",
+  "name": "Notebook",
+  "short_name": "Notebook",
   "description": "Import handwritten pages, review corrections against their source, and export your notes.",
   "start_url": "/library",
   "display": "standalone",
   "background_color": "#ffffff",
-  "theme_color": "#f7f7f5",
+  "theme_color": "#f3f0e9",
   "icons": [
     {
       "src": "/icon.svg",

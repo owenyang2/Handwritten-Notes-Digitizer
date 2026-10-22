@@ -437,7 +437,7 @@ export class Editor {
         if (lowConfWords.length > 0) {
           const warningDiv = document.createElement("div");
           warningDiv.className = "editor-line-warning";
-          warningDiv.style.color = "var(--warning-color, #f59e0b)";
+          warningDiv.style.color = "var(--amber)";
           warningDiv.style.fontSize = "0.85rem";
           warningDiv.style.marginTop = "4px";
           const wordsStr = lowConfWords.map(w => `"${w.text}"`).join(", ");

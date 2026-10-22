@@ -2,6 +2,8 @@
 export function registerServiceWorker(): void {
   if (!("serviceWorker" in navigator)) return;
 
+  if (import.meta.env.DEV) return;
+
   const register = (): void => {
     void navigator.serviceWorker.register("/sw.js").catch(() => {
       // Offline support is optional; application startup must not fail when

@@ -24,10 +24,17 @@ at port 8000. Keep `VITE_API_BASE_URL` empty for this same-origin proxy.
 All declared dependency versions are pinned in `package.json`; `npm ci` uses
 the checked-in lockfile.
 
+Development starts through `src/preview.ts`, which unregisters a worker left by
+an older preview before loading application modules. It reloads once when needed
+without clearing saved preferences. Development does not register an offline
+worker. Production caches hashed assets first and fetches mutable assets from
+the network first, with offline fallback; API resources remain excluded.
+
 ## Main modules
 
 | Path under `src/` | Responsibility |
 | --- | --- |
+| `preview.ts`, `entry.ts` | Recover stale development workers, then load styles and start the client |
 | `main.ts` | Application bootstrap and module wiring |
 | `api/client.ts`, `api/types.ts`, `api/capabilities.ts` | Shared HTTP boundary, DTOs, availability checks |
 | `components/AppShell.tsx`, `components/ui/` | React Library, routes, responsive navigation, appearance, and owned shadcn primitives |
@@ -44,6 +51,17 @@ The current document-conversion paths use UniMERNet/TrOCR when installed. Legacy
 CRNN calibration/personalization needs its own compatible trained artifact;
 TrOCR availability does not enable it. See [model setup](../docs/guides/recognition-and-ipad.md).
 
+The web research folio uses a source-preview shelf/list, a compact conversion
+toolbar, and an inset source/result review desk. Geist is bundled locally with
+its open font license. [Design tokens and responsive behavior](../docs/reference/design.md)
+are maintained separately from the native app's existing appearance.
+
+The shell retains one loaded result per collection scope in memory and keeps
+recent navigation separate from filtered results. Import, edit and sync callbacks
+refresh those results. Returning to a loaded scope avoids a new loading state;
+this does not add durable offline notebook storage. Review page changes retain
+their layout while fetching, block stale-page interaction and commit together.
+
 ## Checks
 
 | Command | Coverage |
@@ -59,6 +77,13 @@ Browser checks include automated WCAG scans in both appearances at 1280px and
 The default suite uses synthetic API fixtures. Its WebKit service-worker scenario
 is covered by the opt-in live API check because worker requests bypass interception.
 The Chromium-only performance sample is not field INP or representative p75 evidence.
+
+With the development server running on port 5173, check recovery from a legacy
+worker that serves an obsolete module without creating an account:
+
+```bash
+HND_DEV_PREVIEW_URL=http://127.0.0.1:5173 npx playwright test e2e/dev-preview.spec.ts
+```
 
 To run live offline/reconnect checks, start an **isolated local test API** on port
 8000, then run from this directory:

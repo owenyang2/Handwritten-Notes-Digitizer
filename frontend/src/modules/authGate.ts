@@ -48,31 +48,41 @@ export class AuthGate {
     const usernameInput = document.createElement("input");
     usernameInput.type = "text";
     usernameInput.name = "username";
-    usernameInput.placeholder = "Username";
     usernameInput.setAttribute("aria-label", "Username");
     usernameInput.autocomplete = "username";
     usernameInput.required = true;
     usernameInput.setAttribute("data-testid", "auth-username");
-    form.appendChild(usernameInput);
+    const usernameLabel = document.createElement("label");
+    usernameLabel.textContent = "Username";
+    usernameLabel.appendChild(usernameInput);
+    form.appendChild(usernameLabel);
 
     const emailInput = document.createElement("input");
     emailInput.type = "email";
     emailInput.name = "email";
-    emailInput.placeholder = "Email";
     emailInput.setAttribute("aria-label", "Email");
     emailInput.autocomplete = "email";
     emailInput.setAttribute("data-testid", "auth-email");
-    form.appendChild(emailInput);
+    const emailLabel = document.createElement("label");
+    emailLabel.textContent = "Email (optional)";
+    emailLabel.appendChild(emailInput);
+    form.appendChild(emailLabel);
 
     const passwordInput = document.createElement("input");
     passwordInput.type = "password";
     passwordInput.name = "password";
-    passwordInput.placeholder = "Password";
     passwordInput.setAttribute("aria-label", "Password");
     passwordInput.autocomplete = "current-password";
     passwordInput.required = true;
     passwordInput.setAttribute("data-testid", "auth-password");
-    form.appendChild(passwordInput);
+    const passwordLabel = document.createElement("label");
+    passwordLabel.textContent = "Password";
+    passwordLabel.appendChild(passwordInput);
+    const passwordHelp = document.createElement("p");
+    passwordHelp.id = "auth-password-help";
+    passwordHelp.className = "auth-help";
+    passwordHelp.textContent = "Use at least 8 characters.";
+    form.append(passwordLabel, passwordHelp);
 
     const submitBtn = document.createElement("button");
     submitBtn.type = "submit";
@@ -98,6 +108,10 @@ export class AuthGate {
       heading.textContent = isLogin ? "Log in" : "Create an account";
       submitBtn.textContent = isLogin ? "Log in" : "Sign up";
       emailInput.style.display = isLogin ? "none" : "";
+      emailLabel.hidden = isLogin;
+      passwordHelp.hidden = isLogin;
+      if (isLogin) passwordInput.removeAttribute("aria-describedby");
+      else passwordInput.setAttribute("aria-describedby", passwordHelp.id);
       passwordInput.autocomplete = isLogin ? "current-password" : "new-password";
       toggle.textContent = isLogin
         ? "Need an account? Sign up"
